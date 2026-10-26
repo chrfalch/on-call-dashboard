@@ -96,6 +96,13 @@ test('issue with a merged linked PR -> close candidate, one reason per merged PR
   assert.deepEqual(t.reasons.map((r) => r.text), ['#10 merged 5d ago into main', '#12 merged 40d ago into stack/router']);
 });
 
+test('issue whose only merged PR is named in a team comment -> close candidate, as on #49378', () => {
+  const fromComment = linkedPr(49351, { baseRefName: '@ubax/always-use-use-in-useLoaderData', via: 'comment', by: { login: 'teammate', association: 'MEMBER' } });
+  const t = one(issue({ ...quiet, number: 49378, linkedPrs: [fromComment] }));
+  assert.equal(t.kind, 'close-candidate');
+  assert.deepEqual(t.reasons.map((r) => r.text), ['#49351 merged 5d ago into @ubax/always-use-use-in-useLoaderData']);
+});
+
 test('no close candidate without a merged linked PR', () => {
   assert.ok(!kinds(one(issue({ ...quiet, linkedPrs: [linkedPr(10, { state: 'OPEN', mergedAt: null }), linkedPr(11, { state: 'CLOSED', mergedAt: null })] }))).includes('close-candidate'));
   assert.ok(!kinds(one(issue({ ...quiet, linkedPrs: [] }))).includes('close-candidate'));

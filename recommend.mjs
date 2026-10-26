@@ -114,7 +114,8 @@ function facts(task, item, linkedPrs, defaultBranch) {
     lines.push(`Linked pull requests${defaultBranch ? ` (default branch ${inline(defaultBranch)})` : ''}:`);
     for (const pr of linkedPrs) {
       const merged = pr.mergedAt ? ` at ${inline(pr.mergedAt)}` : '';
-      lines.push(`- #${pr.number} ${inline(pr.state)}${merged}, base branch ${inline(pr.baseRefName)}: ${untrusted('pr-title', {}, pr.title)}`);
+      const mentioned = pr.via === 'comment' ? `, mentioned in a comment by ${inline(pr.by?.login)} (${inline(pr.by?.association)})` : '';
+      lines.push(`- #${pr.number} ${inline(pr.state)}${merged}, base branch ${inline(pr.baseRefName)}${mentioned}: ${untrusted('pr-title', {}, pr.title)}`);
     }
   }
   return lines.join('\n');

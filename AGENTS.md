@@ -33,8 +33,9 @@ dependencies, no build step.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the
-  GraphQL timeline mapping and the state update when a PR closes or merges.
-  Tested by `linked-prs.test.mjs`.
+  GraphQL timeline mapping, the PR numbers that team comments name and the
+  helpers that look them up and merge them in, and the state update when a PR
+  closes or merges. Tested by `linked-prs.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
   `isHidden`). Shared by browser and Node; tested by `inbox.test.mjs`.
 - `public/views.js` — pure runbook views for the Issues and PRs tabs (`VIEWS`,

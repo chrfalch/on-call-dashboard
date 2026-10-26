@@ -21,6 +21,9 @@ const DEFAULT_FILTERS = {
   linked: '',
   bot: '',
   assignee: '',
+  waiting: '',
+  idleDays: 0,
+  verdict: '',
   newerThanDays: 0,
   preset: 'all',
 };
@@ -43,6 +46,11 @@ const PRESETS = {
     { id: 'accepted', name: 'Accepted, unassigned', f: { include: ['Issue accepted'], assignee: 'none' } },
     { id: 'unverified', name: 'Never verified', f: { bot: 'never', sort: 'created' } },
     { id: 'unrated', name: 'No severity yet', f: { minSeverity: -1 } },
+    { id: 'owe-reply', name: 'We owe a reply', f: { waiting: 'team', sort: 'waiting' } },
+    { id: 'never-answered', name: 'Never answered', f: { waiting: 'never', sort: 'waiting' } },
+    { id: 'repro-unassigned', name: 'Reproduced, unassigned', f: { verdict: 'problem', assignee: 'none' } },
+    { id: 'sev-mismatch', name: 'Bot severity ≠ label', f: { verdict: 'mismatch' } },
+    { id: 'stale-reporter', name: 'Waiting on reporter 14d+', f: { waiting: 'reporter', idleDays: 14, sort: 'waiting', exclude: ['Issue accepted', '✋ on hold'] } },
   ],
   pr: [
     { id: 'all', name: 'All open', f: {} },
@@ -221,6 +229,16 @@ function matches(item, f, { ignoreLabels = false } = {}) {
     if (f.bot === 'requested' && !c) return false;
     if (f.bot === 'pending' && (!c || item.bot.botRepliedAfterCommand)) return false;
   }
+  const conv = item.conversation;
+  if (f.waiting && conv) {
+    if (f.waiting === 'never' ? conv.waitingOn !== 'team' || conv.teamReplied : conv.waitingOn !== f.waiting) return false;
+  }
+  if (f.idleDays && conv && Date.now() - new Date(conv.since) < f.idleDays * 864e5) return false;
+  if (f.verdict) {
+    const t = item.triage;
+    if (f.verdict === 'unverified' ? t?.verification : f.verdict === 'mismatch' ? !severityMismatch(item) : f.verdict === 'fixpr' ? !t?.fixPrs.length : t?.verification?.outcome !== f.verdict)
+      return false;
+  }
   if (f.assignee === 'none' && item.assignees.length) return false;
   if (f.assignee === 'any' && !item.assignees.length) return false;
   if (f.assignee.startsWith('user:')) {
@@ -238,6 +256,7 @@ function sortItems(items) {
     'created-asc': (a, b) => a.createdAt.localeCompare(b.createdAt),
     comments: (a, b) => b.commentCount - a.commentCount,
     reactions: (a, b) => b.thumbsUp - a.thumbsUp || b.commentCount - a.commentCount,
+    waiting: (a, b) => (a.conversation?.since ?? '').localeCompare(b.conversation?.since ?? ''),
   }[filters.sort];
   return items.sort(by || (() => 0));
 }
@@ -293,6 +312,7 @@ function rowHtml(i) {
     meta.push(`<span class="diffstat"><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`);
   }
   if (i.thumbsUp) meta.push(`<span>👍 ${i.thumbsUp}</span>`);
+  meta.push(waitingHtml(i));
   const c = i.bot.lastCommand;
   if (c) {
     const replied = i.bot.botRepliedAfterCommand;
@@ -318,6 +338,7 @@ function rowHtml(i) {
       <a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
       <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
       <div class="meta">${meta.join(' ')}</div>
+      ${triageHtml(i)}
     </div>
     <div class="row-side">
       <span class="avatars">${avatars}</span>
@@ -325,6 +346,63 @@ function rowHtml(i) {
       <button class="btn btn-action${posted ? ' done' : ''}" data-action="${i.number}" title="Comment “${action.body}” on #${i.number}">${posted ? '✓ Requested' : action.label}</button>
     </div>
   </li>`;
+}
+
+function waitingHtml(i) {
+  const c = i.conversation;
+  if (!c || c.waitingOn === 'internal') return '';
+  const days = Math.floor((Date.now() - new Date(c.since)) / 864e5);
+  const dur = days < 1 ? 'today' : `${days}d`;
+  const last = c.lastHuman ? `Last human comment by ${c.lastHuman.login} (${c.lastHuman.role}) ${ago(c.lastHuman.at)}` : 'No human comments yet';
+  if (c.waitingOn === 'reporter') return `<span class="waiting" title="${esc(last)}">⏸ waiting on ${i.type === 'pr' ? 'author' : 'reporter'} · ${dur}</span>`;
+  if (!c.teamReplied) return `<span class="waiting never" title="${esc(last)}">● no team reply yet · ${dur}</span>`;
+  return `<span class="waiting team" title="${esc(last)}">● we owe a reply · ${dur}</span>`;
+}
+
+function severityMismatch(item) {
+  const s = item.triage?.assessment?.severity;
+  return !!s && !item.labels.some((l) => l.name === s.label);
+}
+
+const OUTCOME_TEXT = { problem: 'Reproduced', blocked: 'Blocked', pass: 'Not reproduced' };
+const expanded = new Set();
+
+function triageHtml(i) {
+  const t = i.triage;
+  if (!t) return '';
+  const a = t.assessment;
+  const v = t.verification;
+  const parts = [];
+  if (a) {
+    let sev = '';
+    if (a.severity) {
+      const color = data.labels.find((l) => l.name === a.severity.label)?.color;
+      sev = ` · suggests ${labelHtml({ name: a.severity.label, color })}`;
+      if (severityMismatch(i)) sev += ` <button class="btn btn-xs" data-apply-severity="${i.number}" title="Replace the current severity label with ${esc(a.severity.label)}">Apply</button>`;
+    }
+    parts.push(`<span>${icons.bot} <a href="${a.url}" target="_blank" rel="noreferrer">${esc(a.kind ?? 'Assessed')}${a.confidence != null ? ` · ${a.confidence}%` : ''}</a>${sev}</span>`);
+  }
+  if (v) {
+    parts.push(
+      `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}">${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
+        (v.headline ? `<span class="verdict-headline" title="${esc(v.headline)}">${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
+    );
+  }
+  for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer">🔧 fix PR #${n}</a>`);
+  const hasDetails = a?.impact || a?.scope || v?.maintainer || v?.reporter;
+  if (hasDetails) parts.push(`<button class="details-toggle" data-details="${i.number}">${expanded.has(i.number) ? 'hide details ▴' : 'details ▾'}</button>`);
+  const details =
+    hasDetails && expanded.has(i.number)
+      ? `<div class="triage-details">${[
+          a?.impact && `<p><strong>Impact:</strong> ${esc(a.impact)}</p>`,
+          a?.scope && `<p><strong>Scope:</strong> ${esc(a.scope)}</p>`,
+          v?.maintainer && `<p><strong>For maintainers:</strong> ${esc(v.maintainer)}</p>`,
+          v?.reporter && `<p><strong>For reporter:</strong> ${esc(v.reporter)}</p>`,
+        ]
+          .filter(Boolean)
+          .join('')}</div>`
+      : '';
+  return `<div class="triage">${parts.join('')}</div>${details}`;
 }
 
 function renderPresets() {
@@ -398,6 +476,9 @@ function syncControls() {
   $('#mergeable').value = filters.mergeable;
   $('#linked').value = filters.linked;
   $('#bot-filter').value = filters.bot;
+  $('#waiting').value = filters.waiting;
+  $('#idle').value = String(filters.idleDays);
+  $('#verdict').value = filters.verdict;
   renderAssigneeOptions();
   $('#assignee-filter').value = filters.assignee;
 }
@@ -425,6 +506,8 @@ function updateBulk(visible) {
   const btn = $('#bulk-btn');
   btn.disabled = !selected.size;
   btn.textContent = selected.size ? `${action.bulk} (${selected.size})` : `${action.bulk} — select items`;
+  $('#bulk-close-btn').disabled = !selected.size;
+  $('#bulk-close-btn').textContent = selected.size ? `Close… (${selected.size})` : 'Close…';
   const sa = $('#select-all');
   const pageNums = visible.slice(0, shown).map((i) => i.number);
   sa.checked = pageNums.length > 0 && pageNums.every((n) => selected.has(n));
@@ -502,6 +585,128 @@ async function undo(items) {
   );
   toast('Undone — comments deleted');
   refresh();
+}
+
+function requireToken() {
+  if (getToken()) return true;
+  openTokenDialog();
+  return false;
+}
+
+async function applySeverity(item) {
+  if (!requireToken()) return;
+  const target = item.triage.assessment.severity.label;
+  const removed = item.labels.filter((l) => l.name.startsWith('severity:') && l.name !== target);
+  const enc = (n) => encodeURIComponent(n);
+  try {
+    await gh(`/repos/${data.repo}/issues/${item.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [target] }) });
+    for (const l of removed) await gh(`/repos/${data.repo}/issues/${item.number}/labels/${enc(l.name)}`, { method: 'DELETE' });
+  } catch (e) {
+    return toast(`Couldn't change labels on #${item.number}: ${e.message}`, { error: true });
+  }
+  const before = item.labels;
+  item.labels = [...item.labels.filter((l) => !removed.includes(l)), data.labels.find((l) => l.name === target) ?? { name: target, color: 'ededed' }];
+  item.severity = SEVERITY_RANK[target] ?? 0;
+  render();
+  toast(`#${item.number}: ${removed.length ? `${removed.map((l) => l.name).join(', ')} → ` : ''}${target}`, {
+    undo: async () => {
+      await gh(`/repos/${data.repo}/issues/${item.number}/labels/${enc(target)}`, { method: 'DELETE' }).catch(() => {});
+      if (removed.length) await gh(`/repos/${data.repo}/issues/${item.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: removed.map((l) => l.name) }) });
+      item.labels = before;
+      item.severity = Math.max(0, ...before.map((l) => SEVERITY_RANK[l.name] ?? 0));
+      render();
+      toast('Labels restored');
+    },
+  });
+}
+const SEVERITY_RANK = { 'severity: trivial': 1, 'severity: low': 2, 'severity: medium': 3, 'severity: high': 4, 'severity: critical': 5 };
+
+const CLOSE_TEMPLATES = {
+  issue: [
+    {
+      name: 'No response from reporter',
+      reason: 'not_planned',
+      body: "Closing this since we haven't heard back. If this is still a problem on the latest SDK, please open a new issue with a minimal reproduction and we'll take another look. Thanks!",
+    },
+    {
+      name: 'Missing minimal reproduction',
+      reason: 'not_planned',
+      body: "We need a minimal reproducible example to investigate this, so we're closing the issue for now. Please open a new issue with a minimal repro (e.g. a GitHub repo or Snack) and we'll be happy to take a look.",
+    },
+    {
+      name: 'Fixed in a newer SDK',
+      reason: 'completed',
+      body: 'This is fixed in the latest SDK. Please upgrade and open a new issue if you still run into it. Thanks!',
+    },
+    {
+      name: 'Upstream (React Native)',
+      reason: 'not_planned',
+      body: 'This behavior comes from React Native itself rather than Expo, so it needs to be reported upstream at https://github.com/facebook/react-native/issues. Thanks!',
+    },
+    { name: 'Custom…', reason: 'not_planned', body: '' },
+  ],
+  pr: [
+    { name: 'Stale / no response', reason: 'not_planned', body: "Closing this since there hasn't been activity in a while. Feel free to reopen or open a new PR if you'd like to pick it back up. Thanks for the contribution!" },
+    { name: 'Custom…', reason: 'not_planned', body: '' },
+  ],
+};
+
+function openCloseDialog() {
+  if (!requireToken()) return;
+  const tpls = CLOSE_TEMPLATES[filters.tab];
+  const sel = $('#close-template');
+  sel.innerHTML = tpls.map((t, idx) => `<option value="${idx}">${esc(t.name)}</option>`).join('');
+  const pick = () => {
+    const t = tpls[Number(sel.value)];
+    $('#close-body').value = t.body;
+    $('#close-reason').value = t.reason;
+  };
+  sel.onchange = pick;
+  pick();
+  $('#close-reason').querySelector('[value=duplicate]').disabled = filters.tab === 'pr';
+  $('#close-title').textContent = `Comment & close ${selected.size} ${filters.tab === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
+  $('#close-dialog').showModal();
+}
+
+$('#close-dialog').addEventListener('close', () => {
+  if ($('#close-dialog').returnValue !== 'close') return;
+  closeItems([...selected], $('#close-body').value.trim(), $('#close-reason').value);
+});
+
+async function closeItems(numbers, body, reason) {
+  const items = numbers.map((n) => data.items.find((i) => i.number === n)).filter(Boolean);
+  const results = await Promise.allSettled(
+    items.map(async (item) => {
+      const comment = body
+        ? await gh(`/repos/${data.repo}/issues/${item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) })
+        : null;
+      const patch = item.type === 'pr' ? { state: 'closed' } : { state: 'closed', state_reason: reason };
+      await gh(`/repos/${data.repo}/${item.type === 'pr' ? 'pulls' : 'issues'}/${item.number}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      return { item, commentId: comment?.id };
+    })
+  );
+  const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  const failed = results.filter((r) => r.status === 'rejected');
+  const closed = new Set(ok.map((r) => r.item.number));
+  data.items = data.items.filter((i) => !closed.has(i.number));
+  selected = new Set([...selected].filter((n) => !closed.has(n)));
+  render();
+  if (ok.length) {
+    toast(`Closed ${ok.length === 1 ? `#${ok[0].item.number}` : `${ok.length} items`}`, {
+      undo: async () => {
+        await Promise.allSettled(
+          ok.map(async ({ item, commentId }) => {
+            await gh(`/repos/${data.repo}/${item.type === 'pr' ? 'pulls' : 'issues'}/${item.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'open' }) });
+            if (commentId) await gh(`/repos/${data.repo}/issues/comments/${commentId}`, { method: 'DELETE' });
+            data.items.push(item);
+          })
+        );
+        render();
+        toast('Reopened and removed the comment');
+      },
+    });
+  }
+  if (failed.length) toast(`Failed on ${failed.length}: ${failed[0].reason.message}`, { error: true });
 }
 
 function toast(msg, { undo, error } = {}) {
@@ -610,7 +815,7 @@ document.addEventListener('click', (e) => {
   const tab = t.closest('.tab');
   if (tab) {
     e.preventDefault();
-    filters = { ...filters, tab: tab.dataset.tab, preset: 'all', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', newerThanDays: 0 };
+    filters = { ...filters, tab: tab.dataset.tab, preset: 'all', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', newerThanDays: 0 };
     selected.clear();
     shown = PAGE;
     return render();
@@ -626,6 +831,17 @@ document.addEventListener('click', (e) => {
   }
   if (t.id === 'more-btn') { shown += PAGE; return render(); }
   if (t.id === 'clear-filters') { filters = { ...DEFAULT_FILTERS, tab: filters.tab, sort: filters.sort }; return render(); }
+  const details = t.closest('[data-details]');
+  if (details) {
+    const n = Number(details.dataset.details);
+    expanded.has(n) ? expanded.delete(n) : expanded.add(n);
+    return render();
+  }
+  const applyBtn = t.closest('[data-apply-severity]');
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    return applySeverity(data.items.find((i) => i.number === Number(applyBtn.dataset.applySeverity)));
+  }
   const actionBtn = t.closest('[data-action]');
   if (actionBtn) {
     const n = Number(actionBtn.dataset.action);
@@ -680,6 +896,10 @@ bind('#mergeable', 'mergeable');
 bind('#linked', 'linked');
 bind('#bot-filter', 'bot');
 bind('#assignee-filter', 'assignee');
+bind('#waiting', 'waiting');
+bind('#idle', 'idleDays', Number);
+bind('#verdict', 'verdict');
+$('#bulk-close-btn').addEventListener('click', openCloseDialog);
 
 $('#refresh-btn').addEventListener('click', async () => {
   $('#refresh-btn').disabled = true;

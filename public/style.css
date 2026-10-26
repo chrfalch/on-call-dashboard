@@ -221,6 +221,28 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .facet .count { font-size: 12px; color: var(--fg-muted); }
 .facet-group.collapsed .facet { display: none; }
 
+/* Conversation + bot triage */
+.waiting { display: inline-flex; align-items: center; gap: 4px; }
+.waiting.team { color: var(--attention); font-weight: 500; }
+.waiting.never { color: var(--danger); font-weight: 500; }
+.triage { margin-top: 6px; font-size: 12px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.triage a { color: var(--fg-muted); }
+.triage a:hover { color: var(--accent); }
+.verdict { font-weight: 600; }
+.verdict.problem { color: var(--danger); }
+.verdict.blocked { color: var(--attention); }
+.verdict.pass { color: var(--success); }
+.verdict-headline { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-xs { padding: 0 8px; font-size: 11px; line-height: 18px; }
+.details-toggle { cursor: pointer; background: none; border: 0; color: var(--accent); font: inherit; padding: 0; }
+.triage-details {
+  margin-top: 6px; padding: 8px 12px; border-left: 3px solid var(--border); background: var(--bg-muted); border-radius: 0 6px 6px 0;
+  font-size: 13px; color: var(--fg);
+}
+.triage-details p { margin: 2px 0 6px; }
+.triage-details strong { color: var(--fg-muted); font-weight: 600; }
+#close-body { width: 100%; font: inherit; color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
+
 /* Dialog */
 .dialog {
   border: 1px solid var(--border); border-radius: 12px; padding: 0; max-width: 520px; color: var(--fg); background: var(--bg);

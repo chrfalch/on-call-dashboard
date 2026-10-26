@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { analyzeComments } from './triage.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
@@ -16,7 +17,7 @@ const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 4;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
@@ -54,7 +55,7 @@ const COMMON = `
   labels(first: 40) { nodes { name color description } }
   assignees(first: 5) { nodes { login avatarUrl } }
   reactions(content: THUMBS_UP) { totalCount }
-  comments(last: 25) { totalCount nodes { author { login } createdAt body } }
+  comments(last: 30) { totalCount nodes { author { login } authorAssociation createdAt url body } }
 `;
 const PR_FIELDS = `
   ... on PullRequest {
@@ -104,31 +105,6 @@ query($cursor: String, $owner: String!, $name: String!) {
 }`;
 
 const SEVERITY = { 'severity: trivial': 1, 'severity: low': 2, 'severity: medium': 3, 'severity: high': 4, 'severity: critical': 5 };
-const BOT_LOGINS = new Set(['expo-bot']);
-const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
-
-// Derive @expo-bot command history from the last comments, so the UI can show
-// "review requested 2h ago by X · bot replied" without shipping comment bodies.
-function botActivity(comments) {
-  let lastCommand = null;
-  let lastBotReply = null;
-  for (const c of comments) {
-    const login = c.author?.login;
-    if (login && BOT_LOGINS.has(login)) {
-      const outcome = c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null;
-      lastBotReply = { at: c.createdAt, outcome };
-      continue;
-    }
-    const m = c.body.match(COMMAND_RE);
-    if (m) lastCommand = { command: m[1].toLowerCase(), by: login, at: c.createdAt };
-  }
-  return {
-    lastCommand,
-    lastBotReply,
-    botRepliedAfterCommand: !!(lastCommand && lastBotReply && lastBotReply.at > lastCommand.at),
-  };
-}
-
 function normalize(n) {
   const isPR = n.__typename === 'PullRequest';
   const labels = n.labels.nodes.map((l) => ({ name: l.name, color: l.color, description: l.description }));
@@ -149,7 +125,7 @@ function normalize(n) {
     thumbsUp: n.reactions.totalCount,
     commentCount: n.comments.totalCount,
     lastCommentAt: comments.length ? comments[comments.length - 1].createdAt : null,
-    bot: botActivity(comments),
+    ...analyzeComments(comments, { authorLogin: n.author?.login, authorAssociation: n.authorAssociation, createdAt: n.createdAt }),
   };
   if (isPR) {
     Object.assign(item, {

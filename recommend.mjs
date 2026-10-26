@@ -135,7 +135,7 @@ export function buildPrompt(task, item, thread) {
 }
 
 const fail = (error) => ({ ok: false, error });
-const quote = (value) => JSON.stringify(String(value).slice(0, 40));
+const quote = (value) => (typeof value === 'string' ? JSON.stringify(value.slice(0, 40)) : `of type ${value === null ? 'null' : typeof value}`);
 
 // stdout of `claude -p --output-format json --json-schema …`: a result envelope with the
 // answer in `structured_output`, and the same answer as a JSON string in `result`.
@@ -188,7 +188,7 @@ const MAX_REASONS = 5;
 const REASON_LIMIT = 200;
 // No leading zeros, so one item cannot appear under several keys.
 const TASK_KEY = /^([1-9]\d*):([a-z-]+)$/;
-const REC_KEY = /^(\d+):[a-z-]+@(.+)$/;
+const REC_KEY = /^([1-9]\d*):[a-z-]+@(.+)$/;
 
 // No tools, no MCP servers, no settings files: the agent can only read the prompt and answer.
 export function claudeArgs(type, system) {
@@ -271,15 +271,18 @@ export function respond(entries, lookup) {
 export const RECS_VERSION = 1;
 
 // `data` is the parsed recommendations file. The file is not trusted more than claude's
-// output, so each rec goes through the same validation again.
+// output, so each rec goes through the same validation again, and one bad entry is dropped
+// on its own instead of failing the whole file.
 export function loadRecs(data, items) {
   const recs = new Map();
   if (!isObject(data) || data.version !== RECS_VERSION || !isObject(data.recs)) return recs;
   for (const [key, entry] of Object.entries(data.recs)) {
-    const item = currentItem(key, items);
-    if (!item || !isObject(entry?.rec) || !Number.isFinite(entry.at)) continue;
-    const result = validate(entry.rec, item.type);
-    if (result.ok) recs.set(key, { rec: result.rec, at: entry.at });
+    try {
+      const item = currentItem(key, items);
+      if (!item || !isObject(entry?.rec) || !Number.isFinite(entry.at)) continue;
+      const result = validate(entry.rec, item.type);
+      if (result.ok) recs.set(key, { rec: result.rec, at: entry.at });
+    } catch {}
   }
   return recs;
 }

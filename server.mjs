@@ -319,6 +319,10 @@ function beforeDeadline(promise, deadline) {
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
+// Process group ids of running claude children. They are detached, so a Ctrl-C on the
+// server does not reach them; the exit handler at the bottom signals them instead.
+const claudeGroups = new Set();
+
 // Resolves with the CLI's stdout, and `failure` when it did not exit cleanly.
 function runClaude(type, { system, user }, deadline) {
   return new Promise((resolve) => {
@@ -327,12 +331,14 @@ function runClaude(type, { system, user }, deadline) {
     const env = { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
     // Detached: the child leads its own process group, so a kill also reaches anything it started.
     const child = spawn('claude', claudeArgs(type, system), { cwd: CLAUDE_CWD, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (child.pid) claudeGroups.add(child.pid);
     const out = { stdout: [], stderr: [] };
     const size = { stdout: 0, stderr: 0 };
     let failure = null;
     let killTimer;
 
     const finish = () => {
+      claudeGroups.delete(child.pid);
       clearTimeout(timer);
       clearTimeout(killTimer);
       resolve({ stdout: Buffer.concat(out.stdout).toString('utf8'), failure });
@@ -396,7 +402,9 @@ async function runJob({ key, task, item }) {
   try {
     const thread = await beforeDeadline(fetchThread(item.number), deadline);
     if (!isCurrentRecKey(key, state.items)) return skip();
-    const { stdout, failure } = await runClaude(item.type, buildPrompt(task, item, thread), deadline);
+    const prompt = buildPrompt(task, item, thread);
+    if (Date.now() >= deadline) throw new Error(timeoutError());
+    const { stdout, failure } = await runClaude(item.type, prompt, deadline);
     cost = costOf(stdout);
     result = failure ? { ok: false, error: failure } : parseRecommendation(stdout, item.type);
   } catch (e) {
@@ -457,15 +465,13 @@ function persistRecs() {
 }
 
 function restoreRecs() {
-  let data;
   try {
-    data = JSON.parse(fs.readFileSync(RECS_FILE, 'utf8'));
+    agent.recs = loadRecs(JSON.parse(fs.readFileSync(RECS_FILE, 'utf8')), state.items);
+    log(`restored ${agent.recs.size} recommendations`);
   } catch (e) {
-    if (e.code !== 'ENOENT') log(`could not read saved recommendations: ${e.message}`);
-    return;
+    agent.recs = new Map();
+    if (e.code !== 'ENOENT') log(`could not restore recommendations, starting empty: ${e.message}`);
   }
-  agent.recs = loadRecs(data, state.items);
-  log(`restored ${agent.recs.size} recommendations`);
 }
 
 // Undefined when the body is not JSON or is larger than MAX_BODY. A body that is too
@@ -545,7 +551,18 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => log(`listening on http://localhost:${PORT}`));
+server.listen(PORT, '127.0.0.1', () => log(`listening on http://127.0.0.1:${PORT}`));
+
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+  process.on(signal, () => {
+    for (const pid of claudeGroups) {
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch {}
+    }
+    process.exit(code);
+  });
+}
 
 const hadCache = restore();
 restoreRecs();

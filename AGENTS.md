@@ -5,7 +5,7 @@ dependencies, no build step.
 
 ## Commands
 
-- `npm start` — server on http://localhost:4317. Needs `GITHUB_TOKEN` or a
+- `npm start` — server on http://localhost:4317 (bound to 127.0.0.1). Needs `GITHUB_TOKEN` or a
   logged-in `gh` CLI. The first full sync takes about two minutes; `/api/items` is
   empty until it finishes. Recommendations also need a logged-in `claude` CLI on
   `PATH`.
@@ -18,7 +18,10 @@ dependencies, no build step.
   `POST /api/recommendations`, static files from `public/`. Recommendations run
   `claude -p` with no tools, three at a time, in the empty `.cache/claude-cwd/`;
   results are cached in `.cache/recommendations-<owner>-<name>.json`. The route
-  accepts only `application/json` from `localhost` or `127.0.0.1` on the same port.
+  rejects a request whose `Origin` header is present and is not
+  `http://localhost:<port>` or `http://127.0.0.1:<port>` (403), and a body that is
+  not `application/json` (415). This blocks other web pages in the browser. The
+  server listens on 127.0.0.1 only, so other computers cannot connect.
 - `recommend.mjs` — pure helpers for agent recommendations (actions, prompt,
   CLI arguments, output parsing, request validation). Tested by
   `recommend.test.mjs`.

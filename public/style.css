@@ -109,16 +109,30 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .btn-action { padding: 2px 10px; font-size: 12px; }
 .btn-action.done { color: var(--success); border-color: var(--success); background: transparent; }
 
-/* Presets */
-.presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
-.preset {
-  padding: 4px 12px; border: 1px solid var(--border); border-radius: 2em; background: var(--bg); color: var(--fg);
-  font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;
+/* Triage commands */
+.presets { margin: 16px 0 12px; }
+.cmd-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 12px; }
+.cmd-toggle { background: none; border: 0; padding: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--fg); cursor: pointer; }
+.cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.cmd-card { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding: 8px; }
+.cmd-card h4 { margin: 0 0 4px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--fg-muted); display: flex; gap: 6px; align-items: center; cursor: help; }
+.cmd {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 6px;
+  background: none; border: 0; border-radius: 6px; font: inherit; font-size: 13px; color: var(--fg); cursor: pointer; text-align: left;
 }
-.preset:hover { background: var(--bg-hover); }
-.preset.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
-.preset .counter { margin-left: 4px; }
-.preset.selected .counter { background: rgba(255, 255, 255, 0.25); }
+.cmd:hover { background: var(--bg-hover); }
+.cmd.selected { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
+.cmd.zero { opacity: 0.5; }
+.cmd-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.cmd-name .IssueLabel { margin: 0; cursor: pointer; }
+.cmd-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.tone-danger .octicon, .tone-danger .cmd-count { color: var(--danger); }
+.tone-attention .octicon, .tone-attention .cmd-count { color: var(--attention); }
+.tone-success .octicon, .tone-success .cmd-count { color: var(--success); }
+.tone-open .octicon, .tone-open .cmd-count { color: var(--open); }
+.tone-done .octicon, .tone-done .cmd-count { color: var(--done); }
+.tone-muted .octicon { color: var(--fg-muted); }
+.cmd.zero .cmd-count { color: var(--fg-muted); }
 
 /* Filters */
 .filter-bar, .pr-filters, .common-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
@@ -223,6 +237,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 
 /* Conversation + bot triage */
 .waiting { display: inline-flex; align-items: center; gap: 4px; }
+.waiting .octicon { width: 14px; height: 14px; }
 .waiting.team { color: var(--attention); font-weight: 500; }
 .waiting.never { color: var(--danger); font-weight: 500; }
 .triage { margin-top: 6px; font-size: 12px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }

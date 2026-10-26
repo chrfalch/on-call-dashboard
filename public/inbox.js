@@ -23,9 +23,9 @@ export const MODES = {
 
 const SEVERITY_BONUS = { 5: 40, 4: 25, 3: 10, 2: 0, 1: -5 };
 const DAY = 864e5;
-const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
-const hasLabel = (item, name) => item.labels.some((l) => l.name === name);
-const PARKED = ['Issue accepted', '✋ on hold'];
+export const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
+export const hasLabel = (item, name) => item.labels.some((l) => l.name === name);
+export const PARKED = ['Issue accepted', '✋ on hold'];
 
 // Candidate tasks for one item: [{ kind, base, reasons: [] }]. The best one wins.
 function candidates(item, now) {

@@ -134,6 +134,11 @@ function labelHtml(l, opts = {}) {
   )}">${esc(l.name)}${opts.removable ? ' <span class="chip-remove" data-remove="1">×</span>' : ''}</a>`;
 }
 
+function assigneeChipHtml(a) {
+  const active = filters.assignee === `user:${a.login}` ? ' active' : '';
+  return `<a class="AssigneeChip${active}" data-assignee="${esc(a.login)}" title="Assigned to ${esc(a.login)} — click to filter"><img src="${a.avatarUrl}&s=32" alt="" loading="lazy">assigned: ${esc(a.login)}</a>`;
+}
+
 // ---------- helpers ----------
 
 function esc(s) {
@@ -218,6 +223,10 @@ function matches(item, f, { ignoreLabels = false } = {}) {
   }
   if (f.assignee === 'none' && item.assignees.length) return false;
   if (f.assignee === 'any' && !item.assignees.length) return false;
+  if (f.assignee.startsWith('user:')) {
+    const login = f.assignee.slice(5) === '@me' ? me?.login : f.assignee.slice(5);
+    if (!item.assignees.some((a) => a.login === login)) return false;
+  }
   return true;
 }
 
@@ -294,12 +303,12 @@ function rowHtml(i) {
       }">${icons.bot} ${esc(c.command)} ${ago(c.at)}${replied ? ' ✓' + outcome : ' …'}</span>`
     );
   }
-  const people = [...i.assignees, ...(i.latestReviews || []).filter((r) => r.login)];
+  const people = (i.latestReviews || []).filter((r) => r.login);
   const seen = new Set();
   const avatars = people
     .filter((p) => !seen.has(p.login) && seen.add(p.login))
     .slice(0, 4)
-    .map((p) => `<img class="avatar" src="${p.avatarUrl}&s=40" alt="${esc(p.login)}" title="${esc(p.login)}" loading="lazy">`)
+    .map((p) => `<img class="avatar" src="${p.avatarUrl}&s=40" alt="${esc(p.login)}" title="Reviewed by ${esc(p.login)}" loading="lazy">`)
     .join('');
   const posted = postedThisSession.has(i.number);
   return `<li class="row${selected.has(i.number) ? ' selected' : ''}" data-number="${i.number}">
@@ -307,7 +316,7 @@ function rowHtml(i) {
     ${icon}
     <div class="row-main">
       <a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
-      <span class="labels">${i.labels.map((l) => labelHtml(l)).join('')}</span>
+      <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
       <div class="meta">${meta.join(' ')}</div>
     </div>
     <div class="row-side">
@@ -389,7 +398,26 @@ function syncControls() {
   $('#mergeable').value = filters.mergeable;
   $('#linked').value = filters.linked;
   $('#bot-filter').value = filters.bot;
+  renderAssigneeOptions();
   $('#assignee-filter').value = filters.assignee;
+}
+
+function renderAssigneeOptions() {
+  const counts = new Map();
+  for (const i of data.items) if (i.type === filters.tab) for (const a of i.assignees) counts.set(a.login, (counts.get(a.login) || 0) + 1);
+  const users = [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
+  // Keep a filtered-on user selectable even if they have nothing on this tab.
+  const current = filters.assignee.startsWith('user:') ? filters.assignee.slice(5) : null;
+  if (current && current !== '@me' && !counts.has(current)) users.push([current, 0]);
+  $('#assignee-filter').innerHTML = [
+    '<option value="">Any</option>',
+    '<option value="none">Unassigned</option>',
+    '<option value="any">Assigned</option>',
+    me ? '<option value="user:@me">Assigned to me</option>' : '',
+    '<optgroup label="Assigned to">',
+    ...users.map(([login, n]) => `<option value="user:${esc(login)}">${esc(login)} (${n})</option>`),
+    '</optgroup>',
+  ].join('');
 }
 
 function updateBulk(visible) {
@@ -520,6 +548,7 @@ $('#token-dialog').addEventListener('close', async () => {
   if (v === 'signout') localStorage.removeItem('ghToken');
   if (v === 'save' && $('#token-input').value.trim()) localStorage.setItem('ghToken', $('#token-input').value.trim());
   await loadMe();
+  render();
   if (v === 'save' && !me) {
     openTokenDialog();
     $('#token-error').textContent = 'That token was rejected by GitHub.';
@@ -557,6 +586,15 @@ async function refresh(force = false) {
 
 document.addEventListener('click', (e) => {
   const t = e.target;
+  const chip = t.closest('.AssigneeChip');
+  if (chip) {
+    e.preventDefault();
+    const v = `user:${chip.dataset.assignee}`;
+    filters.assignee = filters.assignee === v ? '' : v;
+    filters.preset = '';
+    shown = PAGE;
+    return render();
+  }
   const label = t.closest('.IssueLabel');
   if (label) {
     e.preventDefault();
@@ -658,6 +696,6 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });
 darkMode.addEventListener('change', render);
 
-loadMe();
+loadMe().then(render);
 refresh();
 setInterval(refresh, 60_000);

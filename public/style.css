@@ -198,6 +198,15 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 }
 .IssueLabel:hover { text-decoration: none; filter: brightness(1.05); }
 .IssueLabel.active { box-shadow: 0 0 0 2px var(--accent); }
+/* Assignee chip: label-shaped, but neutral with an avatar so it reads differently from real labels. */
+.AssigneeChip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0 7px 0 2px; margin: 0 4px 2px 0; font-size: 12px; font-weight: 500;
+  line-height: 18px; white-space: nowrap; vertical-align: middle; border-radius: 2em; cursor: pointer;
+  color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border);
+}
+.AssigneeChip:hover { text-decoration: none; border-color: var(--fg-muted); }
+.AssigneeChip.active { box-shadow: 0 0 0 2px var(--accent); }
+.AssigneeChip img { width: 14px; height: 14px; border-radius: 50%; }
 
 /* Sidebar facets */
 .sidebar { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }

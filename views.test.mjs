@@ -77,7 +77,9 @@ test('every view has the required fields and a group from its scope', () => {
 });
 
 test('a view only matches items of its own scope', () => {
+  assert.equal(inView('pr:internal-review', internal()), true);
   assert.equal(inView('pr:internal-review', issue({ labels: labels('contributor: internal') })), false);
+  assert.equal(inView('issue:triage-queue', issue({ labels: labels('needs review') })), true);
   assert.equal(inView('issue:triage-queue', pr({ labels: labels('needs review') })), false);
 });
 
@@ -130,6 +132,15 @@ test('I4 fell through triage: no triage label, unassigned, not internal', () => 
     assert.equal(inView('issue:unlabeled-unowned', issue({ labels: labels(label) })), false, label);
   assert.equal(inView('issue:unlabeled-unowned', issue(assignee)), false);
   assert.equal(inView('issue:unlabeled-unowned', issue({ conversation: waiting('internal') })), false);
+});
+
+test('I4 sorts newest first, then higher number', () => {
+  const items = [
+    issue({ number: 1, createdAt: daysAgo(10) }),
+    issue({ number: 2, createdAt: daysAgo(2) }),
+    issue({ number: 3, createdAt: daysAgo(10) }),
+  ];
+  assert.deepEqual(order('issue:unlabeled-unowned', items), [2, 3, 1]);
 });
 
 test('I5 reporter silent 14d+, unless parked', () => {
@@ -225,6 +236,8 @@ test('P6 stale external: waiting on the author, idle 60d+', () => {
   assert.equal(inView('pr:stale-external', ext({ ...base, conversation: waiting('team', 70) })), false);
   assert.equal(inView('pr:stale-external', ext({ ...base, conversation: waiting('internal', 70) })), false);
   assert.equal(inView('pr:stale-external', internal(base)), false);
+  const stale = (number, d) => ext({ number, conversation: waiting('reporter', 120), updatedAt: daysAgo(d) });
+  assert.deepEqual(order('pr:stale-external', [stale(2, 70), stale(3, 90), stale(1, 70)]), [3, 1, 2]);
 });
 
 test('P7 internal review: internal, review required', () => {
@@ -238,7 +251,8 @@ test('P7 internal review: internal, review required', () => {
 
 test('applyView does not mutate its input', () => {
   const items = [issue({ number: 1, labels: labels('needs review'), createdAt: daysAgo(9) }), issue({ number: 2, labels: labels('needs review') })];
-  applyView(view('issue:triage-queue'), items, { now: NOW });
+  const result = applyView(view('issue:triage-queue'), items, { now: NOW });
+  assert.deepEqual(result.map((i) => i.number), [2, 1]);
   assert.deepEqual(items.map((i) => i.number), [1, 2]);
 });
 

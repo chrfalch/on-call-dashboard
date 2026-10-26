@@ -1050,9 +1050,12 @@ async function fetchRecs(tasks, signature) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`);
     response = await res.json();
   } catch (e) {
+    if (signature !== recSentSignature) return;
     if (!recFailed) toast(`Agent recommendations are unavailable: ${e.message}`);
     recFailed = true;
-    if (signature === recSentSignature) recPoll = setTimeout(pollRecs, REC_POLL_MS);
+    // A render during the request may already have scheduled a retry.
+    clearTimeout(recPoll);
+    recPoll = setTimeout(pollRecs, REC_POLL_MS);
     return;
   }
   recFailed = false;

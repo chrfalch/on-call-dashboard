@@ -19,21 +19,6 @@ const MEANING = {
   wait: 'do nothing now; someone else owns the next step',
 };
 
-const ASSIGNEE = 'the person to assign, as a GitHub login. If no single person is known, a team or module owner name, or on-call';
-const WHO = {
-  verify: 'the person who posts the command, usually on-call',
-  'ask-reporter': 'the login of the reporter',
-  accept: ASSIGNEE,
-  'assign-owner': ASSIGNEE,
-  'close-duplicate': 'the person who closes it, usually on-call',
-  'request-review': 'the maintainer who should review the pull request after the bot, or on-call',
-  'review-note': 'the login of the pull request author',
-  'nudge-author': 'the login of the pull request author',
-  merge: 'the maintainer who should merge it, or on-call',
-  close: 'the person who closes it, usually on-call',
-  wait: 'the person who owns the next step',
-};
-
 const DESCRIPTION_LIMIT = 8000;
 const COMMENT_LIMIT = 4000;
 const COMMENT_COUNT = 30;
@@ -79,11 +64,11 @@ Runbook:
 - When a reproduction is needed, suggest a Snack (snack.expo.dev) first.
 
 Allowed actions, and what who means for each:
-${actions.map((a) => `- ${a.id}: ${MEANING[a.id]}. who, shown as "${a.who} <who>": ${WHO[a.id]}.`).join('\n')}
+${actions.map((a) => `- ${a.id}: ${MEANING[a.id]}. who, shown as "${a.who} <who>": ${a.whoMeaning}.`).join('\n')}
 
 Fields:
-- who: one name, at most ${WHO_LIMIT} characters. Its meaning depends on the action; see the list above. Write a GitHub login without @.
-- why: one or two short sentences, at most ${WHY_LIMIT} characters. The first sentence names the action and its goal in plain words, then "because" and the fact that decides it. Do not list facts from the thread. Example: "Ask the reporter to test again on SDK 56.0.3, because a fix shipped there and the crash may be gone."
+- who: one name, at most ${WHO_LIMIT} characters. Its meaning depends on the action; see the list above. When who is a person, write their GitHub login without @.
+- why: one or two short sentences, at most ${WHY_LIMIT} characters. The first sentence names the action and its goal in plain words, then "because" and the fact that decides it. Do not list facts from the thread. Example: "Ask the reporter to test again on the latest SDK, because a fix shipped there and the crash may be gone."
 - draft: the comment text to post. Required and non-empty for ${byApply('comment')}. Optional for ${byApply('close')}. Null for every other action.
 - confidence: 0 to 100.
 

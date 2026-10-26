@@ -304,7 +304,10 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .rec-who { overflow-wrap: anywhere; }
 .rec-who b { font-weight: 600; color: var(--fg); }
 .rec-why { flex: 1 1 20em; min-width: 0; overflow-wrap: anywhere; }
-.rec-confidence { font-variant-numeric: tabular-nums; }
+.rec-confidence {
+  font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em;
+  background: var(--bg-muted); border: 1px solid var(--border-muted); font-variant-numeric: tabular-nums;
+}
 .task-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 150px; }
 .task-actions .btn { justify-content: center; }
 .task-actions a.btn:hover { text-decoration: none; }

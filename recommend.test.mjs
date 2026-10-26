@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ACTIONS, actionsFor, schemaFor, buildPrompt, parseRecommendation, recKey } from './recommend.mjs';
+import { ACTIONS, actionsFor, schemaFor, buildPrompt, parseRecommendation, recKey, claudeArgs, validateTasks, pruneRecs, storedResult, RETRY_MS } from './recommend.mjs';
 
 const fixture = readFileSync(new URL('./fixtures/claude-json-schema.json', import.meta.url), 'utf8');
 const ISSUE_ONLY = ['verify', 'ask-reporter', 'accept', 'assign-owner', 'close-duplicate'];
@@ -209,4 +209,104 @@ test('system text uses the real label names', () => {
 
 test('recKey combines task key and item update time', () => {
   assert.equal(recKey(task, item), '123:verify@2026-01-05T00:00:00Z');
+});
+
+test('claudeArgs passes schema, system prompt and a locked-down CLI', () => {
+  const args = claudeArgs('pr', 'SYSTEM', '');
+  assert.deepEqual(args, [
+    '-p',
+    '--output-format', 'json',
+    '--json-schema', JSON.stringify(schemaFor('pr')),
+    '--system-prompt', 'SYSTEM',
+    '--tools', '',
+    '--strict-mcp-config',
+    '--no-session-persistence',
+    '--setting-sources', '',
+  ]);
+  assert.equal(claudeArgs('issue', 'S', 'project').at(-1), 'project');
+  assert.deepEqual(JSON.parse(claudeArgs('issue', 'S', '')[4]), schemaFor('issue'));
+  for (const flag of ['--model', '--dangerously-skip-permissions', '--allowedTools', '--allowed-tools', '--permission-mode', '--add-dir']) {
+    assert.ok(!args.includes(flag), flag);
+  }
+});
+
+const items = new Map([
+  [123, item],
+  [7, { ...item, number: 7, type: 'pr', updatedAt: '2026-02-01T00:00:00Z' }],
+]);
+const invalid = (key) => ({ key, error: 'invalid task' });
+
+test('validateTasks returns the cached item and a clean task', () => {
+  const [entry] = validateTasks({ tasks: [{ key: '123:verify', kind: 'verify', reasons: [{ text: 'new', label: 'x' }], item: { title: 'evil', updatedAt: 'x' }, score: 999 }] }, items);
+  assert.deepEqual(entry, { key: '123:verify', task: { key: '123:verify', kind: 'verify', reasons: [{ text: 'new' }] }, item });
+  assert.equal(entry.item, items.get(123));
+});
+
+test('validateTasks keeps request order and takes at most 30 tasks', () => {
+  const tasks = Array.from({ length: 40 }, (_, i) => ({ key: `${i % 2 ? 7 : 123}:verify`, kind: 'verify' }));
+  const out = validateTasks({ tasks }, items);
+  assert.equal(out.length, 30);
+  assert.deepEqual(out.slice(0, 2).map((e) => e.key), ['123:verify', '7:verify']);
+});
+
+test('validateTasks rejects malformed keys, kinds and unknown items', () => {
+  const cases = [
+    { key: 'abc', kind: 'verify' },
+    { key: '123:Verify', kind: 'Verify' },
+    { key: '123:verify:x', kind: 'verify' },
+    { key: 'x123:verify', kind: 'verify' },
+    { key: ' 123:verify', kind: 'verify' },
+    { key: '123:verify', kind: 'merge' },
+    { key: '123:verify' },
+    { key: '123:verify', kind: ['verify'] },
+    { key: '123:unknown', kind: 'unknown' },
+    { key: '123:constructor', kind: 'constructor' },
+    { key: '999:verify', kind: 'verify' },
+  ];
+  assert.deepEqual(validateTasks({ tasks: cases }, items), cases.map((t) => invalid(t.key)));
+  assert.deepEqual(validateTasks({ tasks: [null, 'x', 5] }, items), []);
+  assert.deepEqual(validateTasks({ tasks: [{ key: 123, kind: 'verify' }, { kind: 'verify' }] }, items), []);
+});
+
+test('validateTasks caps reasons to five strings of 200 characters', () => {
+  const reasons = [{ text: 'a'.repeat(300) }, { text: 5 }, null, 'plain', { label: 'x' }, { text: 'b' }, { text: 'c' }, { text: 'd' }, { text: 'e' }, { text: 'f' }];
+  const [{ task }] = validateTasks({ tasks: [{ key: '7:merge', kind: 'merge', reasons }] }, items);
+  assert.deepEqual(task.reasons, [{ text: 'a'.repeat(200) }, { text: 'b' }, { text: 'c' }, { text: 'd' }, { text: 'e' }]);
+  for (const bad of [undefined, 'text', { text: 'x' }]) {
+    assert.deepEqual(validateTasks({ tasks: [{ key: '7:merge', kind: 'merge', reasons: bad }] }, items)[0].task.reasons, []);
+  }
+});
+
+test('validateTasks returns null for a body without a task list', () => {
+  for (const body of [null, 'x', [], {}, { tasks: 'x' }, { tasks: {} }]) assert.equal(validateTasks(body, items), null, JSON.stringify(body));
+  assert.deepEqual(validateTasks({ tasks: [] }, items), []);
+});
+
+test('pruneRecs keeps only results for current item versions', () => {
+  const entry = { rec: rec(), at: 1 };
+  const recs = new Map([
+    ['123:verify@2026-01-05T00:00:00Z', entry],
+    ['123:reply@2026-01-01T00:00:00Z', entry],
+    ['7:merge@2026-02-01T00:00:00Z', entry],
+    ['8:merge@2026-02-01T00:00:00Z', entry],
+    ['garbage', entry],
+  ]);
+  assert.deepEqual([...pruneRecs(recs, items).keys()], ['123:verify@2026-01-05T00:00:00Z', '7:merge@2026-02-01T00:00:00Z']);
+  assert.equal(recs.size, 5);
+});
+
+test('storedResult answers done, a recent error, or null when the task should run', () => {
+  const now = 1_000_000_000;
+  const store = {
+    recs: new Map([['1:verify@t', { rec: rec(), at: now }]]),
+    failures: new Map([
+      ['2:verify@t', { error: 'timeout', at: now - RETRY_MS + 1 }],
+      ['3:verify@t', { error: 'timeout', at: now - RETRY_MS }],
+    ]),
+  };
+  assert.equal(RETRY_MS, 10 * 60 * 1000);
+  assert.deepEqual(storedResult('1:verify@t', store, now), { status: 'done', rec: rec(), recKey: '1:verify@t' });
+  assert.deepEqual(storedResult('2:verify@t', store, now), { status: 'error', error: 'timeout' });
+  assert.equal(storedResult('3:verify@t', store, now), null);
+  assert.equal(storedResult('4:verify@t', store, now), null);
 });

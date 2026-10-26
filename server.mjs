@@ -4,9 +4,10 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { analyzeComments } from './triage.mjs';
+import { buildPrompt, claudeArgs, parseRecommendation, pruneRecs, recKey, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
@@ -15,9 +16,16 @@ const PORT = Number(process.env.PORT || 4317);
 const CACHE_FILE = path.join(__dirname, '.cache', `${OWNER}-${NAME}.json`);
 const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
+const RECS_FILE = path.join(__dirname, '.cache', `recommendations-${OWNER}-${NAME}.json`);
+// The claude CLI runs in an empty directory so no CLAUDE.md, AGENTS.md or project settings apply.
+const CLAUDE_CWD = path.join(__dirname, '.cache', 'claude-cwd');
+const CLAUDE_TIMEOUT_MS = 180_000;
+const CLAUDE_CONCURRENCY = 3;
+const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
 const CACHE_VERSION = 7;
+const RECS_VERSION = 1;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
@@ -28,6 +36,14 @@ const state = {
   lastIncrementalSync: null,
   syncing: false,
   syncError: null,
+};
+
+const agent = {
+  recs: new Map(), // key: recKey, value: { rec, at }
+  failures: new Map(), // key: recKey, value: { error, at }; kept in memory only
+  queue: [],
+  queued: new Set(), // recKeys waiting or running
+  running: 0,
 };
 
 async function gql(query, variables = {}, attempt = 0) {
@@ -100,6 +116,17 @@ query($cursor: String, $owner: String!, $name: String!) {
     labels(first: 100, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes { name color description }
+    }
+  }
+}`;
+
+const THREAD_FIELDS = 'body comments(last: 30) { nodes { author { login } authorAssociation body createdAt } }';
+const THREAD_QUERY = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issueOrPullRequest(number: $number) {
+      ... on Issue { ${THREAD_FIELDS} }
+      ... on PullRequest { ${THREAD_FIELDS} }
     }
   }
 }`;
@@ -270,6 +297,145 @@ function restore() {
   }
 }
 
+async function fetchThread(number) {
+  const d = await gql(THREAD_QUERY, { owner: OWNER, name: NAME, number });
+  const node = d.repository.issueOrPullRequest;
+  if (!node) throw new Error(`#${number} not found`);
+  return {
+    body: node.body,
+    comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? 'ghost', association: c.authorAssociation, createdAt: c.createdAt, body: c.body })),
+  };
+}
+
+// Resolves with the CLI's stdout, and `failure` when it did not exit cleanly.
+function runClaude(type, { system, user }) {
+  return new Promise((resolve) => {
+    // CLAUDE_CWD is inside this git repo, and auto memory is keyed by the repo, so without
+    // the env var the CLI adds this project's MEMORY.md to the prompt.
+    const env = { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
+    const child = spawn('claude', claudeArgs(type, system, ''), { cwd: CLAUDE_CWD, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    // Resolving here rather than on 'close' means a child that ignores the signal cannot hold a queue slot.
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ stdout, failure: `timed out after ${CLAUDE_TIMEOUT_MS / 1000} s` });
+    }, CLAUDE_TIMEOUT_MS);
+    child.stdout.setEncoding('utf8').on('data', (s) => (stdout += s));
+    child.stderr.setEncoding('utf8').on('data', (s) => (stderr += s));
+    // Without a listener, EPIPE from a CLI that exits before reading stdin would crash the server.
+    child.stdin.on('error', () => {});
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ stdout, failure: `could not start claude: ${e.message}` });
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      const detail = stderr.trim() ? `: ${stderr.trim().slice(-200)}` : '';
+      resolve({ stdout, failure: code === 0 ? null : `claude exited with ${code ?? signal}${detail}` });
+    });
+    child.stdin.end(user);
+  });
+}
+
+function costOf(stdout) {
+  try {
+    const cost = JSON.parse(stdout).total_cost_usd;
+    return typeof cost === 'number' ? ` ($${cost.toFixed(4)})` : '';
+  } catch {
+    return '';
+  }
+}
+
+async function runJob({ key, task, item }) {
+  let result;
+  let cost = '';
+  try {
+    const { stdout, failure } = await runClaude(item.type, buildPrompt(task, item, await fetchThread(item.number)));
+    cost = costOf(stdout);
+    result = failure ? { ok: false, error: failure } : parseRecommendation(stdout, item.type);
+  } catch (e) {
+    result = { ok: false, error: String(e.message || e) };
+  }
+  if (result.ok) {
+    agent.recs.set(key, { rec: result.rec, at: Date.now() });
+    agent.failures.delete(key);
+    persistRecs();
+  } else {
+    agent.failures.set(key, { error: result.error, at: Date.now() });
+  }
+  log(`recommendation ${key}: ${result.ok ? result.rec.action : `error: ${result.error}`}${cost}`);
+}
+
+function enqueue(job) {
+  if (agent.queued.has(job.key)) return;
+  agent.queued.add(job.key);
+  agent.queue.push(job);
+  drain();
+}
+
+function drain() {
+  while (agent.running < CLAUDE_CONCURRENCY && agent.queue.length) {
+    const job = agent.queue.shift();
+    agent.running++;
+    runJob(job).finally(() => {
+      agent.running--;
+      agent.queued.delete(job.key);
+      drain();
+    });
+  }
+}
+
+function recommendations(entries) {
+  const now = Date.now();
+  const out = {};
+  for (const { key, task, item, error } of entries) {
+    if (error) {
+      out[key] = { status: 'error', error };
+      continue;
+    }
+    const job = { key: recKey(task, item), task, item };
+    const stored = storedResult(job.key, agent, now);
+    if (!stored) enqueue(job);
+    out[key] = stored ?? { status: 'pending' };
+  }
+  return out;
+}
+
+function persistRecs() {
+  agent.recs = pruneRecs(agent.recs, state.items);
+  try {
+    fs.writeFileSync(RECS_FILE, JSON.stringify({ version: RECS_VERSION, recs: Object.fromEntries(agent.recs) }));
+  } catch (e) {
+    log(`could not save recommendations: ${e.message}`);
+  }
+}
+
+function restoreRecs() {
+  try {
+    const d = JSON.parse(fs.readFileSync(RECS_FILE, 'utf8'));
+    if (d.version !== RECS_VERSION) return;
+    agent.recs = new Map(Object.entries(d.recs));
+    log(`restored ${agent.recs.size} recommendations`);
+  } catch {}
+}
+
+// Undefined when the body is not JSON or is larger than MAX_BODY. It reads to the end
+// either way, so the 400 response can still be sent on the same socket.
+async function readJson(req) {
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size <= MAX_BODY) chunks.push(chunk);
+    }
+    return size <= MAX_BODY ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
@@ -296,6 +462,11 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(202, { 'content-type': 'application/json' });
     return res.end('{"ok":true}');
   }
+  if (url.pathname === '/api/recommendations' && req.method === 'POST') {
+    const entries = validateTasks(await readJson(req), state.items);
+    res.writeHead(entries ? 200 : 400, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    return res.end(JSON.stringify(entries ? recommendations(entries) : { error: 'expected a JSON body {tasks: [...]} of at most 64 KB' }));
+  }
   const file = path.join(__dirname, 'public', url.pathname === '/' ? 'index.html' : path.normalize(url.pathname));
   if (!file.startsWith(path.join(__dirname, 'public'))) {
     res.writeHead(403);
@@ -314,6 +485,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => log(`listening on http://localhost:${PORT}`));
 
 const hadCache = restore();
+restoreRecs();
+fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 await runSync(hadCache ? 'incremental' : 'full');
 setInterval(() => runSync('incremental'), INCREMENTAL_MS);
 setInterval(() => runSync('full'), FULL_MS);

@@ -1,5 +1,6 @@
-// One agent recommendation per Inbox task: actions, prompt, output schema and parsing.
+// One agent recommendation per Inbox task: actions, prompt, output schema, parsing, CLI arguments and request checks.
 // Issue and PR text is written by outside users, so the prompt fences it as untrusted data.
+import { TASK_KINDS } from './public/inbox.js';
 
 export const ACTIONS = [
   { id: 'verify', type: 'issue', apply: 'command', label: 'Ask bot to verify', body: '@expo-bot verify' },
@@ -53,7 +54,7 @@ export function schemaFor(type) {
 const neutralise = (text) => String(text ?? '').replace(/<(\/?untrusted)/gi, '&lt;$1');
 const attr = (value) => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/["<>]/g, '');
 const inline = (text) => neutralise(text).replace(/\s*[\r\n]+\s*/g, ' ');
-const truncate =(text, limit) => (text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text);
+const truncate = (text, limit) => (text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text);
 
 function untrusted(kind, { author, association, at }, text, limit = Infinity) {
   return `<untrusted kind="${kind}" author="${attr(author)}" association="${attr(association)}" at="${attr(at)}">${neutralise(truncate(text ?? '', limit))}</untrusted>`;
@@ -175,3 +176,61 @@ function validate(rec, type) {
 }
 
 export const recKey = (task, item) => `${task.key}@${item.updatedAt}`;
+
+const MAX_TASKS = 30;
+export const RETRY_MS = 10 * 60 * 1000;
+const MAX_REASONS = 5;
+const REASON_LIMIT = 200;
+const TASK_KEY = /^(\d+):([a-z-]+)$/;
+const REC_KEY = /^(\d+):[a-z-]+@(.+)$/;
+
+// No tools, no MCP servers, no settings files: the agent can only read the prompt and answer.
+export function claudeArgs(type, system, settingSources) {
+  return [
+    '-p',
+    '--output-format', 'json',
+    '--json-schema', JSON.stringify(schemaFor(type)),
+    '--system-prompt', system,
+    '--tools', '',
+    '--strict-mcp-config',
+    '--no-session-persistence',
+    '--setting-sources', settingSources,
+  ];
+}
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// `body` is the parsed POST /api/recommendations body. Returns null when it has no task list.
+// Tasks come from the browser, so only key, kind and reason texts are kept, and the item
+// always comes from `items` (number → cached item).
+export function validateTasks(body, items) {
+  if (!isObject(body) || !Array.isArray(body.tasks)) return null;
+  return body.tasks
+    .slice(0, MAX_TASKS)
+    .filter((task) => isObject(task) && typeof task.key === 'string')
+    .map(({ key, kind, reasons }) => {
+      const [, number, keyKind] = key.match(TASK_KEY) ?? [];
+      const item = items.get(Number(number));
+      if (!item || kind !== keyKind || !Object.hasOwn(TASK_KINDS, kind)) return { key, error: 'invalid task' };
+      const texts = Array.isArray(reasons) ? reasons.filter((r) => typeof r?.text === 'string') : [];
+      return { key, task: { key, kind, reasons: texts.slice(0, MAX_REASONS).map((r) => ({ text: r.text.slice(0, REASON_LIMIT) })) }, item };
+    });
+}
+
+export function pruneRecs(recs, items) {
+  return new Map(
+    [...recs].filter(([key]) => {
+      const [, number, updatedAt] = key.match(REC_KEY) ?? [];
+      return number != null && items.get(Number(number))?.updatedAt === updatedAt;
+    })
+  );
+}
+
+// null means: nothing usable is stored, so the task should run.
+export function storedResult(key, { recs, failures }, now) {
+  const done = recs.get(key);
+  if (done) return { status: 'done', rec: done.rec, recKey: key };
+  const failure = failures.get(key);
+  if (failure && now - failure.at < RETRY_MS) return { status: 'error', error: failure.error };
+  return null;
+}

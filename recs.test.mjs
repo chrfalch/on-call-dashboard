@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
-import { applyPlan, hasPending, recAction, recFor, recRequest, recSignature } from './public/recs.js';
+import { applyPlan, hasPending, recAction, recFor, recLabel, recRequest, recSignature } from './public/recs.js';
 
 const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
 const pr = { type: 'pr', number: 34, url: 'https://github.com/expo/expo/pull/34', updatedAt: '2026-10-26T11:00:00Z' };
@@ -117,4 +117,22 @@ test('applyPlan: unknown actions and actions for the other item type do nothing'
   assert.deepEqual(applyPlan(rec('verify'), pr), { kind: 'none' });
   assert.deepEqual(applyPlan(rec('close-duplicate'), pr), { kind: 'none' });
   assert.deepEqual(applyPlan(null, issue), { kind: 'none' });
+});
+
+test('recLabel puts the person in the button when the action addresses them', () => {
+  assert.deepEqual(recLabel(rec('ask-reporter', { who: 'yerapat' }), issue), { button: 'Ask yerapat', who: null });
+  assert.deepEqual(recLabel(rec('nudge-author', { who: 'brentvatne' }), pr), { button: 'Ask brentvatne', who: null });
+  assert.deepEqual(recLabel(rec('review-note', { who: 'brentvatne' }), pr), { button: 'Tell brentvatne', who: null });
+  assert.deepEqual(recLabel(rec('assign-owner', { who: 'alanjhughes' }), issue), { button: 'Assign to alanjhughes', who: null });
+  assert.deepEqual(recLabel(rec('accept', { who: 'alanjhughes' }), issue), { button: 'Accept, assign to alanjhughes', who: null });
+});
+
+test('recLabel keeps the action label and a separate who when the person only does the action', () => {
+  assert.deepEqual(recLabel(rec('verify'), issue), { button: 'Ask bot to verify', who: 'Done by' });
+  assert.deepEqual(recLabel(rec('request-review', { who: 'kudo' }), pr), { button: 'Ask bot to review', who: 'Review by' });
+  assert.deepEqual(recLabel(rec('wait', { who: 'reporter' }), issue), { button: 'Wait', who: 'Waiting on' });
+});
+
+test('recLabel returns null for an unknown action', () => {
+  assert.equal(recLabel(rec('nope'), issue), null);
 });

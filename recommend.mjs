@@ -52,7 +52,8 @@ export function schemaFor(type) {
 
 const neutralise = (text) => String(text ?? '').replace(/<(\/?untrusted)/gi, '&lt;$1');
 const attr = (value) => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/["<>]/g, '');
-const truncate = (text, limit) => (text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text);
+const inline = (text) => neutralise(text).replace(/\s*[\r\n]+\s*/g, ' ');
+const truncate =(text, limit) => (text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text);
 
 function untrusted(kind, { author, association, at }, text, limit = Infinity) {
   return `<untrusted kind="${kind}" author="${attr(author)}" association="${attr(association)}" at="${attr(at)}">${neutralise(truncate(text ?? '', limit))}</untrusted>`;
@@ -64,10 +65,10 @@ function systemPrompt(type) {
   return `You are the on-call triage assistant for the expo/expo GitHub repository. You recommend exactly one next action for one ${type === 'pr' ? 'pull request' : 'issue'}.
 
 Runbook:
-- Labelled needs-review and unassigned: on-call validates it within about 10 minutes, then accepts and assigns it, or assigns the module owner with a summary.
-- Labelled needs-review and assigned: the assignee owns it. Usually wait.
-- Issue accepted and unassigned: make sure a Linear task exists and assign a lead.
-- Issue accepted and assigned: wait.
+- Label "needs review", unassigned: on-call validates it within about 10 minutes, then accepts and assigns it, or assigns the module owner with a summary.
+- Label "needs review", assigned: the assignee owns it. Usually wait.
+- Label "Issue accepted", unassigned: make sure a Linear task exists and assign a lead.
+- Label "Issue accepted", assigned: wait.
 - When a reproduction is needed, suggest a Snack (snack.expo.dev) first.
 
 Allowed actions:
@@ -86,17 +87,25 @@ function facts(task, item) {
   const lines = [
     `Task: ${task.kind}${task.reasons?.length ? ` (${task.reasons.map((r) => r.text ?? r.label).filter(Boolean).join('; ')})` : ''}`,
     `${item.type === 'pr' ? 'Pull request' : 'Issue'} #${item.number}`,
-    `Author: ${item.author?.login ?? 'ghost'} (${item.authorAssociation})`,
-    `Labels: ${item.labels?.map((l) => l.name).join(', ') || 'none'}`,
-    `Assignees: ${item.assignees?.map((a) => a.login).join(', ') || 'none'}`,
+    `Author: ${inline(item.author?.login ?? 'ghost')} (${inline(item.authorAssociation)})`,
+    `Labels: ${item.labels?.map((l) => inline(l.name)).join(', ') || 'none'}`,
+    `Assignees: ${item.assignees?.map((a) => inline(a.login)).join(', ') || 'none'}`,
     `Created: ${item.createdAt}. Updated: ${item.updatedAt}.`,
   ];
   const { assessment, verification } = item.triage ?? {};
+  const bot = (at) => ({ author: 'expo-bot', association: 'BOT', at });
+  const prose = (fields) => fields.filter(([, text]) => text).map(([name, text]) => `${name}: ${text}`).join('\n');
   if (assessment) {
-    const parts = [assessment.kind, assessment.confidence != null && `${assessment.confidence}% confidence`, assessment.severity && `severity ${assessment.severity.code}`, assessment.impact && `impact: ${assessment.impact}`, assessment.scope && `scope: ${assessment.scope}`];
-    lines.push(`Bot assessment: ${neutralise(parts.filter(Boolean).join('; '))}`);
+    const parts = [assessment.kind, assessment.confidence != null && `${assessment.confidence}% confidence`, assessment.severity && `severity ${assessment.severity.code}`];
+    lines.push(`Bot assessment: ${inline(parts.filter(Boolean).join('; '))}`);
+    const text = prose([['Impact', assessment.impact], ['Scope', assessment.scope]]);
+    if (text) lines.push(untrusted('bot-assessment', bot(assessment.at), text, COMMENT_LIMIT));
   }
-  if (verification) lines.push(`Bot verification: ${neutralise([verification.outcome, verification.headline, verification.maintainer && `maintainer note: ${verification.maintainer}`].filter(Boolean).join('; '))}`);
+  if (verification) {
+    lines.push(`Bot verification: ${inline(verification.outcome)}`);
+    const text = prose([['Headline', verification.headline], ['Maintainer', verification.maintainer], ['Reporter', verification.reporter]]);
+    if (text) lines.push(untrusted('bot-verification', bot(verification.at), text, COMMENT_LIMIT));
+  }
   if (item.conversation?.waitingOn) lines.push(`Waiting on: ${item.conversation.waitingOn} since ${item.conversation.since}`);
   if (item.type === 'pr') {
     if (item.isDraft) lines.push('Draft: yes');
@@ -110,12 +119,13 @@ function facts(task, item) {
 
 export function buildPrompt(task, item, thread) {
   const opener = { author: item.author?.login, association: item.authorAssociation, at: item.createdAt };
-  const comments = thread.comments.slice(-COMMENT_COUNT);
-  const omitted = thread.comments.length - comments.length;
+  const all = thread?.comments ?? [];
+  const comments = all.slice(-COMMENT_COUNT);
+  const omitted = all.length - comments.length;
   const blocks = [
     facts(task, item),
     `Title:\n${untrusted('title', opener, item.title)}`,
-    thread.body != null && `Description:\n${untrusted('description', opener, thread.body, DESCRIPTION_LIMIT)}`,
+    thread?.body != null && `Description:\n${untrusted('description', opener, thread.body, DESCRIPTION_LIMIT)}`,
     comments.length && `Comments, oldest first${omitted ? ` (${omitted} earlier comments left out)` : ''}:\n${comments.map((c) => untrusted('comment', { author: c.author, association: c.association, at: c.createdAt }, c.body, COMMENT_LIMIT)).join('\n')}`,
   ];
   return { system: systemPrompt(item.type), user: blocks.filter(Boolean).join('\n\n') };

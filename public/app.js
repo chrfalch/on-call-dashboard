@@ -1,7 +1,7 @@
 // Expo triage dashboard client.
 import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
-import { applyPlan, hasPending, recAction, recFor, recRequest, recSignature } from './recs.js';
+import { applyPlan, hasPending, recFor, recLabel, recRequest, recSignature } from './recs.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -1073,15 +1073,16 @@ function recHtml(t) {
   if (entry.status === 'pending') return `<div class="rec">${tag}Thinking…</div>`;
   if (entry.status !== 'done') return `<div class="rec" title="${esc(entry.error)}">${tag}No recommendation</div>`;
   const { rec } = entry;
-  const action = recAction(rec, t.item);
-  if (!action) return '';
+  const label = recLabel(rec, t.item);
+  if (!label) return '';
   const { kind } = applyPlan(rec, t.item);
   const posted = kind === 'command' && postedThisSession.has(t.item.number);
   const apply =
     kind === 'none'
-      ? `<span class="rec-action">${esc(action.label)}</span>`
-      : `<button class="btn btn-xs" data-rec-apply="${t.key}"${posted ? ' disabled' : ''}>${esc(action.label)}${REC_SUFFIX[kind] ?? ''}</button>`;
-  return `<div class="rec">${tag}${apply}<span class="rec-who">${esc(action.who)} <b>${esc(rec.who)}</b></span><span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span><span class="rec-why">${esc(rec.why)}</span></div>`;
+      ? `<span class="rec-action">${esc(label.button)}</span>`
+      : `<button class="btn btn-xs" data-rec-apply="${t.key}"${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
+  const who = label.who ? `<span class="rec-who">${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
+  return `<div class="rec">${tag}${apply}${who}<span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span><span class="rec-why">${esc(rec.why)}</span></div>`;
 }
 
 function applyRec(t) {

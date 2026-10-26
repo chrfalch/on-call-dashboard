@@ -1,4 +1,6 @@
 // Expo triage dashboard client.
+import { computeTasks, isHidden, TASK_KINDS } from './inbox.js';
+
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
 const ACTIONS = {
@@ -7,7 +9,11 @@ const ACTIONS = {
 };
 
 const DEFAULT_FILTERS = {
-  tab: 'issue',
+  tab: 'inbox',
+  inboxScope: 'all',
+  inboxKind: '',
+  inboxOthers: false,
+  inboxHidden: false,
   q: '',
   minSeverity: 0,
   includeUnrated: false,
@@ -394,12 +400,17 @@ function sortItems(items) {
 function render() {
   writeHash();
   syncControls();
+  const inInbox = filters.tab === 'inbox';
+  $('#inbox').hidden = !inInbox;
+  $('#browse').hidden = inInbox;
+  renderInbox();
 
   const visible = sortItems(data.items.filter((i) => matches(i, filters)));
   const tabCount = (tab) => data.items.filter((i) => matches(i, { ...filters, tab })).length;
   $('#count-issue').textContent = tabCount('issue');
   $('#count-pr').textContent = tabCount('pr');
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab));
+  if (inInbox) return;
   $('#pr-filters').hidden = filters.tab !== 'pr';
 
   renderCommands();
@@ -420,8 +431,7 @@ function render() {
   updateBulk(visible);
 }
 
-function rowHtml(i) {
-  const action = ACTIONS[i.type];
+function itemParts(i) {
   const icon = i.type === 'pr' ? (i.isDraft ? icons.draft : icons.pr) : icons.issue;
   const meta = [`<a href="${i.url}" target="_blank" rel="noreferrer">#${i.number}</a> opened ${ago(i.createdAt)} by <a href="https://github.com/${esc(i.author.login)}" target="_blank" rel="noreferrer">${esc(i.author.login)}</a>`];
   meta.push(`<span class="sep">·</span> updated ${ago(i.updatedAt)}`);
@@ -458,16 +468,21 @@ function rowHtml(i) {
     .slice(0, 4)
     .map((p) => `<img class="avatar" src="${p.avatarUrl}&s=40" alt="${esc(p.login)}" title="Reviewed by ${esc(p.login)}" loading="lazy">`)
     .join('');
+  const main = `<a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
+      <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
+      <div class="meta">${meta.join(' ')}</div>
+      ${triageHtml(i)}`;
+  return { icon, main, avatars };
+}
+
+function rowHtml(i) {
+  const action = ACTIONS[i.type];
+  const { icon, main, avatars } = itemParts(i);
   const posted = postedThisSession.has(i.number);
   return `<li class="row${selected.has(i.number) ? ' selected' : ''}" data-number="${i.number}">
     <input type="checkbox" class="row-check" ${selected.has(i.number) ? 'checked' : ''} />
     ${icon}
-    <div class="row-main">
-      <a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
-      <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
-      <div class="meta">${meta.join(' ')}</div>
-      ${triageHtml(i)}
-    </div>
+    <div class="row-main">${main}</div>
     <div class="row-side">
       <span class="avatars">${avatars}</span>
       <span class="comments-count">${i.commentCount ? `${icons.comment} ${i.commentCount}` : ''}</span>
@@ -796,9 +811,9 @@ const CLOSE_TEMPLATES = {
   ],
 };
 
-function openCloseDialog() {
+function openCloseDialog(type = filters.tab) {
   if (!requireToken()) return;
-  const tpls = CLOSE_TEMPLATES[filters.tab];
+  const tpls = CLOSE_TEMPLATES[type];
   const sel = $('#close-template');
   sel.innerHTML = tpls.map((t, idx) => `<option value="${idx}">${esc(t.name)}</option>`).join('');
   const pick = () => {
@@ -808,8 +823,8 @@ function openCloseDialog() {
   };
   sel.onchange = pick;
   pick();
-  $('#close-reason').querySelector('[value=duplicate]').disabled = filters.tab === 'pr';
-  $('#close-title').textContent = `Comment & close ${selected.size} ${filters.tab === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
+  $('#close-reason').querySelector('[value=duplicate]').disabled = type === 'pr';
+  $('#close-title').textContent = `Comment & close ${selected.size} ${type === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
   $('#close-dialog').showModal();
 }
 
@@ -832,6 +847,7 @@ async function closeItems(numbers, body, reason) {
   );
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
+  if (filters.tab === 'inbox' && ok.length) localStorage.setItem(todayKey(), String(Number(localStorage.getItem(todayKey()) || 0) + ok.length));
   const closed = new Set(ok.map((r) => r.item.number));
   data.items = data.items.filter((i) => !closed.has(i.number));
   selected = new Set([...selected].filter((n) => !closed.has(n)));
@@ -932,6 +948,176 @@ async function refresh(force = false) {
   if (!d.items.length || d.syncing) setTimeout(refresh, 4000);
 }
 
+
+// ---------- triage inbox ----------
+
+const inboxState = JSON.parse(localStorage.getItem('inboxState') || '{}');
+let inboxShown = 25;
+let inboxFocus = 0;
+let inboxVisible = [];
+
+function saveInboxState() {
+  // Forget entries older than 30 days so localStorage doesn't grow forever.
+  const cutoff = Date.now() - 30 * 864e5;
+  for (const [k, v] of Object.entries(inboxState)) if ((v.doneAt ?? v.snoozedAt ?? 0) < cutoff) delete inboxState[k];
+  localStorage.setItem('inboxState', JSON.stringify(inboxState));
+}
+
+function todayKey() {
+  return `inboxDone:${new Date().toISOString().slice(0, 10)}`;
+}
+
+function markDone(task) {
+  inboxState[task.key] = { doneAt: Date.now(), updatedAt: task.item.updatedAt };
+  localStorage.setItem(todayKey(), String(Number(localStorage.getItem(todayKey()) || 0) + 1));
+  saveInboxState();
+  render();
+}
+
+function snooze(task, days = 3) {
+  inboxState[task.key] = { snoozedAt: Date.now(), snoozeUntil: Date.now() + days * 864e5 };
+  saveInboxState();
+  render();
+}
+
+function renderInbox() {
+  const all = computeTasks(data.items, { me: me?.login });
+  const inScope = all.filter(
+    (t) => (filters.inboxScope === 'all' || t.item.type === filters.inboxScope) && (filters.inboxOthers || !t.assignedToOthers)
+  );
+  const open = inScope.filter((t) => !isHidden(t, inboxState));
+  $('#count-inbox').textContent = all.filter((t) => !t.assignedToOthers && !isHidden(t, inboxState)).length;
+  if (filters.tab !== 'inbox') return;
+
+  const pool = filters.inboxHidden ? inScope : open;
+  const kinds = new Map();
+  for (const t of pool) kinds.set(t.kind, (kinds.get(t.kind) || 0) + 1);
+  $('#inbox-kinds').innerHTML = Object.entries(TASK_KINDS)
+    .filter(([k]) => kinds.has(k))
+    .map(
+      ([k, def]) =>
+        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}">${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
+    )
+    .join('');
+  document.querySelectorAll('#inbox-scope button').forEach((b) => b.classList.toggle('selected', b.dataset.scope === filters.inboxScope));
+  $('#inbox-others').checked = filters.inboxOthers;
+  $('#inbox-hidden').checked = filters.inboxHidden;
+
+  inboxVisible = pool.filter((t) => !filters.inboxKind || t.kind === filters.inboxKind);
+  inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
+  const doneToday = Number(localStorage.getItem(todayKey()) || 0);
+  $('#inbox-progress').innerHTML = `<strong>${doneToday}</strong> done today<br><span class="muted">${open.length} open tasks${me ? '' : ' · sign in to see yours first'}</span>`;
+
+  $('#inbox-list').innerHTML = inboxVisible.length
+    ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')
+    : `<li class="empty">${data.items.length ? 'Inbox zero 🎉 Nothing left in this view.' : 'Loading from GitHub…'}</li>`;
+  $('#inbox-more').innerHTML =
+    inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
+}
+
+function taskActionButton(t) {
+  const def = TASK_KINDS[t.kind];
+  const i = t.item;
+  if (def.action === 'command') {
+    const posted = postedThisSession.has(i.number);
+    return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}" ${posted ? 'disabled' : ''}>${posted ? '✓ Requested' : ACTIONS[i.type].label}</button>`;
+  }
+  if (def.action === 'apply-severity') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">Apply ${esc(i.triage.assessment.severity.label)}</button>`;
+  if (def.action === 'close') return `<button class="btn btn-sm btn-danger" data-task-do="${t.key}">Close…</button>`;
+  const verb = { merge: 'Open to merge', review: 'Open to review', reply: 'Open to reply', 'first-response': 'Open to respond', 'assign-repro': 'Open to assign', nudge: 'Open to nudge' }[t.kind] ?? 'Open';
+  return `<a class="btn btn-sm btn-primary" href="${i.url}" target="_blank" rel="noreferrer" data-task-open="${t.key}">${verb} ↗</a>`;
+}
+
+function taskHtml(t, idx) {
+  const def = TASK_KINDS[t.kind];
+  const { icon, main } = itemParts(t.item);
+  const hidden = isHidden(t, inboxState);
+  const reasons = t.reasons
+    .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason">${esc(r.text)}</span>`))
+    .join('');
+  const also = t.also.length ? `<span class="muted">also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
+  return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}" data-task="${t.key}">
+    <div class="task-rank">${idx + 1}</div>
+    <div class="task-body">
+      <div class="task-head">
+        <span class="kind-badge tone-${def.tone}">${icons[def.icon] ?? ''} ${esc(def.label)}</span>
+        ${reasons}
+        ${also}
+        <span class="header-spacer"></span>
+        <span class="task-score" title="Priority score: task base + severity, waiting time, 👍, assignment">${t.score}</span>
+      </div>
+      <div class="task-item">${icon}<div class="row-main">${main}</div></div>
+    </div>
+    <div class="task-actions">
+      ${taskActionButton(t)}
+      <div class="task-secondary">
+        <button class="btn btn-sm" data-task-done="${t.key}" title="Hide until this item changes on GitHub (d)">✓ Done</button>
+        <button class="btn btn-sm" data-task-later="${t.key}" title="Snooze for 3 days (l)">Later</button>
+      </div>
+    </div>
+  </li>`;
+}
+
+function findTask(key) {
+  return inboxVisible.find((t) => t.key === key);
+}
+
+async function doTask(t) {
+  const def = TASK_KINDS[t.kind];
+  if (def.action === 'command') {
+    if (!requireToken()) return;
+    await postCommand([t.item.number]);
+    if (postedThisSession.has(t.item.number)) markDone(t);
+  } else if (def.action === 'apply-severity') {
+    await applySeverity(t.item);
+    if (!severityMismatch(t.item)) markDone(t);
+  } else if (def.action === 'close') {
+    selected = new Set([t.item.number]);
+    openCloseDialog(t.item.type);
+  } else {
+    window.open(t.item.url, '_blank', 'noopener');
+  }
+}
+
+function inboxClick(e) {
+  const t = e.target;
+  const scope = t.closest('[data-scope]');
+  if (scope) { filters.inboxScope = scope.dataset.scope; filters.inboxKind = ''; inboxShown = 25; return render(); }
+  const kind = t.closest('[data-inbox-kind]');
+  if (kind) { filters.inboxKind = filters.inboxKind === kind.dataset.inboxKind ? '' : kind.dataset.inboxKind; inboxShown = 25; return render(); }
+  if (t.id === 'inbox-more-btn') { inboxShown += 25; return render(); }
+  const done = t.closest('[data-task-done]');
+  if (done) return markDone(findTask(done.dataset.taskDone));
+  const later = t.closest('[data-task-later]');
+  if (later) return snooze(findTask(later.dataset.taskLater));
+  const go = t.closest('[data-task-do]');
+  if (go) return doTask(findTask(go.dataset.taskDo));
+  const row = t.closest('[data-task]');
+  if (row && !t.closest('a, button')) {
+    inboxFocus = inboxVisible.findIndex((x) => x.key === row.dataset.task);
+    document.querySelectorAll('.task').forEach((el, idx) => el.classList.toggle('focused', idx === inboxFocus));
+  }
+}
+
+function inboxKey(e) {
+  if (filters.tab !== 'inbox' || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) || e.metaKey || e.ctrlKey) return;
+  if (document.querySelector('dialog[open]')) return;
+  const t = inboxVisible[inboxFocus];
+  const move = (d) => {
+    inboxFocus = Math.max(0, Math.min(inboxVisible.length - 1, inboxFocus + d));
+    if (inboxFocus >= inboxShown) inboxShown += 25;
+    render();
+    document.querySelector('.task.focused')?.scrollIntoView({ block: 'nearest' });
+  };
+  if (e.key === 'j') move(1);
+  else if (e.key === 'k') move(-1);
+  else if (!t) return;
+  else if (e.key === 'o') window.open(t.item.url, '_blank', 'noopener');
+  else if (e.key === 'x') doTask(t);
+  else if (e.key === 'd') markDone(t);
+  else if (e.key === 'l') snooze(t);
+}
+
 // ---------- events ----------
 
 document.addEventListener('click', (e) => {
@@ -939,6 +1125,12 @@ document.addEventListener('click', (e) => {
   // Before the label handler: severity commands render a label inside the button.
   const cmd = t.closest('[data-cmd]');
   if (cmd) return applyCommand(findCommand(cmd.dataset.cmd));
+  // Labels/assignees clicked inside the inbox jump to the matching list view.
+  const taskRow = t.closest('[data-task]');
+  if (taskRow && t.closest('.AssigneeChip, .IssueLabel') && !t.closest('[data-cmd]')) {
+    const item = data.items.find((i) => i.number === Number(taskRow.dataset.task.split(':')[0]));
+    filters = { ...DEFAULT_FILTERS, tab: item.type };
+  }
   const chip = t.closest('.AssigneeChip');
   if (chip) {
     e.preventDefault();
@@ -1049,7 +1241,11 @@ bind('#assignee-filter', 'assignee');
 bind('#waiting', 'waiting');
 bind('#idle', 'idleDays', Number);
 bind('#verdict', 'verdict');
-$('#bulk-close-btn').addEventListener('click', openCloseDialog);
+$('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
+$('#inbox').addEventListener('click', inboxClick);
+document.addEventListener('keydown', inboxKey);
+$('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
+$('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });
 
 $('#refresh-btn').addEventListener('click', async () => {
   $('#refresh-btn').disabled = true;

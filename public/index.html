@@ -23,6 +23,10 @@
 
   <nav class="repo-tabs">
     <div class="container">
+      <a href="#" data-tab="inbox" class="tab">
+        <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M2.8 2.06A1.75 1.75 0 0 1 4.41 1h7.18c.7 0 1.333.417 1.61 1.06l2.74 6.395c.04.093.06.194.06.295v4.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25v-4.5c0-.101.02-.202.06-.295Zm1.61.44a.25.25 0 0 0-.23.152L1.887 8H4.75a.75.75 0 0 1 .6.3L6.625 10h2.75l1.275-1.7a.75.75 0 0 1 .6-.3h2.863L11.82 2.652a.25.25 0 0 0-.23-.152Zm10.09 7h-2.875l-1.275 1.7a.75.75 0 0 1-.6.3h-3.5a.75.75 0 0 1-.6-.3L4.375 9.5H1.5v3.75c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25Z"/></svg>
+        Inbox <span class="counter" id="count-inbox"></span>
+      </a>
       <a href="#" data-tab="issue" class="tab">
         <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>
         Issues <span class="counter" id="count-issue"></span>
@@ -35,6 +39,28 @@
   </nav>
 
   <main class="container">
+    <section id="inbox" hidden>
+      <div class="inbox-header">
+        <div>
+          <h2>Triage inbox</h2>
+          <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> open, <kbd>x</kbd> do it, <kbd>d</kbd> done, <kbd>l</kbd> later.</p>
+        </div>
+        <div class="inbox-progress" id="inbox-progress"></div>
+      </div>
+      <div class="inbox-controls">
+        <div class="segmented" id="inbox-scope">
+          <button data-scope="all">All</button><button data-scope="issue">Issues</button><button data-scope="pr">PRs</button>
+        </div>
+        <div class="inbox-kinds" id="inbox-kinds"></div>
+        <div class="header-spacer"></div>
+        <label class="checkbox-wrap"><input type="checkbox" id="inbox-others" /> Include tasks assigned to others</label>
+        <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done/snoozed</label>
+      </div>
+      <ol id="inbox-list" class="Box inbox-list"></ol>
+      <div id="inbox-more" class="more"></div>
+    </section>
+
+    <div id="browse">
     <div class="presets" id="presets"></div>
 
     <div class="filter-bar">
@@ -174,6 +200,7 @@
         <p class="hint">Click a label to filter. <kbd>Alt</kbd>/<kbd>⌥</kbd>-click to exclude.</p>
         <div id="facets"></div>
       </aside>
+    </div>
     </div>
   </main>
 

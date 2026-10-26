@@ -109,13 +109,15 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .btn-action { padding: 2px 10px; font-size: 12px; }
 .btn-action.done { color: var(--success); border-color: var(--success); background: transparent; }
 
-/* Triage commands */
+/* Runbook views */
 .presets { margin: 16px 0 12px; }
 .cmd-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 12px; }
 .cmd-toggle { background: none; border: 0; padding: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--fg); cursor: pointer; }
-.cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .cmd-card { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding: 8px; }
-.cmd-card h4 { margin: 0 0 4px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--fg-muted); display: flex; gap: 6px; align-items: center; cursor: help; }
+.cmd-card h4 { margin: 0 0 4px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--fg-muted); }
+.cmd-card.quiet { background: var(--bg-muted); }
+.cmd-card.quiet .cmd { color: var(--fg-muted); }
 .cmd {
   display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 6px;
   background: none; border: 0; border-radius: 6px; font: inherit; font-size: 13px; color: var(--fg); cursor: pointer; text-align: left;
@@ -123,9 +125,12 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .cmd:hover { background: var(--bg-hover); }
 .cmd.selected { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
 .cmd.zero { opacity: 0.5; }
-.cmd-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-.cmd-name .IssueLabel { margin: 0; cursor: pointer; }
-.cmd-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cmd-name { flex: 1; min-width: 0; }
+.cmd-audience {
+  padding: 0 6px; font-size: 11px; line-height: 16px; color: var(--fg-muted); white-space: nowrap;
+  border: 1px solid var(--border); border-radius: 2em;
+}
+.cmd-count { min-width: 2.5em; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tone-danger .octicon, .tone-danger .cmd-count { color: var(--danger); }
 .tone-attention .octicon, .tone-attention .cmd-count { color: var(--attention); }
 .tone-success .octicon, .tone-success .cmd-count { color: var(--success); }
@@ -146,6 +151,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .select-wrap, .checkbox-wrap { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-muted); font-size: 13px; }
 .select-wrap select { padding: 3px 8px; font-size: 13px; }
 .pr-filters[hidden] { display: none; }
+.select-wrap:has(:disabled), .checkbox-wrap:has(:disabled), .sidebar[inert] { opacity: 0.5; }
 
 .active-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; min-height: 4px; }
 .chip-remove { cursor: pointer; margin-left: 2px; opacity: 0.8; }

@@ -19,17 +19,21 @@ dependencies, no build step.
   Tested by `triage.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
   `isHidden`). Shared by browser and Node; tested by `inbox.test.mjs`.
-- `public/app.js` — all UI: rendering, filters (URL hash), GitHub write actions.
+- `public/views.js` — pure runbook views for the Issues and PRs tabs (`VIEWS`,
+  `GROUPS`, `applyView`, `viewCounts`). Each view has a fixed rule, a fixed
+  sort and an audience. Shared by browser and Node; tested by `views.test.mjs`.
+- `public/app.js` — all UI: rendering, Runbook view cards, filters (URL hash),
+  GitHub write actions.
 - `public/index.html`, `public/style.css` — markup and GitHub-like styles.
 
 ## Rules
 
 - Keep it dependency-free. Browser code is native ES modules, no bundler.
-- Put logic in the pure modules (`triage.mjs`, `public/inbox.js`) and test it
-  there. `app.js` and `server.mjs` have no tests.
-- When you change the item shape in `server.mjs`, bump `CACHE_VERSION` so old
+- Put logic in the pure modules (`triage.mjs`, `public/inbox.js`,
+  `public/views.js`) and test it there. `app.js` and `server.mjs` have no tests.- When you change the item shape in `server.mjs`, bump `CACHE_VERSION` so old
   caches re-sync.
 - Write actions (comments such as `@expo-bot review`) run in the browser with
   the user's own token from localStorage. The server only reads from GitHub.
 - Per-browser state lives in localStorage keys `ghToken`, `inboxState`,
-  `collapsedGroups`, `commandsCollapsed`. Filter state lives in the URL hash.
+  `collapsedGroups`, `commandsCollapsed` (the Runbook cards). Filter state,
+  including the active view (`view=<id>`), lives in the URL hash.

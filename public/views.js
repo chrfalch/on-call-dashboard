@@ -22,7 +22,8 @@ const asc = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
 const desc = (x, y) => asc(y, x);
 const unowned = (item) => item.assignees.length === 0;
 const waitingOn = (item) => item.conversation?.waitingOn;
-const silentDays = (item, now) => days(item.conversation.since, now);
+const since = (item) => item.conversation?.since;
+const silentDays = (item, now) => days(since(item), now);
 const external = (item) => has(item, 'contributor: external');
 const reviewed = (item) => (item.latestReviews ?? []).length > 0;
 const green = (item) => item.checks === 'SUCCESS' && item.mergeable === 'MERGEABLE';
@@ -32,7 +33,7 @@ const approved = (item) => !item.isDraft && item.reviewDecision === 'APPROVED';
 
 const newestFirst = (a, b) => desc(a.createdAt, b.createdAt) || desc(a.number, b.number);
 const oldestFirst = (a, b) => asc(a.createdAt, b.createdAt) || asc(a.number, b.number);
-const longestSilent = (a, b) => asc(a.conversation.since, b.conversation.since) || asc(a.number, b.number);
+const longestSilent = (a, b) => asc(since(a), since(b)) || asc(a.number, b.number);
 const leastRecentlyUpdated = (a, b) => asc(a.updatedAt, b.updatedAt) || asc(a.number, b.number);
 const externalFirst = (a, b) => asc(!external(a), !external(b)) || leastRecentlyUpdated(a, b);
 

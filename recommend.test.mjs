@@ -482,6 +482,35 @@ test('every action has a who label for the UI', () => {
 
 const actionLine = (system, id) => system.split('\n').find((line) => line.startsWith(`- ${id}: `)) ?? '';
 
+test('every action says what its who means, and the doer actions are labelled "Done by"', () => {
+  for (const action of ACTIONS) assert.ok(typeof action.whoMeaning === 'string' && action.whoMeaning.trim(), action.id);
+  for (const id of ['verify', 'close', 'close-duplicate', 'merge']) assert.equal(ACTIONS.find((a) => a.id === id).who, 'Done by', id);
+});
+
+test('system prompt takes the who meanings from ACTIONS and never says undefined', () => {
+  for (const type of ['issue', 'pr']) assert.ok(!buildPrompt(task, { ...item, type }, null).system.includes('undefined'), type);
+  const accept = ACTIONS.find((a) => a.id === 'accept');
+  const saved = accept.whoMeaning;
+  accept.whoMeaning = 'the person on the rota';
+  try {
+    assert.match(actionLine(buildPrompt(task, item, null).system, 'accept'), /"Assign to <who>": the person on the rota\.$/);
+  } finally {
+    accept.whoMeaning = saved;
+  }
+});
+
+test('system prompt asks for a login only when who is a person', () => {
+  const { system } = buildPrompt(task, item, null);
+  assert.match(system, /who: .*When who is a person, write their GitHub login without @\./);
+  assert.doesNotMatch(system, /Write a GitHub login without @/);
+});
+
+test('system prompt gives a generic why example, not a real SDK version', () => {
+  const { system } = buildPrompt(task, item, null);
+  assert.match(system, /Example: "Ask the reporter to test again on the latest SDK, because a fix shipped there and the crash may be gone\."/);
+  assert.doesNotMatch(system, /56\.0\.3/);
+});
+
 test('system prompt says what who means for each action, with the label the UI shows', () => {
   for (const type of ['issue', 'pr']) {
     const { system } = buildPrompt(task, { ...item, type }, null);

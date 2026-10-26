@@ -30,6 +30,12 @@ export function recFor(response, task) {
 export const recAction = (rec, item) =>
   ACTIONS.find((a) => a.id === rec?.action && (a.type === item.type || a.type === 'both'));
 
+export function recLabel(rec, item) {
+  const action = recAction(rec, item);
+  if (!action) return null;
+  return action.button ? { button: `${action.button} ${rec.who}`, who: null } : { button: action.label, who: action.who };
+}
+
 export function applyPlan(rec, item) {
   const action = recAction(rec, item);
   const draft = typeof rec?.draft === 'string' ? rec.draft : '';

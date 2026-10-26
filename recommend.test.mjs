@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ACTIONS, actionsFor, schemaFor, buildPrompt, parseRecommendation, recKey, claudeArgs, validateTasks, pruneRecs, storedResult, RETRY_MS } from './recommend.mjs';
+import { ACTIONS, actionsFor, schemaFor, buildPrompt, parseRecommendation, recKey, claudeArgs, validateTasks, pruneRecs, storedResult, RETRY_MS, isCurrentRecKey, capQueue, pruneFailures } from './recommend.mjs';
 
 const fixture = readFileSync(new URL('./fixtures/claude-json-schema.json', import.meta.url), 'utf8');
 const ISSUE_ONLY = ['verify', 'ask-reporter', 'accept', 'assign-owner', 'close-duplicate'];
@@ -309,4 +309,47 @@ test('storedResult answers done, a recent error, or null when the task should ru
   assert.deepEqual(storedResult('2:verify@t', store, now), { status: 'error', error: 'timeout' });
   assert.equal(storedResult('3:verify@t', store, now), null);
   assert.equal(storedResult('4:verify@t', store, now), null);
+});
+
+test('schemaFor limits who and why to the lengths parseRecommendation accepts', () => {
+  for (const type of ['issue', 'pr']) {
+    const s = schemaFor(type);
+    assert.deepEqual(s.properties.who, { type: 'string', maxLength: 100 });
+    assert.deepEqual(s.properties.why, { type: 'string', maxLength: 300 });
+  }
+  assert.equal(parseRecommendation(envelope(rec({ who: 'w'.repeat(100), why: 'w'.repeat(300) })), 'issue').ok, true);
+  assert.deepEqual(parseRecommendation(envelope(rec({ why: 'w'.repeat(301) })), 'issue'), { ok: false, error: 'why must be 1-300 characters' });
+  assert.deepEqual(parseRecommendation(envelope(rec({ who: 'w'.repeat(101) })), 'issue'), { ok: false, error: 'who must be 1-100 characters' });
+});
+
+test('system prompt states the why limit in words', () => {
+  for (const type of ['issue', 'pr']) {
+    assert.match(buildPrompt(task, { ...item, type }, null).system, /why: one sentence, at most 300 characters/);
+  }
+});
+
+test('isCurrentRecKey matches a recKey against the cached item version', () => {
+  assert.equal(isCurrentRecKey('123:verify@2026-01-05T00:00:00Z', items), true);
+  assert.equal(isCurrentRecKey('123:verify@2026-01-01T00:00:00Z', items), false);
+  assert.equal(isCurrentRecKey('999:verify@2026-01-05T00:00:00Z', items), false);
+  assert.equal(isCurrentRecKey('garbage', items), false);
+  assert.equal(isCurrentRecKey('123:verify@', new Map([[123, { updatedAt: undefined }]])), false);
+});
+
+test('capQueue drops the oldest waiting jobs beyond the limit', () => {
+  const queue = ['a', 'b', 'c', 'd', 'e'];
+  assert.deepEqual(capQueue(queue, 3), { waiting: ['c', 'd', 'e'], dropped: ['a', 'b'] });
+  assert.deepEqual(capQueue(queue, 5), { waiting: queue, dropped: [] });
+  assert.deepEqual(capQueue([], 3), { waiting: [], dropped: [] });
+  assert.equal(queue.length, 5);
+});
+
+test('pruneFailures forgets failures that are due for a retry', () => {
+  const now = 1_000_000_000;
+  const failures = new Map([
+    ['old', { error: 'x', at: now - RETRY_MS }],
+    ['recent', { error: 'x', at: now - RETRY_MS + 1 }],
+  ]);
+  assert.deepEqual([...pruneFailures(failures, now).keys()], ['recent']);
+  assert.equal(failures.size, 2);
 });

@@ -242,3 +242,11 @@ export function storedResult(key, { recs, failures }, now) {
   if (failure && now - failure.at < RETRY_MS) return { status: 'error', error: failure.error };
   return null;
 }
+
+export const RECS_VERSION = 1;
+const notImplemented = () => {
+  throw new Error('not implemented');
+};
+export const requestError = notImplemented;
+export const respond = notImplemented;
+export const loadRecs = notImplemented;

@@ -307,7 +307,7 @@ function render() {
   updateBulk(visible);
 }
 
-function itemParts(i) {
+function itemParts(i, triageOpts) {
   const icon = i.type === 'pr' ? (i.isDraft ? icons.draft : icons.pr) : icons.issue;
   const meta = [`<a href="${i.url}" target="_blank" rel="noreferrer">#${i.number}</a> opened ${ago(i.createdAt)} by <a href="https://github.com/${esc(i.author.login)}" target="_blank" rel="noreferrer">${esc(i.author.login)}</a>`];
   meta.push(`<span class="sep">·</span> updated ${ago(i.updatedAt)}`);
@@ -347,7 +347,7 @@ function itemParts(i) {
   const main = `<a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
       <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
       <div class="meta">${meta.join(' ')}</div>
-      ${triageHtml(i)}`;
+      ${triageHtml(i, triageOpts)}`;
   return { icon, main, avatars };
 }
 
@@ -386,7 +386,7 @@ function severityMismatch(item) {
 const OUTCOME_TEXT = { problem: 'Reproduced', blocked: 'Blocked', pass: 'Not reproduced' };
 const expanded = new Set();
 
-function triageHtml(i) {
+function triageHtml(i, { fixPrs = true } = {}) {
   const t = i.triage;
   if (!t) return '';
   const a = t.assessment;
@@ -407,8 +407,9 @@ function triageHtml(i) {
         (v.headline ? `<span class="verdict-headline" title="${esc(v.headline)}">${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
     );
   }
-  for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer">🔧 fix PR #${n}</a>`);
+  if (fixPrs) for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer">🔧 fix PR #${n}</a>`);
   const hasDetails = a?.impact || a?.scope || v?.maintainer || v?.reporter;
+  if (!parts.length && !hasDetails) return '';
   if (hasDetails) parts.push(`<button class="details-toggle" data-details="${i.number}">${expanded.has(i.number) ? 'hide details ▴' : 'details ▾'}</button>`);
   const details =
     hasDetails && expanded.has(i.number)
@@ -922,7 +923,10 @@ function taskActionButton(t) {
 
 function taskHtml(t, idx) {
   const def = TASK_KINDS[t.kind];
-  const { icon, main } = itemParts(t.item);
+  const { icon, main } = itemParts(t.item, { fixPrs: false });
+  const fixPrs = (t.item.triage?.fixPrs ?? [])
+    .map((n) => `<a class="fix-pr" href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" title="Fix PR opened by expo-bot">🔧 #${n}</a>`)
+    .join('');
   const hidden = isHidden(t, inboxState);
   const reasons = t.reasons
     .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason">${esc(r.text)}</span>`))
@@ -933,6 +937,7 @@ function taskHtml(t, idx) {
     <div class="task-body">
       <div class="task-head">
         <span class="kind-badge tone-${def.tone}">${icons[def.icon] ?? ''} ${esc(def.label)}</span>
+        ${fixPrs}
         ${reasons}
         ${also}
         <span class="header-spacer"></span>

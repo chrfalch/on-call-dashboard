@@ -33,6 +33,8 @@ const MEANING = {
 const DESCRIPTION_LIMIT = 8000;
 const COMMENT_LIMIT = 4000;
 const COMMENT_COUNT = 30;
+const WHO_LIMIT = 100;
+const WHY_LIMIT = 300;
 
 export const actionsFor = (type) => ACTIONS.filter((a) => a.type === type || a.type === 'both').map((a) => a.id);
 
@@ -43,8 +45,8 @@ export function schemaFor(type) {
     required: ['action', 'who', 'why', 'draft', 'confidence'],
     properties: {
       action: { enum: actionsFor(type) },
-      who: { type: 'string' },
-      why: { type: 'string' },
+      who: { type: 'string', maxLength: WHO_LIMIT },
+      why: { type: 'string', maxLength: WHY_LIMIT },
       draft: { type: ['string', 'null'] },
       confidence: { type: 'integer', minimum: 0, maximum: 100 },
     },
@@ -77,7 +79,7 @@ ${ids.map((id) => `- ${id}: ${MEANING[id]}`).join('\n')}
 
 Fields:
 - who: the person who should act. A GitHub login without @, a team name, or one of on-call, reporter, author.
-- why: one or two sentences with the reason, based on the facts and the thread.
+- why: one sentence, at most ${WHY_LIMIT} characters, with the reason, based on the facts and the thread.
 - draft: the comment text to post. Required and non-empty for ${byApply('comment')}. Optional for ${byApply('close')}. Null for every other action.
 - confidence: 0 to 100.
 
@@ -165,9 +167,9 @@ function validate(rec, type) {
   if (!actionsFor(type).includes(rec.action)) return fail(`action ${quote(rec.action)} is not allowed for ${type}`);
   const action = ACTIONS.find((a) => a.id === rec.action);
   const who = typeof rec.who === 'string' ? rec.who.trim() : '';
-  if (!who || who.length > 100) return fail('who must be 1-100 characters');
+  if (!who || who.length > WHO_LIMIT) return fail(`who must be 1-${WHO_LIMIT} characters`);
   const why = typeof rec.why === 'string' ? rec.why.trim() : '';
-  if (!why || why.length > 300) return fail('why must be 1-300 characters');
+  if (!why || why.length > WHY_LIMIT) return fail(`why must be 1-${WHY_LIMIT} characters`);
   if (!Number.isInteger(rec.confidence) || rec.confidence < 0 || rec.confidence > 100) return fail('confidence must be an integer from 0 to 100');
   if (rec.draft != null && typeof rec.draft !== 'string') return fail('draft must be a string or null');
   const draft = rec.draft?.trim() || null;
@@ -217,13 +219,19 @@ export function validateTasks(body, items) {
     });
 }
 
-export function pruneRecs(recs, items) {
-  return new Map(
-    [...recs].filter(([key]) => {
-      const [, number, updatedAt] = key.match(REC_KEY) ?? [];
-      return number != null && items.get(Number(number))?.updatedAt === updatedAt;
-    })
-  );
+export function isCurrentRecKey(key, items) {
+  const [, number, updatedAt] = key.match(REC_KEY) ?? [];
+  return number != null && items.get(Number(number))?.updatedAt === updatedAt;
+}
+
+export const pruneRecs = (recs, items) => new Map([...recs].filter(([key]) => isCurrentRecKey(key, items)));
+
+export const pruneFailures = (failures, now) => new Map([...failures].filter(([, { at }]) => now - at < RETRY_MS));
+
+// Newest jobs stay: they come from the most recent request, which is what the browser shows now.
+export function capQueue(queue, limit) {
+  const cut = Math.max(0, queue.length - limit);
+  return { waiting: queue.slice(cut), dropped: queue.slice(0, cut) };
 }
 
 // null means: nothing usable is stored, so the task should run.

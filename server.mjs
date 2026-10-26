@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { analyzeComments } from './triage.mjs';
-import { buildPrompt, claudeArgs, parseRecommendation, pruneRecs, recKey, storedResult, validateTasks } from './recommend.mjs';
+import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, parseRecommendation, pruneFailures, pruneRecs, recKey, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
@@ -21,6 +21,7 @@ const RECS_FILE = path.join(__dirname, '.cache', `recommendations-${OWNER}-${NAM
 const CLAUDE_CWD = path.join(__dirname, '.cache', 'claude-cwd');
 const CLAUDE_TIMEOUT_MS = 180_000;
 const CLAUDE_CONCURRENCY = 3;
+const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
@@ -348,6 +349,7 @@ function costOf(stdout) {
 }
 
 async function runJob({ key, task, item }) {
+  if (!isCurrentRecKey(key, state.items)) return log(`recommendation ${key}: skipped, item changed or closed`);
   let result;
   let cost = '';
   try {
@@ -362,7 +364,9 @@ async function runJob({ key, task, item }) {
     agent.failures.delete(key);
     persistRecs();
   } else {
-    agent.failures.set(key, { error: result.error, at: Date.now() });
+    const now = Date.now();
+    agent.failures = pruneFailures(agent.failures, now);
+    agent.failures.set(key, { error: result.error, at: now });
   }
   log(`recommendation ${key}: ${result.ok ? result.rec.action : `error: ${result.error}`}${cost}`);
 }
@@ -370,7 +374,9 @@ async function runJob({ key, task, item }) {
 function enqueue(job) {
   if (agent.queued.has(job.key)) return;
   agent.queued.add(job.key);
-  agent.queue.push(job);
+  const { waiting, dropped } = capQueue([...agent.queue, job], MAX_WAITING_JOBS);
+  agent.queue = waiting;
+  for (const { key } of dropped) agent.queued.delete(key);
   drain();
 }
 

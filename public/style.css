@@ -131,11 +131,9 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
   border: 1px solid var(--border); border-radius: 2em;
 }
 .cmd-count { min-width: 2.5em; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tone-danger .octicon, .tone-danger .cmd-count { color: var(--danger); }
-.tone-attention .octicon, .tone-attention .cmd-count { color: var(--attention); }
-.tone-success .octicon, .tone-success .cmd-count { color: var(--success); }
-.tone-open .octicon, .tone-open .cmd-count { color: var(--open); }
-.tone-done .octicon, .tone-done .cmd-count { color: var(--done); }
+.tone-danger .octicon { color: var(--danger); }
+.tone-attention .octicon { color: var(--attention); }
+.tone-success .octicon { color: var(--success); }
 .tone-muted .octicon { color: var(--fg-muted); }
 .cmd.zero .cmd-count { color: var(--fg-muted); }
 

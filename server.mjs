@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { analyzeComments } from './triage.mjs';
-import { linkedPrs, updateLinkedPrs } from './linked-prs.mjs';
+import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks } from './linked-prs.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,12 +30,14 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 8;
+const CACHE_VERSION = 9;
+const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
 const state = {
   items: new Map(), // key: number
+  refs: new Map(), // numbers named in comments: merged PR facts, or null for an issue
   labels: [],
   lastFullSync: null,
   lastIncrementalSync: null,
@@ -51,18 +53,20 @@ const agent = {
   running: 0,
 };
 
-async function gql(query, variables = {}, attempt = 0) {
+// `allowNotFound`: a number that is neither an issue nor a PR fails only its own field, so keep the rest.
+async function gql(query, variables = {}, { allowNotFound = false } = {}, attempt = 0) {
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: { authorization: `bearer ${TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify({ query, variables }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.errors || !json.data) {
+  const errors = allowNotFound ? json.errors?.filter((e) => e.type !== 'NOT_FOUND') : json.errors;
+  if (!res.ok || errors?.length || !json.data) {
     if (attempt < 5) {
       log(`GraphQL retry ${attempt + 1} (${res.status}): ${JSON.stringify(json.errors || json.message || '').slice(0, 200)}`);
       await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
-      return gql(query, variables, attempt + 1);
+      return gql(query, variables, { allowNotFound }, attempt + 1);
     }
     throw new Error(`GraphQL ${res.status}: ${JSON.stringify(json.errors || json).slice(0, 500)}`);
   }
@@ -81,7 +85,7 @@ const COMMON = `
 const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
-    isDraft reviewDecision mergeable additions deletions changedFiles mergedAt
+    isDraft reviewDecision mergeable additions deletions changedFiles mergedAt baseRefName
     closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
@@ -179,6 +183,7 @@ function normalize(n) {
       additions: n.additions,
       deletions: n.deletions,
       changedFiles: n.changedFiles,
+      baseRefName: n.baseRefName,
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
       // Issues linked via closing keywords ("Fixes #123") or the Development sidebar.
       linkedIssues: n.closingIssuesReferences.nodes,
@@ -188,8 +193,26 @@ function normalize(n) {
   } else {
     item.issueType = n.issueType ?? null;
     item.linkedPrs = linkedPrs(n, REPO);
+    item.commentRefs = commentRefs(n.comments.nodes, { repo: REPO, number: n.number });
   }
   return item;
+}
+
+// Looks up the numbers that comments name, then adds the PRs among them to each issue's linkedPrs in `items`.
+// On failure the issues keep the links they had, so the rest of the sync still lands.
+async function linkCommentPrs(items, issues) {
+  try {
+    const numbers = refsToResolve(issues, items, state.refs);
+    let resolved = state.refs;
+    for (let i = 0; i < numbers.length; i += REFS_PER_QUERY) {
+      const d = await gql(refsQuery(numbers.slice(i, i + REFS_PER_QUERY)), { owner: OWNER, name: NAME }, { allowNotFound: true });
+      resolved = new Map([...resolved, ...readRefs(d.repository)]);
+    }
+    state.refs = lastingRefs(resolved);
+    for (const issue of issues) items.set(issue.number, withCommentLinks(issue, items, resolved));
+  } catch (e) {
+    log(`comment-linked PRs: ${e.message || e}`);
+  }
 }
 
 async function fetchAllLabels() {
@@ -225,8 +248,10 @@ async function fullSync() {
     fetchAllOpen('pullRequests'),
     fetchAllOpen('issues'),
   ]);
+  const items = new Map([...prs, ...issues].map((i) => [i.number, i]));
+  await linkCommentPrs(items, issues);
   state.labels = labels;
-  state.items = new Map([...prs, ...issues].map((i) => [i.number, i]));
+  state.items = items;
   state.lastFullSync = started;
   state.lastIncrementalSync = started;
   log(`full sync done: ${prs.length} PRs, ${issues.length} issues`);
@@ -241,6 +266,7 @@ async function incrementalSync() {
   // Overlap by a minute to be safe against clock skew.
   const cutoff = new Date(new Date(since).getTime() - 60_000).toISOString();
   let n = 0;
+  const openIssues = [];
   for (const kind of ['issues', 'pullRequests']) {
     let cursor = null;
     while (true) {
@@ -253,8 +279,15 @@ async function incrementalSync() {
           break;
         }
         n++;
-        if (node.state === 'OPEN') state.items.set(node.number, normalize(node));
-        else {
+        if (node.state === 'OPEN') {
+          const item = normalize(node);
+          // Keeps the earlier comment links until linkCommentPrs rebuilds them, so a failed lookup loses none.
+          if (kind === 'issues') {
+            item.linkedPrs = mergeCommentLinks(item.linkedPrs, state.items.get(node.number)?.linkedPrs ?? []);
+            openIssues.push(node.number);
+          }
+          state.items.set(node.number, item);
+        } else {
           if (kind === 'pullRequests') state.items = updateLinkedPrs(state.items, node);
           state.items.delete(node.number);
         }
@@ -263,6 +296,8 @@ async function incrementalSync() {
       cursor = conn.pageInfo.endCursor;
     }
   }
+  // After the PR pass, so PRs opened since the last sync are already in state.items.
+  await linkCommentPrs(state.items, openIssues.map((number) => state.items.get(number)).filter(Boolean));
   state.lastIncrementalSync = started;
   if (n) log(`incremental sync: ${n} updated`);
 }
@@ -291,6 +326,7 @@ function persist() {
       version: CACHE_VERSION,
       labels: state.labels,
       items: [...state.items.values()],
+      refs: [...state.refs],
       lastFullSync: state.lastFullSync,
       lastIncrementalSync: state.lastIncrementalSync,
     })
@@ -306,7 +342,9 @@ function restore() {
     state.lastIncrementalSync = d.lastIncrementalSync;
     log(`restored ${state.items.size} items from cache (last full sync ${d.lastFullSync})`);
     // Serve the stale cache meanwhile, but refetch everything if its shape is outdated.
-    return d.version === CACHE_VERSION;
+    if (d.version !== CACHE_VERSION) return false;
+    state.refs = new Map(d.refs);
+    return true;
   } catch {
     return false;
   }
@@ -319,7 +357,7 @@ async function fetchThread(number) {
   return {
     body: node.body,
     comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? 'ghost', association: c.authorAssociation, createdAt: c.createdAt, body: c.body })),
-    linkedPrs: node.timelineItems ? linkedPrs(node, REPO) : undefined,
+    linkedPrs: node.timelineItems ? mergeCommentLinks(linkedPrs(node, REPO), state.items.get(number)?.linkedPrs ?? []) : undefined,
     defaultBranch: d.repository.defaultBranchRef?.name,
   };
 }

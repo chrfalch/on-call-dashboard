@@ -133,6 +133,7 @@ test('recLabel keeps the action label and a separate who when the person only do
   assert.deepEqual(recLabel(rec('wait', { who: 'reporter' }), issue), { button: 'Wait', who: 'Waiting on' });
 });
 
-test('recLabel returns null for an unknown action', () => {
+test('recLabel returns null for an unknown action or one for the other item type', () => {
   assert.equal(recLabel(rec('nope'), issue), null);
+  assert.equal(recLabel(rec('nudge-author', { who: 'brentvatne' }), issue), null);
 });

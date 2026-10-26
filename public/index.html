@@ -43,17 +43,21 @@
       <div class="inbox-header">
         <div>
           <h2>Triage inbox</h2>
+          <p class="inbox-mode-desc" id="inbox-mode-desc"></p>
           <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> open, <kbd>x</kbd> do it, <kbd>d</kbd> done, <kbd>l</kbd> later.</p>
         </div>
         <div class="inbox-progress" id="inbox-progress"></div>
       </div>
       <div class="inbox-controls">
+        <div class="segmented" id="inbox-mode" title="On-call: unowned triage work. My work: your assigned items and review requests.">
+          <button data-mode="oncall">On-call</button><button data-mode="mine">My work</button>
+        </div>
         <div class="segmented" id="inbox-scope">
           <button data-scope="all">All</button><button data-scope="issue">Issues</button><button data-scope="pr">PRs</button>
         </div>
         <div class="inbox-kinds" id="inbox-kinds"></div>
         <div class="header-spacer"></div>
-        <label class="checkbox-wrap"><input type="checkbox" id="inbox-others" /> Include tasks assigned to others</label>
+        <label class="checkbox-wrap" id="inbox-others-wrap" title="By default on-call skips items that already have an owner"><input type="checkbox" id="inbox-others" /> Include already-assigned items</label>
         <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done/snoozed</label>
       </div>
       <ol id="inbox-list" class="Box inbox-list"></ol>

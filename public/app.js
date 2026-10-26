@@ -1,5 +1,5 @@
 // Expo triage dashboard client.
-import { computeTasks, isHidden, TASK_KINDS } from './inbox.js';
+import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -10,6 +10,7 @@ const ACTIONS = {
 
 const DEFAULT_FILTERS = {
   tab: 'inbox',
+  inboxMode: 'oncall',
   inboxScope: 'all',
   inboxKind: '',
   inboxOthers: false,
@@ -981,13 +982,16 @@ function snooze(task, days = 3) {
 }
 
 function renderInbox() {
-  const all = computeTasks(data.items, { me: me?.login });
-  const inScope = all.filter(
-    (t) => (filters.inboxScope === 'all' || t.item.type === filters.inboxScope) && (filters.inboxOthers || !t.assignedToOthers)
-  );
+  const mode = filters.inboxMode;
+  const all = computeTasks(data.items, { me: me?.login, mode, includeAssigned: filters.inboxOthers });
+  const inScope = all.filter((t) => filters.inboxScope === 'all' || t.item.type === filters.inboxScope);
   const open = inScope.filter((t) => !isHidden(t, inboxState));
-  $('#count-inbox').textContent = all.filter((t) => !t.assignedToOthers && !isHidden(t, inboxState)).length;
+  $('#count-inbox').textContent = all.filter((t) => !isHidden(t, inboxState)).length;
   if (filters.tab !== 'inbox') return;
+
+  document.querySelectorAll('#inbox-mode button').forEach((b) => b.classList.toggle('selected', b.dataset.mode === mode));
+  $('#inbox-mode-desc').textContent = MODES[mode];
+  $('#inbox-others-wrap').hidden = mode !== 'oncall';
 
   const pool = filters.inboxHidden ? inScope : open;
   const kinds = new Map();
@@ -1006,11 +1010,13 @@ function renderInbox() {
   inboxVisible = pool.filter((t) => !filters.inboxKind || t.kind === filters.inboxKind);
   inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
   const doneToday = Number(localStorage.getItem(todayKey()) || 0);
-  $('#inbox-progress').innerHTML = `<strong>${doneToday}</strong> done today<br><span class="muted">${open.length} open tasks${me ? '' : ' · sign in to see yours first'}</span>`;
+  $('#inbox-progress').innerHTML = `<strong>${doneToday}</strong> done today<br><span class="muted">${open.length} open tasks</span>`;
 
   $('#inbox-list').innerHTML = inboxVisible.length
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')
-    : `<li class="empty">${data.items.length ? 'Inbox zero 🎉 Nothing left in this view.' : 'Loading from GitHub…'}</li>`;
+    : `<li class="empty">${
+        !data.items.length ? 'Loading from GitHub…' : mode === 'mine' && !me ? 'Sign in to see the items assigned to you.' : 'Inbox zero 🎉 Nothing left in this view.'
+      }</li>`;
   $('#inbox-more').innerHTML =
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
 }
@@ -1081,6 +1087,8 @@ async function doTask(t) {
 
 function inboxClick(e) {
   const t = e.target;
+  const modeBtn = t.closest('[data-mode]');
+  if (modeBtn) { filters.inboxMode = modeBtn.dataset.mode; filters.inboxKind = ''; inboxShown = 25; inboxFocus = 0; return render(); }
   const scope = t.closest('[data-scope]');
   if (scope) { filters.inboxScope = scope.dataset.scope; filters.inboxKind = ''; inboxShown = 25; return render(); }
   const kind = t.closest('[data-inbox-kind]');

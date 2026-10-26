@@ -55,12 +55,23 @@ test('severity and reactions raise the score', () => {
   assert.ok(hot.score > base.score + 25);
 });
 
-test('assignment: mine is boosted, others are flagged', () => {
-  const mine = one(issue({ assignees: [{ login: 'me' }] }), { me: 'me' });
-  const theirs = one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me' });
-  assert.equal(mine.mine, true);
-  assert.equal(theirs.assignedToOthers, true);
-  assert.ok(mine.score - theirs.score >= 30);
+test('on-call: skips owned items and owner-only task kinds, no personal boost', () => {
+  assert.equal(one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me' }), undefined);
+  assert.equal(one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me', includeAssigned: true }).kind, 'verify');
+  assert.equal(one(pr({ reviewDecision: 'APPROVED' })), undefined); // merging is the owner's job
+  assert.equal(one(pr()).kind, 'bot-review');
+  const mine = one(issue({ assignees: [{ login: 'me' }] }), { me: 'me', includeAssigned: true });
+  const theirs = one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me', includeAssigned: true });
+  assert.equal(mine.score, theirs.score);
+});
+
+test('my work: only items assigned to me or requesting my review, all task kinds', () => {
+  const opts = { me: 'me', mode: 'mine' };
+  assert.equal(one(issue(), opts), undefined);
+  assert.equal(one(pr({ reviewDecision: 'APPROVED', assignees: [{ login: 'me' }] }), opts).kind, 'merge');
+  const t = one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true }, reviewRequests: [{ login: 'me' }] }), opts);
+  assert.equal(t.kind, 'review');
+  assert.ok(t.reasons.some((r) => r.text === 'your review requested'));
 });
 
 test('stale issue waiting on reporter -> close, unless accepted', () => {
@@ -74,11 +85,13 @@ test('internal issues get no reply/verify tasks', () => {
 });
 
 test('PRs: merge, bot review first, then human review', () => {
-  assert.equal(one(pr({ reviewDecision: 'APPROVED' })).kind, 'merge');
-  assert.equal(one(pr()).kind, 'bot-review');
-  assert.equal(one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: false } })), undefined);
-  assert.equal(one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true } })).kind, 'review');
-  assert.equal(one(pr({ isDraft: true, reviewDecision: 'APPROVED' })), undefined);
+  const all = { me: 'me', mode: 'mine' };
+  const mine = { assignees: [{ login: 'me' }] };
+  assert.equal(one(pr({ ...mine, reviewDecision: 'APPROVED' }), all).kind, 'merge');
+  assert.equal(one(pr(mine), all).kind, 'bot-review');
+  assert.equal(one(pr({ ...mine, bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: false } }), all), undefined);
+  assert.equal(one(pr({ ...mine, bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true } }), all).kind, 'review');
+  assert.equal(one(pr({ ...mine, isDraft: true, reviewDecision: 'APPROVED' }), all), undefined);
 });
 
 test('done hides until the item changes; snooze hides until a date', () => {

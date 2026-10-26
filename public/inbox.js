@@ -1,17 +1,24 @@
 // Triage inbox: turns open issues/PRs into a ranked list of concrete tasks.
 // Pure functions only (no DOM), so it can be unit-tested with node.
 
+// `oncall`: part of the on-call rotation's job (triage and routing of unowned
+// work) rather than an owner's job (reviewing, merging, fixing).
 export const TASK_KINDS = {
-  'assign-repro': { label: 'Assign reproduced bug', icon: 'bug', tone: 'danger', action: 'open' },
-  merge: { label: 'Merge', icon: 'merge', tone: 'success', action: 'open' },
-  reply: { label: 'Reply', icon: 'reply', tone: 'attention', action: 'open' },
-  'first-response': { label: 'First response', icon: 'alert', tone: 'danger', action: 'open' },
-  verify: { label: 'Verify new issue', icon: 'bot', tone: 'attention', action: 'command' },
-  review: { label: 'Review PR', icon: 'eye', tone: 'attention', action: 'open' },
-  'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command' },
-  'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity' },
-  nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open' },
-  close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close' },
+  'assign-repro': { label: 'Assign reproduced bug', icon: 'bug', tone: 'danger', action: 'open', oncall: true },
+  merge: { label: 'Merge', icon: 'merge', tone: 'success', action: 'open', oncall: false },
+  reply: { label: 'Reply', icon: 'reply', tone: 'attention', action: 'open', oncall: true },
+  'first-response': { label: 'First response', icon: 'alert', tone: 'danger', action: 'open', oncall: true },
+  verify: { label: 'Verify new issue', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
+  review: { label: 'Review PR', icon: 'eye', tone: 'attention', action: 'open', oncall: false },
+  'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
+  'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity', oncall: true },
+  nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open', oncall: false },
+  close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close', oncall: true },
+};
+
+export const MODES = {
+  oncall: 'On-call: triage and route work nobody owns yet',
+  mine: 'My work: items assigned to you and PRs requesting your review',
 };
 
 const SEVERITY_BONUS = { 5: 40, 4: 25, 3: 10, 2: 0, 1: -5 };
@@ -66,7 +73,7 @@ function candidates(item, now) {
 }
 
 // Bonuses shared by every task on the item.
-function modifiers(item, now, me) {
+function modifiers(item, now, me, mode) {
   let bonus = 0;
   const reasons = [];
   const sevBonus = SEVERITY_BONUS[item.severity] ?? 0;
@@ -89,20 +96,26 @@ function modifiers(item, now, me) {
     bonus += 5;
     reasons.push({ text: `fixes #${item.linkedIssues[0].number}` });
   }
-  const mine = !!me && item.assignees.some((a) => a.login === me);
-  if (mine) {
-    bonus += 30;
-    reasons.unshift({ text: 'assigned to you' });
+  const assignedToMe = !!me && item.assignees.some((a) => a.login === me);
+  const reviewRequested = !!me && (item.reviewRequests ?? []).some((r) => r.login === me);
+  if (mode === 'mine') {
+    if (assignedToMe) reasons.unshift({ text: 'assigned to you' });
+    else if (reviewRequested) reasons.unshift({ text: 'your review requested' });
   }
-  return { bonus, reasons, mine, othersOnly: item.assignees.length > 0 && !mine };
+  return { bonus, reasons, mine: assignedToMe || reviewRequested, assigned: item.assignees.length > 0 };
 }
 
-export function computeTasks(items, { me = null, now = Date.now() } = {}) {
+// mode 'oncall': only on-call task kinds; `includeAssigned` keeps items that
+//   already have an owner (otherwise they're left to that owner).
+// mode 'mine': every task kind, but only for items assigned to / awaiting `me`.
+export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncall', includeAssigned = false } = {}) {
   const tasks = [];
   for (const item of items) {
-    const cands = candidates(item, now);
+    const mod = modifiers(item, now, me, mode);
+    if (mode === 'mine' && !mod.mine) continue;
+    if (mode === 'oncall' && mod.assigned && !includeAssigned) continue;
+    const cands = candidates(item, now).filter((c) => mode !== 'oncall' || TASK_KINDS[c.kind].oncall);
     if (!cands.length) continue;
-    const mod = modifiers(item, now, me);
     const ranked = cands.sort((a, b) => b.base - a.base);
     const best = ranked[0];
     tasks.push({
@@ -113,7 +126,7 @@ export function computeTasks(items, { me = null, now = Date.now() } = {}) {
       reasons: [...(best.reasons ?? []).map((text) => ({ text })), ...mod.reasons],
       also: ranked.slice(1).map((c) => c.kind),
       mine: mod.mine,
-      assignedToOthers: mod.othersOnly,
+      assigned: mod.assigned,
     });
   }
   return tasks.sort((a, b) => b.score - a.score || a.item.number - b.item.number);

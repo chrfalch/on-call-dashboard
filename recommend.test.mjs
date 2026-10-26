@@ -432,3 +432,40 @@ test('parseRecommendation counts who and why length in characters, not UTF-16 un
   assert.equal(parseRecommendation(envelope(rec({ why: smile.repeat(301) })), 'issue').ok, false);
   assert.equal(parseRecommendation(envelope(rec({ who: smile.repeat(101) })), 'issue').ok, false);
 });
+
+const hostile = [
+  { action: { toString: null } },
+  { action: { toString: null, valueOf: null } },
+  { action: [] },
+  { action: 5 },
+  { action: null },
+  { who: { toString: null } },
+  { why: 5 },
+  { who: ['on-call'] },
+  { draft: { toString: null } },
+  { confidence: '70' },
+];
+
+test('parseRecommendation rejects hostile field values without throwing', () => {
+  for (const over of hostile) {
+    const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { ...rec(), ...over } });
+    const result = parseRecommendation(stdout, 'issue');
+    assert.equal(result.ok, false, JSON.stringify(over));
+    assert.equal(typeof result.error, 'string');
+  }
+});
+
+test('loadRecs drops malformed entries one by one and keeps the rest', () => {
+  const recs = { '123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 5 } };
+  const kinds = ['reply', 'close', 'merge', 'review', 'nudge', 'first-response', 'bot-review', 'fix-severity', 'assign-repro', 'close-x'];
+  hostile.forEach((over, i) => (recs[`123:${kinds[i]}@2026-01-05T00:00:00Z`] = { rec: { ...rec(), ...over }, at: 5 }));
+  const data = JSON.parse(JSON.stringify({ version: RECS_VERSION, recs }));
+  assert.deepEqual([...loadRecs(data, items).keys()], ['123:verify@2026-01-05T00:00:00Z']);
+});
+
+test('recKeys with leading zeros are never current', () => {
+  assert.equal(isCurrentRecKey('0123:verify@2026-01-05T00:00:00Z', items), false);
+  assert.deepEqual([...pruneRecs(new Map([['0123:verify@2026-01-05T00:00:00Z', { rec: rec(), at: 1 }]]), items).keys()], []);
+  const data = { version: RECS_VERSION, recs: { '0123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 1 } } };
+  assert.equal(loadRecs(data, items).size, 0);
+});

@@ -30,7 +30,8 @@ dependencies, no build step.
 
 - Keep it dependency-free. Browser code is native ES modules, no bundler.
 - Put logic in the pure modules (`triage.mjs`, `public/inbox.js`,
-  `public/views.js`) and test it there. `app.js` and `server.mjs` have no tests.- When you change the item shape in `server.mjs`, bump `CACHE_VERSION` so old
+  `public/views.js`) and test it there. `app.js` and `server.mjs` have no tests.
+- When you change the item shape in `server.mjs`, bump `CACHE_VERSION` so old
   caches re-sync.
 - Write actions (comments such as `@expo-bot review`) run in the browser with
   the user's own token from localStorage. The server only reads from GitHub.

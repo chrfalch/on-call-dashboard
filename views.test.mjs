@@ -78,7 +78,7 @@ test('every view has the required fields and a group from its scope', () => {
 
 test('a view only matches items of its own scope', () => {
   assert.equal(inView('pr:internal-review', internal()), true);
-  assert.equal(inView('pr:internal-review', issue({ labels: labels('contributor: internal') })), false);
+  assert.equal(inView('pr:internal-review', { ...internal(), type: 'issue' }), false);
   assert.equal(inView('issue:triage-queue', issue({ labels: labels('needs review') })), true);
   assert.equal(inView('issue:triage-queue', pr({ labels: labels('needs review') })), false);
 });
@@ -87,7 +87,7 @@ test('I1 triage queue: needs review, unassigned, waiting on the team', () => {
   const base = { labels: labels('needs review') };
   assert.equal(inView('issue:triage-queue', issue(base)), true);
   assert.equal(inView('issue:triage-queue', issue({ ...base, ...assignee })), false);
-  assert.equal(inView('issue:triage-queue', issue({ labels: labels('Issue accepted') })), false);
+  assert.equal(inView('issue:triage-queue', issue({ labels: labels('needs review', 'Issue accepted') })), false);
   assert.equal(inView('issue:triage-queue', issue({ ...base, conversation: waiting('reporter') })), false);
   assert.equal(inView('issue:triage-queue', issue({ ...base, conversation: waiting('internal') })), false);
 });

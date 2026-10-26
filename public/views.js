@@ -49,7 +49,8 @@ export const VIEWS = [
     audience: 'on-call',
     step: 'Runbook 3: needs review, unassigned',
     hint: 'Newest first. Leaves when assigned, relabeled, or the team replies.',
-    match: (item) => has(item, 'needs review') && unowned(item) && waitingOn(item) === 'team',
+    match: (item) =>
+      has(item, 'needs review') && !has(item, 'Issue accepted') && unowned(item) && waitingOn(item) === 'team',
     compare: newestFirst,
   },
   {

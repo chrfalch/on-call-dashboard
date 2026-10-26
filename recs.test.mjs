@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
 import { applyPlan, hasPending, recAction, recFor, recLabel, recRequest, recSignature } from './public/recs.js';
+import { recKey } from './recommend.mjs';
 
 const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
 const pr = { type: 'pr', number: 34, url: 'https://github.com/expo/expo/pull/34', updatedAt: '2026-10-26T11:00:00Z' };
@@ -65,6 +66,16 @@ test('recFor drops a done rec made for an older version of the item', () => {
   const stale = { status: 'done', rec: rec('wait'), recKey: '12:reply@2026-10-01T00:00:00Z' };
   assert.equal(recFor({ '12:reply': current }, task(issue)), current);
   assert.equal(recFor({ '12:reply': stale }, task(issue)), undefined);
+});
+
+test('recFor and recSignature follow a linked PR merging, like the server recKey', () => {
+  const linkedPr = (state) => ({ number: 7, title: 'Fix', state, mergedAt: null, baseRefName: 'main' });
+  const open = task({ ...issue, linkedPrs: [linkedPr('OPEN')] }, 'close-candidate');
+  const merged = task({ ...issue, linkedPrs: [linkedPr('MERGED')] }, 'close-candidate');
+  const done = { status: 'done', rec: rec('wait'), recKey: recKey(merged, merged.item) };
+  assert.equal(recFor({ '12:close-candidate': done }, merged), done);
+  assert.equal(recFor({ '12:close-candidate': done }, open), undefined);
+  assert.notEqual(recSignature([open]), recSignature([merged]));
 });
 
 test('recFor does not read inherited properties', () => {

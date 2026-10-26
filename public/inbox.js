@@ -13,6 +13,7 @@ export const TASK_KINDS = {
   'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
   'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity', oncall: true },
   nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open', oncall: false },
+  'close-candidate': { label: 'Close candidate', icon: 'merge', tone: 'success', action: 'close', oncall: true },
   close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close', oncall: true },
 };
 
@@ -54,6 +55,10 @@ function candidates(item, now) {
     const sev = item.triage?.assessment?.severity;
     if (sev && !hasLabel(item, sev.label)) out.push({ kind: 'fix-severity', base: 40, reasons: [`bot says ${sev.label}`] });
     const parked = PARKED.some((l) => hasLabel(item, l));
+    const merged = (item.linkedPrs ?? []).filter((pr) => pr.state === 'MERGED');
+    if (!parked && merged.length) {
+      out.push({ kind: 'close-candidate', base: 45, reasons: merged.map((pr) => `#${pr.number} merged ${days(pr.mergedAt, now)}d ago into ${pr.baseRefName}`) });
+    }
     if (!parked && conv.waitingOn === 'reporter' && waited >= 14) out.push({ kind: 'close', base: 20, reasons: [`reporter silent ${waited}d`] });
     else if (!parked && verdict === 'pass' && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
   } else {

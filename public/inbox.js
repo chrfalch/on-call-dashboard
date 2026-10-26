@@ -55,7 +55,7 @@ function candidates(item, now) {
     const sev = item.triage?.assessment?.severity;
     if (sev && !hasLabel(item, sev.label)) out.push({ kind: 'fix-severity', base: 40, reasons: [`bot says ${sev.label}`] });
     const parked = PARKED.some((l) => hasLabel(item, l));
-    const merged = (item.linkedPrs ?? []).filter((pr) => pr.state === 'MERGED');
+    const merged = (item.linkedPrs ?? []).filter((pr) => pr.state === 'MERGED' && pr.fix === true);
     if (!parked && merged.length) {
       out.push({ kind: 'close-candidate', base: 45, reasons: merged.map((pr) => `#${pr.number} merged ${days(pr.mergedAt, now)}d ago into ${pr.baseRefName}`) });
     }

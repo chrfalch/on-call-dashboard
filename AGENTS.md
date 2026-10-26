@@ -17,7 +17,8 @@ dependencies, no build step.
   `.cache/<owner>-<name>.json`, routes `GET /api/items`, `POST /api/refresh`,
   `POST /api/recommendations`, static files from `public/`. Recommendations run
   `claude -p` with no tools, three at a time, in the empty `.cache/claude-cwd/`;
-  results are cached in `.cache/recommendations-<owner>-<name>.json`.
+  results are cached in `.cache/recommendations-<owner>-<name>.json`. The route
+  accepts only `application/json` from `localhost` or `127.0.0.1` on the same port.
 - `recommend.mjs` — pure helpers for agent recommendations (actions, prompt,
   CLI arguments, output parsing, request validation). Tested by
   `recommend.test.mjs`.

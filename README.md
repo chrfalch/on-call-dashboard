@@ -10,7 +10,7 @@ with `gh auth login`. There are no dependencies to install.
 ```sh
 npm start            # http://localhost:4317
 PORT=8080 REPO_OWNER=expo REPO_NAME=expo npm start
-npm test             # unit tests for triage.mjs, public/inbox.js and public/views.js
+npm test             # unit tests for triage.mjs, recommend.mjs, public/inbox.js, public/views.js and public/recs.js
 ```
 
 The first start runs a full sync, which takes about two minutes. The page shows
@@ -20,6 +20,7 @@ items when it finishes. Later starts load the cache in `.cache/` first.
 
 - **Data**: `server.mjs` mirrors all open issues + PRs via the GitHub GraphQL API (full sync hourly, incremental every 2 min, cached in `.cache/`). Reads use `GITHUB_TOKEN` or `gh auth token`.
 - **Inbox** (default tab): `public/inbox.js` turns every open item into its single most valuable next task (assign reproduced bug, merge, reply, first response, verify, review, …) and ranks them by a transparent score (task base + severity, waiting time, 👍). Two modes: *On-call* (triage/routing tasks on items nobody owns) and *My work* (items assigned to you or requesting your review). Done/snooze state is per browser (localStorage).
+- **Agent recommendations**: the server asks a `claude` agent for one next action per visible Inbox task (top 30), and each row shows it on one line: the action, who should act, why, and the agent's confidence. The action is a button that applies it: post an `@expo-bot` command, open an editable comment draft, open the close dialog with the draft and reason filled in, or open the item on GitHub. Nothing is posted until you click, and drafts can be edited before you send them. "Thinking…" means the agent is still working; the row updates every 10 s. Requires a logged-in `claude` CLI on the server.
 - **Runbook views**: cards above the Issues and Pull requests lists. Each view in `public/views.js` is one runbook step with a fixed rule, a fixed order and an audience (on-call, owner, reviewer, …), for example *Triage queue* (`needs review`, unassigned, newest first) or *External PRs with no review yet*. Each button shows the live count. An item leaves a view only when its GitHub state changes. While a view is active, it replaces the filters and the sort; search still narrows it. The view is stored in the URL hash as `view=<id>`.
 - **Filtering**: label facets (click = include, ⌥/Alt-click = exclude), `severity:` threshold, PR checks/review/mergeable, `@expo-bot` status. Filter state lives in the URL hash, so filtered lists are shareable.
 - **Actions**: "Request review" posts `@expo-bot review` on PRs, "Verify" posts `@expo-bot verify` on issues (single or bulk, with undo). These run in the browser with each user's own GitHub token (stored in localStorage) so comments are attributed to them.

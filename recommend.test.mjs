@@ -459,8 +459,9 @@ test('loadRecs drops malformed entries one by one and keeps the rest', () => {
   const recs = { '123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 5 } };
   const kinds = ['reply', 'close', 'merge', 'review', 'nudge', 'first-response', 'bot-review', 'fix-severity', 'assign-repro', 'close-x'];
   hostile.forEach((over, i) => (recs[`123:${kinds[i]}@2026-01-05T00:00:00Z`] = { rec: { ...rec(), ...over }, at: 5 }));
+  recs['123:stale@2026-01-05T00:00:00Z'] = { rec: rec(), at: 6 };
   const data = JSON.parse(JSON.stringify({ version: RECS_VERSION, recs }));
-  assert.deepEqual([...loadRecs(data, items).keys()], ['123:verify@2026-01-05T00:00:00Z']);
+  assert.deepEqual([...loadRecs(data, items).keys()], ['123:verify@2026-01-05T00:00:00Z', '123:stale@2026-01-05T00:00:00Z']);
 });
 
 test('recKeys with leading zeros are never current', () => {

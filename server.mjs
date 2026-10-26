@@ -553,7 +553,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => log(`listening on http://127.0.0.1:${PORT}`));
 
-for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
   process.on(signal, () => {
     for (const pid of claudeGroups) {
       try {

@@ -709,6 +709,8 @@ function openCloseDialog(type = filters.tab, draft) {
   pick(draft);
   $('#close-reason').querySelector('[value=duplicate]').disabled = type === 'pr';
   $('#close-title').textContent = `Comment & close ${selected.size} ${type === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
+  // Escape closes without a button, which would keep the previous returnValue and close the items.
+  $('#close-dialog').returnValue = '';
   $('#close-dialog').showModal();
 }
 
@@ -1029,7 +1031,7 @@ function syncRecs() {
   if (signature !== recSentSignature) {
     recSentSignature = signature;
     fetchRecs(tasks, signature);
-  } else if (!recPoll && hasPending(recResponse)) {
+  } else if (!recPoll && (recFailed || hasPending(recResponse))) {
     recPoll = setTimeout(pollRecs, REC_POLL_MS);
   }
 }
@@ -1050,6 +1052,7 @@ async function fetchRecs(tasks, signature) {
   } catch (e) {
     if (!recFailed) toast(`Agent recommendations are unavailable: ${e.message}`);
     recFailed = true;
+    if (signature === recSentSignature) recPoll = setTimeout(pollRecs, REC_POLL_MS);
     return;
   }
   recFailed = false;
@@ -1082,9 +1085,11 @@ function applyRec(t) {
   const entry = recFor(recResponse, t);
   if (entry?.status !== 'done') return;
   const plan = applyPlan(entry.rec, t.item);
-  // postCommand posts ACTIONS[item.type].body, which is the body of the only command action for that type.
-  if (plan.kind === 'command') postCommand([t.item.number]);
-  else if (plan.kind === 'comment') openCommentDialog(t.item, plan.body);
+  if (plan.kind === 'command') {
+    // postCommand posts the dashboard's own command for the item type, so refuse a recommendation for any other body.
+    if (plan.body === ACTIONS[t.item.type].body) postCommand([t.item.number]);
+    else toast(`Unknown command “${plan.body}”`, { error: true });
+  } else if (plan.kind === 'comment') openCommentDialog(t.item, plan.body);
   else if (plan.kind === 'close') {
     selected = new Set([t.item.number]);
     openCloseDialog(t.item.type, { body: plan.body, reason: plan.reason });

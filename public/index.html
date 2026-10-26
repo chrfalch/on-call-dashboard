@@ -57,7 +57,7 @@
         </div>
         <div class="inbox-kinds" id="inbox-kinds"></div>
         <div class="header-spacer"></div>
-        <label class="checkbox-wrap" id="inbox-others-wrap" title="Assigned items normally only show up as “Poke assignee” when someone is waiting too long"><input type="checkbox" id="inbox-others" /> Also do triage on assigned items</label>
+        <label class="checkbox-wrap" id="inbox-others-wrap" title="By default on-call skips items that already have an owner"><input type="checkbox" id="inbox-others" /> Include already-assigned items</label>
         <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done/snoozed</label>
       </div>
       <ol id="inbox-list" class="Box inbox-list"></ol>
@@ -247,19 +247,6 @@
         <div class="header-spacer"></div>
         <button value="cancel" class="btn">Cancel</button>
         <button value="close" class="btn btn-danger">Comment &amp; close</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="poke-dialog" class="dialog">
-    <form method="dialog">
-      <h3 id="poke-title">Poke assignee</h3>
-      <p class="muted">Posted as a comment from your account. It's tagged as an on-call poke, so it won't count as the team replying to the reporter.</p>
-      <textarea id="poke-body" rows="5"></textarea>
-      <div class="dialog-actions">
-        <div class="header-spacer"></div>
-        <button value="cancel" class="btn">Cancel</button>
-        <button value="post" class="btn btn-primary">Post poke</button>
       </div>
     </form>
   </dialog>

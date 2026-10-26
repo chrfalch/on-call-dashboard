@@ -13,12 +13,11 @@ export const TASK_KINDS = {
   'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
   'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity', oncall: true },
   nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open', oncall: false },
-  poke: { label: 'Poke assignee', icon: 'bell', tone: 'attention', action: 'poke', oncall: true },
   close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close', oncall: true },
 };
 
 export const MODES = {
-  oncall: 'On-call: triage unowned work, and poke owners when someone has waited too long',
+  oncall: 'On-call: triage and route work nobody owns yet',
   mine: 'My work: items assigned to you and PRs requesting your review',
 };
 
@@ -27,24 +26,6 @@ const DAY = 864e5;
 const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
 const hasLabel = (item, name) => item.labels.some((l) => l.name === name);
 const PARKED = ['Issue accepted', '✋ on hold'];
-const POKE_AFTER_DAYS = { default: 7, urgent: 2 }; // urgent = severity high/critical
-const REPOKE_AFTER_DAYS = 7;
-
-// Assigned, but the reporter/author has been waiting on the team too long.
-function pokeCandidate(item, conv, waited, now) {
-  if (!item.assignees.length || conv.waitingOn !== 'team') return null;
-  const threshold = item.severity >= 4 ? POKE_AFTER_DAYS.urgent : POKE_AFTER_DAYS.default;
-  if (waited < threshold) return null;
-  const poke = conv.lastPoke;
-  if (poke && days(poke.at, now) < REPOKE_AFTER_DAYS) return null;
-  const who = item.assignees.map((a) => a.login).join(', ');
-  const reasons = [`${conv.teamReplied ? 'waiting' : 'no team reply'} ${waited}d`, `assigned to ${who}`];
-  if (poke) reasons.push(`poked ${days(poke.at, now)}d ago`);
-  // Recent waits are actionable; ancient ones are backlog. Each unanswered
-  // poke makes the next one more urgent.
-  const base = (waited <= 30 ? 50 : waited <= 90 ? 40 : 30) + (poke ? 8 : 0);
-  return { kind: 'poke', base, reasons };
-}
 
 // Candidate tasks for one item: [{ kind, base, reasons: [] }]. The best one wins.
 function candidates(item, now) {
@@ -72,15 +53,11 @@ function candidates(item, now) {
     if (!internal && !botCmd && !item.triage?.verification && age <= 30) out.push({ kind: 'verify', base: 58, reasons: [`opened ${age}d ago`] });
     const sev = item.triage?.assessment?.severity;
     if (sev && !hasLabel(item, sev.label)) out.push({ kind: 'fix-severity', base: 40, reasons: [`bot says ${sev.label}`] });
-    const poke = pokeCandidate(item, conv, waited, now);
-    if (poke && !internal) out.push(poke);
     const parked = PARKED.some((l) => hasLabel(item, l));
     if (!parked && conv.waitingOn === 'reporter' && waited >= 14) out.push({ kind: 'close', base: 20, reasons: [`reporter silent ${waited}d`] });
     else if (!parked && verdict === 'pass' && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
   } else {
     if (item.isDraft) return out;
-    const poke = pokeCandidate(item, conv, waited, now);
-    if (poke) out.push(poke);
     const green = item.checks === 'SUCCESS';
     const clean = item.mergeable === 'MERGEABLE';
     if (green && clean && item.reviewDecision === 'APPROVED') out.push({ kind: 'merge', base: 70 });
@@ -136,16 +113,8 @@ export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncal
   for (const item of items) {
     const mod = modifiers(item, now, me, mode);
     if (mode === 'mine' && !mod.mine) continue;
-    let cands = candidates(item, now);
-    if (mode === 'oncall') {
-      cands = cands.filter((c) => TASK_KINDS[c.kind].oncall);
-      // Owned items: on-call doesn't do the owner's work, it pokes the owner
-      // (unless explicitly asked to include assigned items).
-      if (mod.assigned && !includeAssigned) cands = cands.filter((c) => c.kind === 'poke');
-      if (mod.assigned && cands.some((c) => c.kind === 'poke')) cands = cands.filter((c) => !['reply', 'first-response'].includes(c.kind));
-    } else {
-      cands = cands.filter((c) => c.kind !== 'poke'); // you don't poke yourself
-    }
+    if (mode === 'oncall' && mod.assigned && !includeAssigned) continue;
+    const cands = candidates(item, now).filter((c) => mode !== 'oncall' || TASK_KINDS[c.kind].oncall);
     if (!cands.length) continue;
     const ranked = cands.sort((a, b) => b.base - a.base);
     const best = ranked[0];

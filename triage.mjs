@@ -5,8 +5,6 @@
 export const BOT_LOGINS = new Set(['expo-bot', 'github-actions', 'codecov', 'dependabot']);
 const TEAM_ASSOCIATIONS = new Set(['MEMBER', 'OWNER', 'COLLABORATOR']);
 const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
-// Hidden marker the dashboard adds to on-call pokes, so they don't count as a reply.
-export const POKE_MARKER = '<!-- oncall-poke -->';
 
 export function isBot(login) {
   return !login || BOT_LOGINS.has(login) || login.endsWith('[bot]');
@@ -96,7 +94,6 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   let lastBotReply = null;
   let lastHuman = null;
   let teamReplies = 0;
-  let lastPoke = null;
 
   for (const c of comments) {
     const login = c.author?.login;
@@ -107,10 +104,6 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
         verification = parseVerification(c) ?? verification;
         for (const m of c.body.matchAll(/Opened https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/g)) fixPrs.push(Number(m[1]));
       }
-      continue;
-    }
-    if (c.body.includes(POKE_MARKER)) {
-      lastPoke = { by: login, at: c.createdAt };
       continue;
     }
     const cmd = c.body.match(COMMAND_RE);
@@ -142,7 +135,6 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       since: lastHuman?.at ?? createdAt,
       lastHuman,
       teamReplied: teamReplies > 0,
-      lastPoke,
     },
   };
 }

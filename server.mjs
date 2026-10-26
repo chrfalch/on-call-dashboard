@@ -17,7 +17,7 @@ const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 6;
+const CACHE_VERSION = 7;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 

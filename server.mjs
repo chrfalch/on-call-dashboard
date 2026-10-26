@@ -7,7 +7,7 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { analyzeComments } from './triage.mjs';
-import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, parseRecommendation, pruneFailures, pruneRecs, recKey, storedResult, validateTasks } from './recommend.mjs';
+import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
@@ -19,14 +19,16 @@ const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 const RECS_FILE = path.join(__dirname, '.cache', `recommendations-${OWNER}-${NAME}.json`);
 // The claude CLI runs in an empty directory so no CLAUDE.md, AGENTS.md or project settings apply.
 const CLAUDE_CWD = path.join(__dirname, '.cache', 'claude-cwd');
-const CLAUDE_TIMEOUT_MS = 180_000;
+const JOB_TIMEOUT_MS = 180_000;
+const KILL_GRACE_MS = 5_000;
+const STDOUT_LIMIT = 1024 * 1024;
+const STDERR_LIMIT = 64 * 1024;
 const CLAUDE_CONCURRENCY = 3;
 const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
 const CACHE_VERSION = 7;
-const RECS_VERSION = 1;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
@@ -308,32 +310,69 @@ async function fetchThread(number) {
   };
 }
 
+const timeoutError = () => `timed out after ${JOB_TIMEOUT_MS / 1000} s`;
+
+// Rejects at `deadline` (ms since epoch). The losing promise keeps running, but its result is ignored.
+function beforeDeadline(promise, deadline) {
+  let timer;
+  const expired = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(timeoutError())), deadline - Date.now())));
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 // Resolves with the CLI's stdout, and `failure` when it did not exit cleanly.
-function runClaude(type, { system, user }) {
+function runClaude(type, { system, user }, deadline) {
   return new Promise((resolve) => {
     // CLAUDE_CWD is inside this git repo, and auto memory is keyed by the repo, so without
     // the env var the CLI adds this project's MEMORY.md to the prompt.
     const env = { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
-    const child = spawn('claude', claudeArgs(type, system, ''), { cwd: CLAUDE_CWD, env, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    // Resolving here rather than on 'close' means a child that ignores the signal cannot hold a queue slot.
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve({ stdout, failure: `timed out after ${CLAUDE_TIMEOUT_MS / 1000} s` });
-    }, CLAUDE_TIMEOUT_MS);
-    child.stdout.setEncoding('utf8').on('data', (s) => (stdout += s));
-    child.stderr.setEncoding('utf8').on('data', (s) => (stderr += s));
-    // Without a listener, EPIPE from a CLI that exits before reading stdin would crash the server.
-    child.stdin.on('error', () => {});
-    child.on('error', (e) => {
+    // Detached: the child leads its own process group, so a kill also reaches anything it started.
+    const child = spawn('claude', claudeArgs(type, system), { cwd: CLAUDE_CWD, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = { stdout: [], stderr: [] };
+    const size = { stdout: 0, stderr: 0 };
+    let failure = null;
+    let killTimer;
+
+    const finish = () => {
       clearTimeout(timer);
-      resolve({ stdout, failure: `could not start claude: ${e.message}` });
+      clearTimeout(killTimer);
+      resolve({ stdout: Buffer.concat(out.stdout).toString('utf8'), failure });
+    };
+    const signalGroup = (signal) => {
+      try {
+        process.kill(-child.pid, signal);
+      } catch {}
+    };
+    const stop = (reason) => {
+      if (failure) return;
+      failure = reason;
+      signalGroup('SIGTERM');
+      killTimer = setTimeout(() => {
+        signalGroup('SIGKILL');
+        finish();
+      }, KILL_GRACE_MS);
+    };
+    const collect = (name, limit) => (chunk) => {
+      if (failure) return;
+      size[name] += chunk.length;
+      if (size[name] > limit) stop(`claude ${name} over ${limit / 1024} KB`);
+      else out[name].push(chunk);
+    };
+
+    const timer = setTimeout(() => stop(timeoutError()), deadline - Date.now());
+    child.stdout.on('data', collect('stdout', STDOUT_LIMIT));
+    child.stderr.on('data', collect('stderr', STDERR_LIMIT));
+    // Without listeners, a stream error (such as EPIPE when the CLI exits before reading stdin) would crash the server.
+    for (const stream of [child.stdin, child.stdout, child.stderr]) stream.on('error', () => {});
+    child.on('error', (e) => {
+      failure ??= `could not run claude: ${e.message}`;
+      finish();
     });
     child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      const detail = stderr.trim() ? `: ${stderr.trim().slice(-200)}` : '';
-      resolve({ stdout, failure: code === 0 ? null : `claude exited with ${code ?? signal}${detail}` });
+      if (!failure && code !== 0) {
+        const stderr = Buffer.concat(out.stderr).toString('utf8').trim();
+        failure = `claude exited with ${code ?? signal}${stderr ? `: ${stderr.slice(-200)}` : ''}`;
+      }
+      finish();
     });
     child.stdin.end(user);
   });
@@ -349,11 +388,15 @@ function costOf(stdout) {
 }
 
 async function runJob({ key, task, item }) {
-  if (!isCurrentRecKey(key, state.items)) return log(`recommendation ${key}: skipped, item changed or closed`);
+  const skip = () => log(`recommendation ${key}: skipped, item changed or closed`);
+  if (!isCurrentRecKey(key, state.items)) return skip();
+  const deadline = Date.now() + JOB_TIMEOUT_MS;
   let result;
   let cost = '';
   try {
-    const { stdout, failure } = await runClaude(item.type, buildPrompt(task, item, await fetchThread(item.number)));
+    const thread = await beforeDeadline(fetchThread(item.number), deadline);
+    if (!isCurrentRecKey(key, state.items)) return skip();
+    const { stdout, failure } = await runClaude(item.type, buildPrompt(task, item, thread), deadline);
     cost = costOf(stdout);
     result = failure ? { ok: false, error: failure } : parseRecommendation(stdout, item.type);
   } catch (e) {
@@ -394,52 +437,59 @@ function drain() {
 
 function recommendations(entries) {
   const now = Date.now();
-  const out = {};
-  for (const { key, task, item, error } of entries) {
-    if (error) {
-      out[key] = { status: 'error', error };
-      continue;
-    }
+  return respond(entries, ({ task, item }) => {
     const job = { key: recKey(task, item), task, item };
     const stored = storedResult(job.key, agent, now);
     if (!stored) enqueue(job);
-    out[key] = stored ?? { status: 'pending' };
-  }
-  return out;
+    return stored ?? { status: 'pending' };
+  });
 }
 
 function persistRecs() {
   agent.recs = pruneRecs(agent.recs, state.items);
+  const temp = `${RECS_FILE}.tmp`;
   try {
-    fs.writeFileSync(RECS_FILE, JSON.stringify({ version: RECS_VERSION, recs: Object.fromEntries(agent.recs) }));
+    fs.writeFileSync(temp, JSON.stringify({ version: RECS_VERSION, recs: Object.fromEntries(agent.recs) }));
+    fs.renameSync(temp, RECS_FILE);
   } catch (e) {
     log(`could not save recommendations: ${e.message}`);
   }
 }
 
 function restoreRecs() {
+  let data;
   try {
-    const d = JSON.parse(fs.readFileSync(RECS_FILE, 'utf8'));
-    if (d.version !== RECS_VERSION) return;
-    agent.recs = new Map(Object.entries(d.recs));
-    log(`restored ${agent.recs.size} recommendations`);
-  } catch {}
+    data = JSON.parse(fs.readFileSync(RECS_FILE, 'utf8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') log(`could not read saved recommendations: ${e.message}`);
+    return;
+  }
+  agent.recs = loadRecs(data, state.items);
+  log(`restored ${agent.recs.size} recommendations`);
 }
 
-// Undefined when the body is not JSON or is larger than MAX_BODY. It reads to the end
-// either way, so the 400 response can still be sent on the same socket.
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  try {
-    for await (const chunk of req) {
+// Undefined when the body is not JSON or is larger than MAX_BODY. A body that is too
+// large is not read to the end; the caller closes the connection after its response.
+function readJson(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    req.on('error', () => resolve(undefined));
+    req.on('data', (chunk) => {
       size += chunk.length;
-      if (size <= MAX_BODY) chunks.push(chunk);
-    }
-    return size <= MAX_BODY ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined;
-  } catch {
-    return undefined;
-  }
+      if (size <= MAX_BODY) return chunks.push(chunk);
+      req.pause();
+      req.removeAllListeners('data');
+      resolve(undefined);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        resolve(undefined);
+      }
+    });
+  });
 }
 
 function log(msg) {
@@ -469,9 +519,16 @@ const server = http.createServer(async (req, res) => {
     return res.end('{"ok":true}');
   }
   if (url.pathname === '/api/recommendations' && req.method === 'POST') {
-    const entries = validateTasks(await readJson(req), state.items);
-    res.writeHead(entries ? 200 : 400, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    return res.end(JSON.stringify(entries ? recommendations(entries) : { error: 'expected a JSON body {tasks: [...]} of at most 64 KB' }));
+    const rejected = requestError(req.headers, PORT);
+    const entries = rejected ? null : validateTasks(await readJson(req), state.items);
+    if (!entries) {
+      const { status, error } = rejected ?? { status: 400, error: 'expected a JSON body {tasks: [...]} of at most 64 KB' };
+      // The request body may be partly unread, so this connection cannot serve another request.
+      res.writeHead(status, { 'content-type': 'application/json', connection: 'close' });
+      return res.end(JSON.stringify({ error }), () => req.destroy());
+    }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    return res.end(JSON.stringify(recommendations(entries)));
   }
   const file = path.join(__dirname, 'public', url.pathname === '/' ? 'index.html' : path.normalize(url.pathname));
   if (!file.startsWith(path.join(__dirname, 'public'))) {

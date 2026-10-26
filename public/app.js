@@ -1081,7 +1081,7 @@ function recHtml(t) {
     kind === 'none'
       ? `<span class="rec-action">${esc(action.label)}</span>`
       : `<button class="btn btn-xs" data-rec-apply="${t.key}"${posted ? ' disabled' : ''}>${esc(action.label)}${REC_SUFFIX[kind] ?? ''}</button>`;
-  return `<div class="rec">${tag}${apply}<span class="rec-who" title="Who should act">${esc(rec.who)}</span><span class="rec-why" title="${esc(rec.why)}">${esc(rec.why)}</span><span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span></div>`;
+  return `<div class="rec">${tag}${apply}<span class="rec-who">${esc(action.who)} <b>${esc(rec.who)}</b></span><span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span><span class="rec-why">${esc(rec.why)}</span></div>`;
 }
 
 function applyRec(t) {

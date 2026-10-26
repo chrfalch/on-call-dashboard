@@ -297,11 +297,13 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .task-head .IssueLabel { margin: 0; }
 .task-score { font-weight: 600; color: var(--fg-muted); font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; cursor: help; }
 .task-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
-.rec { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--fg-muted); }
+.rec { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 6px; font-size: 12px; color: var(--fg-muted); }
 .rec .btn { flex: none; }
 .rec-tag { font-weight: 600; color: var(--done); }
-.rec-action, .rec-who { font-weight: 600; color: var(--fg); white-space: nowrap; }
-.rec-why { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-action { font-weight: 600; color: var(--fg); white-space: nowrap; }
+.rec-who { overflow-wrap: anywhere; }
+.rec-who b { font-weight: 600; color: var(--fg); }
+.rec-why { flex: 1 1 20em; min-width: 0; overflow-wrap: anywhere; }
 .rec-confidence { font-variant-numeric: tabular-nums; }
 .task-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 150px; }
 .task-actions .btn { justify-content: center; }

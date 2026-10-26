@@ -15,6 +15,9 @@ const CACHE_FILE = path.join(__dirname, '.cache', `${OWNER}-${NAME}.json`);
 const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 
+// Bump when the item shape changes so a stale cache triggers a full re-sync.
+const CACHE_VERSION = 2;
+
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
 const state = {
@@ -57,6 +60,7 @@ const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
     isDraft reviewDecision mergeable additions deletions changedFiles
+    closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 5) { nodes { state author { login avatarUrl } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -156,6 +160,8 @@ function normalize(n) {
       deletions: n.deletions,
       changedFiles: n.changedFiles,
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
+      // Issues linked via closing keywords ("Fixes #123") or the Development sidebar.
+      linkedIssues: n.closingIssuesReferences.nodes,
       reviewRequests: n.reviewRequests.nodes.map((r) => r.requestedReviewer).filter(Boolean),
       latestReviews: n.latestReviews.nodes.map((r) => ({ state: r.state, login: r.author?.login, avatarUrl: r.author?.avatarUrl })),
     });
@@ -258,6 +264,7 @@ function persist() {
   fs.writeFileSync(
     CACHE_FILE,
     JSON.stringify({
+      version: CACHE_VERSION,
       labels: state.labels,
       items: [...state.items.values()],
       lastFullSync: state.lastFullSync,
@@ -274,7 +281,8 @@ function restore() {
     state.lastFullSync = d.lastFullSync;
     state.lastIncrementalSync = d.lastIncrementalSync;
     log(`restored ${state.items.size} items from cache (last full sync ${d.lastFullSync})`);
-    return true;
+    // Serve the stale cache meanwhile, but refetch everything if its shape is outdated.
+    return d.version === CACHE_VERSION;
   } catch {
     return false;
   }

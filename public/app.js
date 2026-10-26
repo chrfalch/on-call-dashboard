@@ -18,6 +18,7 @@ const DEFAULT_FILTERS = {
   checks: '',
   review: '',
   mergeable: '',
+  linked: '',
   bot: '',
   assignee: '',
   newerThanDays: 0,
@@ -55,6 +56,7 @@ const PRESETS = {
     { id: 'no-bot', name: 'No bot review yet', f: { bot: 'never' } },
     { id: 'bot-pending', name: 'Bot review pending', f: { bot: 'pending' } },
     { id: 'conflicts', name: 'Has conflicts', f: { mergeable: 'CONFLICTING' } },
+    { id: 'no-issue', name: 'No linked issue', f: { linked: 'none' } },
   ],
 };
 
@@ -168,6 +170,7 @@ const icons = {
   issue: `<svg class="octicon state-icon open" viewBox="0 0 16 16" width="16" height="16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>`,
   pr: `<svg class="octicon state-icon open" viewBox="0 0 16 16" width="16" height="16"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>`,
   draft: `<svg class="octicon state-icon draft" viewBox="0 0 16 16" width="16" height="16"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"/></svg>`,
+  issueSmall: `<svg class="octicon" viewBox="0 0 16 16" width="14" height="14"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>`,
   check: `<svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>`,
   x: `<svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>`,
   dot: `<svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>`,
@@ -201,6 +204,11 @@ function matches(item, f, { ignoreLabels = false } = {}) {
     if (f.checks && item.checks !== f.checks) return false;
     if (f.review && item.reviewDecision !== f.review) return false;
     if (f.mergeable && item.mergeable !== f.mergeable) return false;
+    // linkedIssues is undefined until the server has re-synced with the new field.
+    if (f.linked && item.linkedIssues) {
+      if (f.linked === 'none' && item.linkedIssues.length) return false;
+      if (f.linked === 'some' && !item.linkedIssues.length) return false;
+    }
   }
   if (f.bot) {
     const c = item.bot.lastCommand;
@@ -270,6 +278,9 @@ function rowHtml(i) {
     else if (i.reviewDecision === 'CHANGES_REQUESTED') meta.push(`<span class="status changes">Changes requested</span>`);
     else if (i.reviewDecision === 'REVIEW_REQUIRED') meta.push(`<span class="status">Review required</span>`);
     if (i.mergeable === 'CONFLICTING') meta.push(`<span class="status conflict">Conflicts</span>`);
+    for (const li of i.linkedIssues || []) {
+      meta.push(`<a class="status" href="${li.url}" target="_blank" rel="noreferrer" title="Linked issue: ${esc(li.title)}">${icons.issueSmall} #${li.number}</a>`);
+    }
     meta.push(`<span class="diffstat"><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`);
   }
   if (i.thumbsUp) meta.push(`<span>👍 ${i.thumbsUp}</span>`);
@@ -376,6 +387,7 @@ function syncControls() {
   $('#checks').value = filters.checks;
   $('#review').value = filters.review;
   $('#mergeable').value = filters.mergeable;
+  $('#linked').value = filters.linked;
   $('#bot-filter').value = filters.bot;
   $('#assignee-filter').value = filters.assignee;
 }
@@ -560,7 +572,7 @@ document.addEventListener('click', (e) => {
   const tab = t.closest('.tab');
   if (tab) {
     e.preventDefault();
-    filters = { ...filters, tab: tab.dataset.tab, preset: 'all', include: [], exclude: [], checks: '', review: '', mergeable: '', bot: '', newerThanDays: 0 };
+    filters = { ...filters, tab: tab.dataset.tab, preset: 'all', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', newerThanDays: 0 };
     selected.clear();
     shown = PAGE;
     return render();
@@ -627,6 +639,7 @@ bind('#hide-drafts', 'hideDrafts');
 bind('#checks', 'checks');
 bind('#review', 'review');
 bind('#mergeable', 'mergeable');
+bind('#linked', 'linked');
 bind('#bot-filter', 'bot');
 bind('#assignee-filter', 'assignee');
 

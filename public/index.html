@@ -251,6 +251,19 @@
     </form>
   </dialog>
 
+  <dialog id="comment-dialog" class="dialog">
+    <form method="dialog">
+      <h3 id="comment-title">Comment</h3>
+      <p class="muted">Drafted by the agent. Check and edit it before you send; it posts as you.</p>
+      <textarea id="comment-body" rows="9" required></textarea>
+      <div class="dialog-actions">
+        <div class="header-spacer"></div>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button value="send" class="btn btn-primary">Send</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toasts" class="toasts"></div>
 
   <script src="/app.js" type="module"></script>

@@ -1,6 +1,7 @@
 // Expo triage dashboard client.
 import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
+import { applyPlan, hasPending, recAction, recFor, recRequest, recSignature } from './recs.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -693,18 +694,19 @@ const CLOSE_TEMPLATES = {
   ],
 };
 
-function openCloseDialog(type = filters.tab) {
+// `draft` ({ body, reason }) starts from the Custom… template instead of the first one.
+function openCloseDialog(type = filters.tab, draft) {
   if (!requireToken()) return;
   const tpls = CLOSE_TEMPLATES[type];
   const sel = $('#close-template');
   sel.innerHTML = tpls.map((t, idx) => `<option value="${idx}">${esc(t.name)}</option>`).join('');
-  const pick = () => {
-    const t = tpls[Number(sel.value)];
+  const pick = (t = tpls[Number(sel.value)]) => {
     $('#close-body').value = t.body;
     $('#close-reason').value = t.reason;
   };
-  sel.onchange = pick;
-  pick();
+  sel.onchange = () => pick();
+  if (draft) sel.value = String(tpls.findIndex((t) => !t.body));
+  pick(draft);
   $('#close-reason').querySelector('[value=duplicate]').disabled = type === 'pr';
   $('#close-title').textContent = `Comment & close ${selected.size} ${type === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
   $('#close-dialog').showModal();
@@ -900,6 +902,7 @@ function renderInbox() {
       }</li>`;
   $('#inbox-more').innerHTML =
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
+  syncRecs();
 }
 
 function taskActionButton(t) {
@@ -934,6 +937,7 @@ function taskHtml(t, idx) {
         <span class="task-score" title="Priority score: task base + severity, waiting time, 👍, assignment">${t.score}</span>
       </div>
       <div class="task-item">${icon}<div class="row-main">${main}</div></div>
+      ${recHtml(t)}
     </div>
     <div class="task-actions">
       ${taskActionButton(t)}
@@ -981,6 +985,8 @@ function inboxClick(e) {
   if (later) return snooze(findTask(later.dataset.taskLater));
   const go = t.closest('[data-task-do]');
   if (go) return doTask(findTask(go.dataset.taskDo));
+  const rec = t.closest('[data-rec-apply]');
+  if (rec) return applyRec(findTask(rec.dataset.recApply));
   const row = t.closest('[data-task]');
   if (row && !t.closest('a, button')) {
     inboxFocus = inboxVisible.findIndex((x) => x.key === row.dataset.task);
@@ -1005,6 +1011,117 @@ function inboxKey(e) {
   else if (e.key === 'x') doTask(t);
   else if (e.key === 'd') markDone(t);
   else if (e.key === 'l') snooze(t);
+}
+
+// ---------- agent recommendations ----------
+// Rec text is model output derived from untrusted issue text: render it only through esc(),
+// and take URLs, command bodies and close reasons from applyPlan, never from the rec.
+
+const REC_POLL_MS = 10000;
+let recResponse = {}; // task key -> { status, rec, recKey, error } from the latest response
+let recSentSignature = '';
+let recPoll = null;
+let recFailed = false;
+
+function syncRecs() {
+  const tasks = inboxVisible.slice(0, inboxShown);
+  const signature = recSignature(tasks);
+  if (signature !== recSentSignature) {
+    recSentSignature = signature;
+    fetchRecs(tasks, signature);
+  } else if (!recPoll && hasPending(recResponse)) {
+    recPoll = setTimeout(pollRecs, REC_POLL_MS);
+  }
+}
+
+function pollRecs() {
+  recPoll = null;
+  if (filters.tab === 'inbox') fetchRecs(inboxVisible.slice(0, inboxShown), recSentSignature);
+}
+
+async function fetchRecs(tasks, signature) {
+  clearTimeout(recPoll);
+  recPoll = null;
+  let response;
+  try {
+    const res = await fetch('/api/recommendations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(recRequest(tasks)) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`);
+    response = await res.json();
+  } catch (e) {
+    if (!recFailed) toast(`Agent recommendations are unavailable: ${e.message}`);
+    recFailed = true;
+    return;
+  }
+  recFailed = false;
+  if (signature !== recSentSignature) return;
+  recResponse = response;
+  if (filters.tab === 'inbox') renderInbox();
+}
+
+const REC_SUFFIX = { comment: '…', close: '…', github: ' ↗' };
+
+function recHtml(t) {
+  const entry = recFor(recResponse, t);
+  if (!entry) return '';
+  const tag = '<span class="rec-tag">Agent</span>';
+  if (entry.status === 'pending') return `<div class="rec">${tag}Thinking…</div>`;
+  if (entry.status !== 'done') return `<div class="rec" title="${esc(entry.error)}">${tag}No recommendation</div>`;
+  const { rec } = entry;
+  const action = recAction(rec, t.item);
+  if (!action) return '';
+  const { kind } = applyPlan(rec, t.item);
+  const posted = kind === 'command' && postedThisSession.has(t.item.number);
+  const apply =
+    kind === 'none'
+      ? `<span class="rec-action">${esc(action.label)}</span>`
+      : `<button class="btn btn-xs" data-rec-apply="${t.key}"${posted ? ' disabled' : ''}>${esc(action.label)}${REC_SUFFIX[kind] ?? ''}</button>`;
+  return `<div class="rec">${tag}${apply}<span class="rec-who" title="Who should act">${esc(rec.who)}</span><span class="rec-why" title="${esc(rec.why)}">${esc(rec.why)}</span><span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span></div>`;
+}
+
+function applyRec(t) {
+  const entry = recFor(recResponse, t);
+  if (entry?.status !== 'done') return;
+  const plan = applyPlan(entry.rec, t.item);
+  // postCommand posts ACTIONS[item.type].body, which is the body of the only command action for that type.
+  if (plan.kind === 'command') postCommand([t.item.number]);
+  else if (plan.kind === 'comment') openCommentDialog(t.item, plan.body);
+  else if (plan.kind === 'close') {
+    selected = new Set([t.item.number]);
+    openCloseDialog(t.item.type, { body: plan.body, reason: plan.reason });
+  } else if (plan.kind === 'github') window.open(plan.url, '_blank', 'noopener');
+}
+
+let commentItem = null;
+
+function openCommentDialog(item, body) {
+  if (!requireToken()) return;
+  commentItem = item;
+  $('#comment-title').textContent = `Comment on #${item.number}`;
+  $('#comment-body').value = body;
+  // Escape closes without a button, which would keep the previous returnValue.
+  $('#comment-dialog').returnValue = '';
+  $('#comment-dialog').showModal();
+}
+
+$('#comment-dialog').addEventListener('close', () => {
+  if ($('#comment-dialog').returnValue === 'send') postComment(commentItem, $('#comment-body').value.trim());
+});
+
+async function postComment(item, body) {
+  if (!body) return;
+  let comment;
+  try {
+    comment = await gh(`/repos/${data.repo}/issues/${item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+  } catch (e) {
+    return toast(`Couldn't comment on #${item.number}: ${e.message}`, { error: true });
+  }
+  toast(`Commented on #${item.number}`, {
+    undo: () =>
+      gh(`/repos/${data.repo}/issues/comments/${comment.id}`, { method: 'DELETE' }).then(
+        () => toast('Comment deleted'),
+        (e) => toast(`Couldn't delete the comment: ${e.message}`, { error: true })
+      ),
+  });
 }
 
 // ---------- events ----------

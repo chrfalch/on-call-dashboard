@@ -7,14 +7,20 @@ dependencies, no build step.
 
 - `npm start` — server on http://localhost:4317. Needs `GITHUB_TOKEN` or a
   logged-in `gh` CLI. The first full sync takes about two minutes; `/api/items` is
-  empty until it finishes.
+  empty until it finishes. Recommendations also need a logged-in `claude` CLI on
+  `PATH`.
 - `npm test` — `node --test` runs `*.test.mjs` in the root.
 
 ## Layout
 
 - `server.mjs` — GraphQL sync (full hourly, incremental every 2 min), cache in
   `.cache/<owner>-<name>.json`, routes `GET /api/items`, `POST /api/refresh`,
-  static files from `public/`.
+  `POST /api/recommendations`, static files from `public/`. Recommendations run
+  `claude -p` with no tools, three at a time, in the empty `.cache/claude-cwd/`;
+  results are cached in `.cache/recommendations-<owner>-<name>.json`.
+- `recommend.mjs` — pure helpers for agent recommendations (actions, prompt,
+  CLI arguments, output parsing, request validation). Tested by
+  `recommend.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,

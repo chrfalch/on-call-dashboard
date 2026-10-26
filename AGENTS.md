@@ -22,9 +22,14 @@ dependencies, no build step.
   `http://localhost:<port>` or `http://127.0.0.1:<port>` (403), and a body that is
   not `application/json` (415). This blocks other web pages in the browser. The
   server listens on 127.0.0.1 only, so other computers cannot connect.
-- `recommend.mjs` — pure helpers for agent recommendations (actions, prompt,
-  CLI arguments, output parsing, request validation). Tested by
+- `recommend.mjs` — pure helpers for agent recommendations (prompt, CLI
+  arguments, output parsing, request validation). Tested by
   `recommend.test.mjs`.
+- `public/actions.js` — the actions a recommendation can propose (`ACTIONS`).
+  Shared by `recommend.mjs` and the browser.
+- `public/recs.js` — pure browser helpers for recommendations: the request
+  body for the visible tasks, freshness checks, and `applyPlan`, which maps a
+  recommendation to what the apply button does. Tested by `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
@@ -45,6 +50,9 @@ dependencies, no build step.
   caches re-sync.
 - Write actions (comments such as `@expo-bot review`) run in the browser with
   the user's own token from localStorage. The server only reads from GitHub.
+- Recommendation text is model output built from untrusted issue text. Render
+  it only through `esc()`, never in an `href`. Nothing is posted until the user
+  clicks, and drafts open in an editable dialog first.
 - Per-browser state lives in localStorage keys `ghToken`, `inboxState`,
   `collapsedGroups`, `commandsCollapsed` (the Runbook cards). Filter state,
   including the active view (`view=<id>`), lives in the URL hash.

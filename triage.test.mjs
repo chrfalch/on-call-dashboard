@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeComments, parseAssessment, parseVerification, summarize } from './triage.mjs';
+import { analyzeComments, parseAssessment, parseVerification, summarize, POKE_MARKER } from './triage.mjs';
 
 const c = (login, authorAssociation, createdAt, body, url = `https://x/${createdAt}`) => ({ author: { login }, authorAssociation, createdAt, body, url });
 const issue = { authorLogin: 'reporter1', authorAssociation: 'NONE', createdAt: '2026-01-01T00:00:00Z' };
@@ -96,4 +96,14 @@ test('summarize strips mentions, bold and links, and skips boilerplate', () => {
     'Reproduced on SDK 55. Removed in #49204. On SDK 58 it works.'
   );
   assert.equal(summarize('@brentvatne — I could not reproduce it.\n\n**Result: inconclusive.**'), 'I could not reproduce it.');
+});
+
+test('on-call pokes are recorded but do not count as a team reply', () => {
+  const r = analyzeComments(
+    [c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Any update?'), c('oncall', 'MEMBER', '2026-01-03T00:00:00Z', `@kudo ping ${POKE_MARKER}`)],
+    issue
+  );
+  assert.equal(r.conversation.waitingOn, 'team');
+  assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
+  assert.deepEqual(r.conversation.lastPoke, { by: 'oncall', at: '2026-01-03T00:00:00Z' });
 });

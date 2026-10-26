@@ -256,7 +256,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 }
 .triage-details p { margin: 2px 0 6px; }
 .triage-details strong { color: var(--fg-muted); font-weight: 600; }
-#close-body { width: 100%; font: inherit; color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
+#close-body, #poke-body { width: 100%; font: inherit; color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
 
 /* Triage inbox */
 .inbox-header { display: flex; align-items: flex-start; gap: 24px; margin: 20px 0 12px; }
@@ -289,6 +289,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .kind-badge.tone-attention { color: var(--attention); }
 .kind-badge.tone-success { color: var(--success); }
 .kind-badge.tone-muted { color: var(--fg-muted); }
+.task-actions .btn .octicon { width: 14px; height: 14px; }
 .reason { padding: 0 7px; border-radius: 2em; background: var(--bg-muted); border: 1px solid var(--border); line-height: 18px; color: var(--fg-muted); }
 .task-head .IssueLabel { margin: 0; }
 .task-score { font-weight: 600; color: var(--fg-muted); font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; cursor: help; }

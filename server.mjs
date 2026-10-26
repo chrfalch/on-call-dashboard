@@ -17,7 +17,7 @@ const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 6;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
@@ -63,7 +63,7 @@ const PR_FIELDS = `
     isDraft reviewDecision mergeable additions deletions changedFiles
     closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
-    latestReviews(first: 5) { nodes { state author { login avatarUrl } } }
+    latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   }`;
 const ISSUE_FIELDS = `
@@ -109,7 +109,13 @@ function normalize(n) {
   const isPR = n.__typename === 'PullRequest';
   const labels = n.labels.nodes.map((l) => ({ name: l.name, color: l.color, description: l.description }));
   const severity = Math.max(0, ...labels.map((l) => SEVERITY[l.name] || 0));
-  const comments = n.comments.nodes;
+  // Reviews are replies too: fold them into the timeline as pseudo-comments.
+  const reviews = isPR
+    ? n.latestReviews.nodes
+        .filter((r) => r.submittedAt)
+        .map((r) => ({ author: r.author, authorAssociation: r.authorAssociation, createdAt: r.submittedAt, url: n.url, body: `(review: ${r.state})` }))
+    : [];
+  const comments = [...n.comments.nodes, ...reviews].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const item = {
     type: isPR ? 'pr' : 'issue',
     number: n.number,

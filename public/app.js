@@ -288,6 +288,7 @@ const GROUP_ORDER = ['Severity', 'Status', 'Type', 'Platform', 'Bot', 'Contribut
 
 const icons = {
   // From @primer/octicons.
+  bell: `<svg version="1.1" width="16" height="16" viewBox="0 0 16 16" class="octicon octicon-bell octicon" data-component="Octicon"><path d="M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0v2.947c0 .05.015.098.042.139l1.703 2.555A1.519 1.519 0 0 1 13.482 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947Zm5-3.5A3.5 3.5 0 0 0 4.5 5v2.947c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01l.001.006c0 .002.002.004.004.006l.006.004.007.001h10.964l.007-.001.006-.004.004-.006.001-.007a.017.017 0 0 0-.003-.01l-1.703-2.554a1.745 1.745 0 0 1-.294-.97V5A3.5 3.5 0 0 0 8 1.5Z"></path></svg>`,
   people: `<svg version="1.1" width="16" height="16" viewBox="0 0 16 16" class="octicon octicon-people octicon" data-component="Octicon"><path d="M2 5.5a3.5 3.5 0 1 1 5.898 2.549 5.508 5.508 0 0 1 3.034 4.084.75.75 0 1 1-1.482.235 4 4 0 0 0-7.9 0 .75.75 0 0 1-1.482-.236A5.507 5.507 0 0 1 3.102 8.05 3.493 3.493 0 0 1 2 5.5ZM11 4a3.001 3.001 0 0 1 2.22 5.018 5.01 5.01 0 0 1 2.56 3.012.749.749 0 0 1-.885.954.752.752 0 0 1-.549-.514 3.507 3.507 0 0 0-2.522-2.372.75.75 0 0 1-.574-.73v-.352a.75.75 0 0 1 .416-.672A1.5 1.5 0 0 0 11 5.5.75.75 0 0 1 11 4Zm-5.5-.5a2 2 0 1 0-.001 3.999A2 2 0 0 0 5.5 3.5Z"></path></svg>`,
   flame: `<svg version="1.1" width="16" height="16" viewBox="0 0 16 16" class="octicon octicon-flame octicon" data-component="Octicon"><path d="M9.533.753V.752c.217 2.385 1.463 3.626 2.653 4.81C13.37 6.74 14.498 7.863 14.498 10c0 3.5-3 6-6.5 6S1.5 13.512 1.5 10c0-1.298.536-2.56 1.425-3.286.376-.308.862 0 1.035.454C4.46 8.487 5.581 8.419 6 8c.282-.282.341-.811-.003-1.5C4.34 3.187 7.035.75 8.77.146c.39-.137.726.194.763.607ZM7.998 14.5c2.832 0 5-1.98 5-4.5 0-1.463-.68-2.19-1.879-3.383l-.036-.037c-1.013-1.008-2.3-2.29-2.834-4.434-.322.256-.63.579-.864.953-.432.696-.621 1.58-.046 2.73.473.947.67 2.284-.278 3.232-.61.61-1.545.84-2.403.633a2.79 2.79 0 0 1-1.436-.874A3.198 3.198 0 0 0 3 10c0 2.53 2.164 4.5 4.998 4.5Z"></path></svg>`,
   inbox: `<svg version="1.1" width="16" height="16" viewBox="0 0 16 16" class="octicon octicon-inbox octicon" data-component="Octicon"><path d="M2.8 2.06A1.75 1.75 0 0 1 4.41 1h7.18c.7 0 1.333.417 1.61 1.06l2.74 6.395c.04.093.06.194.06.295v4.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25v-4.5c0-.101.02-.202.06-.295Zm1.61.44a.25.25 0 0 0-.23.152L1.887 8H4.75a.75.75 0 0 1 .6.3L6.625 10h2.75l1.275-1.7a.75.75 0 0 1 .6-.3h2.863L11.82 2.652a.25.25 0 0 0-.23-.152Zm10.09 7h-2.875l-1.275 1.7a.75.75 0 0 1-.6.3h-3.5a.75.75 0 0 1-.6-.3L4.375 9.5H1.5v3.75c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25Z"></path></svg>`,
@@ -1030,6 +1031,7 @@ function taskActionButton(t) {
   }
   if (def.action === 'apply-severity') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">Apply ${esc(i.triage.assessment.severity.label)}</button>`;
   if (def.action === 'close') return `<button class="btn btn-sm btn-danger" data-task-do="${t.key}">Close…</button>`;
+  if (def.action === 'poke') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">${icons.bell} Poke…</button>`;
   const verb = { merge: 'Open to merge', review: 'Open to review', reply: 'Open to reply', 'first-response': 'Open to respond', 'assign-repro': 'Open to assign', nudge: 'Open to nudge' }[t.kind] ?? 'Open';
   return `<a class="btn btn-sm btn-primary" href="${i.url}" target="_blank" rel="noreferrer" data-task-open="${t.key}">${verb} ↗</a>`;
 }
@@ -1064,6 +1066,53 @@ function taskHtml(t, idx) {
   </li>`;
 }
 
+const POKE_MARKER = '<!-- oncall-poke -->'; // must match triage.mjs
+let pokeTask = null;
+
+function pokeText(t) {
+  const i = t.item;
+  const c = i.conversation;
+  const waited = Math.floor((Date.now() - new Date(c.since)) / 864e5);
+  const who = i.assignees.map((a) => `@${a.login}`).join(' ');
+  const person = i.type === 'pr' ? 'the author' : 'the reporter';
+  const situation = c.teamReplied
+    ? `${person} has been waiting ${waited} days for a reply from us`
+    : `this ${i.type === 'pr' ? 'PR' : 'issue'} hasn't had a reply from the team in ${waited} days`;
+  return `${who} 👋 on-call check-in: ${situation}. Could you take a look when you get a chance? If you can't get to it, let me know and I'll find someone else or unassign.`;
+}
+
+function openPokeDialog(t) {
+  if (!requireToken()) return;
+  pokeTask = t;
+  $('#poke-title').textContent = `Poke ${t.item.assignees.map((a) => a.login).join(', ')} on #${t.item.number}`;
+  $('#poke-body').value = pokeText(t);
+  $('#poke-dialog').showModal();
+}
+
+$('#poke-dialog').addEventListener('close', async () => {
+  const t = pokeTask;
+  pokeTask = null;
+  if ($('#poke-dialog').returnValue !== 'post' || !t) return;
+  const body = `${$('#poke-body').value.trim()}\n\n${POKE_MARKER}`;
+  let comment;
+  try {
+    comment = await gh(`/repos/${data.repo}/issues/${t.item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+  } catch (e) {
+    return toast(`Couldn't poke on #${t.item.number}: ${e.message}`, { error: true });
+  }
+  t.item.conversation = { ...t.item.conversation, lastPoke: { by: me?.login, at: new Date().toISOString() } };
+  markDone(t);
+  toast(`Poked ${t.item.assignees.map((a) => a.login).join(', ')} on #${t.item.number}`, {
+    undo: async () => {
+      await gh(`/repos/${data.repo}/issues/comments/${comment.id}`, { method: 'DELETE' });
+      delete inboxState[t.key];
+      saveInboxState();
+      refresh();
+      toast('Poke deleted');
+    },
+  });
+});
+
 function findTask(key) {
   return inboxVisible.find((t) => t.key === key);
 }
@@ -1077,6 +1126,8 @@ async function doTask(t) {
   } else if (def.action === 'apply-severity') {
     await applySeverity(t.item);
     if (!severityMismatch(t.item)) markDone(t);
+  } else if (def.action === 'poke') {
+    openPokeDialog(t);
   } else if (def.action === 'close') {
     selected = new Set([t.item.number]);
     openCloseDialog(t.item.type);

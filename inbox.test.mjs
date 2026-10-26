@@ -56,7 +56,7 @@ test('severity and reactions raise the score', () => {
 });
 
 test('on-call: skips owned items and owner-only task kinds, no personal boost', () => {
-  assert.equal(one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me' }), undefined);
+  assert.equal(one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me' }), undefined); // fresh: kudo's job
   assert.equal(one(issue({ assignees: [{ login: 'kudo' }] }), { me: 'me', includeAssigned: true }).kind, 'verify');
   assert.equal(one(pr({ reviewDecision: 'APPROVED' })), undefined); // merging is the owner's job
   assert.equal(one(pr()).kind, 'bot-review');
@@ -100,4 +100,27 @@ test('done hides until the item changes; snooze hides until a date', () => {
   assert.equal(isHidden(t, { [t.key]: { doneAt: NOW, updatedAt: daysAgo(5) } }, NOW), false);
   assert.equal(isHidden(t, { [t.key]: { snoozeUntil: NOW + 1000 } }, NOW), true);
   assert.equal(isHidden(t, { [t.key]: { snoozeUntil: NOW - 1000 } }, NOW), false);
+});
+
+test('on-call pokes the assignee when the reporter waits too long', () => {
+  const waiting = (d, over = {}) =>
+    issue({ createdAt: daysAgo(60), assignees: [{ login: 'kudo' }], conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(d) }, ...over });
+  assert.equal(one(waiting(3)), undefined);
+  const t = one(waiting(8));
+  assert.equal(t.kind, 'poke');
+  assert.ok(t.reasons.some((r) => r.text === 'assigned to kudo'));
+  // High severity gets poked sooner.
+  assert.equal(one(waiting(3, { severity: 4, labels: [{ name: 'severity: high' }] })).kind, 'poke');
+  // Recently poked -> quiet for a week, then escalates.
+  const poked = (d) => waiting(20, { conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(20), lastPoke: { by: 'me', at: daysAgo(d) } } });
+  assert.equal(one(poked(2)), undefined);
+  assert.ok(one(poked(9)).score > t.score);
+  // Not in "my work", and not when waiting on the reporter.
+  assert.equal(one(waiting(8, { assignees: [{ login: 'me' }] }), { me: 'me', mode: 'mine' }).kind, 'reply');
+  assert.equal(one(issue({ assignees: [{ login: 'kudo' }], conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(30) } })), undefined);
+});
+
+test('assigned PRs waiting on the team get a poke too', () => {
+  const t = one(pr({ assignees: [{ login: 'kudo' }], checks: 'FAILURE', conversation: { waitingOn: 'team', teamReplied: false, since: daysAgo(10) } }));
+  assert.equal(t.kind, 'poke');
 });

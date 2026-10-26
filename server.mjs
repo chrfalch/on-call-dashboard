@@ -7,11 +7,13 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { analyzeComments } from './triage.mjs';
+import { linkedPrs, updateLinkedPrs } from './linked-prs.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
 const NAME = process.env.REPO_NAME || 'expo';
+const REPO = `${OWNER}/${NAME}`;
 const PORT = Number(process.env.PORT || 4317);
 const CACHE_FILE = path.join(__dirname, '.cache', `${OWNER}-${NAME}.json`);
 const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
@@ -28,7 +30,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
 
@@ -79,16 +81,21 @@ const COMMON = `
 const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
-    isDraft reviewDecision mergeable additions deletions changedFiles
+    isDraft reviewDecision mergeable additions deletions changedFiles mergedAt
     closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   }`;
+const LINKED_PR = '__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } }';
+const LINKED_PRS = `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], last: 100) {
+  nodes { ... on CrossReferencedEvent { source { ${LINKED_PR} } } ... on ConnectedEvent { subject { ${LINKED_PR} } } }
+}`;
 const ISSUE_FIELDS = `
   ... on Issue {
     ${COMMON}
     issueType { name color }
+    ${LINKED_PRS}
   }`;
 
 const LIST_QUERY = (kind) => `
@@ -127,8 +134,9 @@ const THREAD_FIELDS = 'body comments(last: 30) { nodes { author { login } author
 const THREAD_QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     issueOrPullRequest(number: $number) {
-      ... on Issue { ${THREAD_FIELDS} }
+      ... on Issue { ${THREAD_FIELDS} ${LINKED_PRS} }
       ... on PullRequest { ${THREAD_FIELDS} }
     }
   }
@@ -179,6 +187,7 @@ function normalize(n) {
     });
   } else {
     item.issueType = n.issueType ?? null;
+    item.linkedPrs = linkedPrs(n, REPO);
   }
   return item;
 }
@@ -245,7 +254,10 @@ async function incrementalSync() {
         }
         n++;
         if (node.state === 'OPEN') state.items.set(node.number, normalize(node));
-        else state.items.delete(node.number);
+        else {
+          if (kind === 'pullRequests') state.items = updateLinkedPrs(state.items, node);
+          state.items.delete(node.number);
+        }
       }
       if (reachedCutoff || !conn.pageInfo.hasNextPage) break;
       cursor = conn.pageInfo.endCursor;
@@ -307,6 +319,8 @@ async function fetchThread(number) {
   return {
     body: node.body,
     comments: node.comments.nodes.map((c) => ({ author: c.author?.login ?? 'ghost', association: c.authorAssociation, createdAt: c.createdAt, body: c.body })),
+    linkedPrs: node.timelineItems ? linkedPrs(node, REPO) : undefined,
+    defaultBranch: d.repository.defaultBranchRef?.name,
   };
 }
 

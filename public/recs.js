@@ -15,15 +15,24 @@ export function recRequest(tasks) {
   };
 }
 
-// Includes updatedAt: the server makes a new rec when an item changes, so that needs a new request.
-export const recSignature = (tasks) =>
-  tasks.slice(0, MAX_TASKS).map((t) => `${t.key}@${t.item.updatedAt}`).join(' ');
+// A linked PR merging does not touch the issue's updatedAt, so merged PRs are part of the
+// version. Items without them keep the plain updatedAt, so this key alone never invalidates their saved recs.
+export function itemVersion(item) {
+  const merged = (item.linkedPrs ?? []).filter((pr) => pr.state === 'MERGED').map((pr) => pr.number).sort((a, b) => a - b);
+  return merged.length ? `${item.updatedAt}+merged:${merged.join(',')}` : item.updatedAt;
+}
+
+// The server keeps one rec per key and makes a new one when the item version changes.
+export const recKey = (task, item) => `${task.key}@${itemVersion(item)}`;
+
+// Includes the item version: a new version means a new rec, so that needs a new request.
+export const recSignature = (tasks) => tasks.slice(0, MAX_TASKS).map((t) => recKey(t, t.item)).join(' ');
 
 export const hasPending = (response) => Object.values(response ?? {}).some((entry) => entry?.status === 'pending');
 
 export function recFor(response, task) {
   const entry = response && Object.hasOwn(response, task.key) ? response[task.key] : undefined;
-  if (entry?.status === 'done' && entry.recKey !== `${task.key}@${task.item.updatedAt}`) return undefined;
+  if (entry?.status === 'done' && entry.recKey !== recKey(task, task.item)) return undefined;
   return entry;
 }
 

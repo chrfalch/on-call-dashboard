@@ -189,7 +189,7 @@ test('withCommentLinks adds the merged PR a team comment names on #49378', () =>
 
 test('withCommentLinks takes open PRs from the items, drops issues and unknown numbers, and lets the timeline win', () => {
   const items = new Map([[100, openPr], [101, openIssue]]);
-  const resolved = new Map([[100, facts(100, { state: 'CLOSED', mergedAt: null })], [103, null]]);
+  const resolved = new Map([[10, facts(10)], [100, facts(100, { state: 'CLOSED', mergedAt: null })], [103, null]]);
   const issue = { number: 1, type: 'issue', linkedPrs: [entry(10)], commentRefs: [ref(10), ref(100, 'a'), ref(101), ref(103), ref(999)] };
   assert.deepEqual(withCommentLinks(issue, items, resolved).linkedPrs, [entry(10, { fix: true }), { number: 100, title: 'PR 100', state: 'OPEN', mergedAt: null, baseRefName: 'feature', via: 'comment', by: by('a'), fix: true }]);
 });

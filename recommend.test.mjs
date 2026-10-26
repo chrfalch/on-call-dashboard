@@ -324,7 +324,7 @@ test('schemaFor limits who and why to the lengths parseRecommendation accepts', 
 
 test('system prompt states the why limit in words', () => {
   for (const type of ['issue', 'pr']) {
-    assert.match(buildPrompt(task, { ...item, type }, null).system, /why: one sentence, at most 300 characters/);
+    assert.match(buildPrompt(task, { ...item, type }, null).system, /why: one or two short sentences, at most 300 characters/);
   }
 });
 
@@ -468,5 +468,55 @@ test('recKeys with leading zeros are never current', () => {
   assert.equal(isCurrentRecKey('0123:verify@2026-01-05T00:00:00Z', items), false);
   assert.deepEqual([...pruneRecs(new Map([['0123:verify@2026-01-05T00:00:00Z', { rec: rec(), at: 1 }]]), items).keys()], []);
   const data = { version: RECS_VERSION, recs: { '0123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 1 } } };
+  assert.equal(loadRecs(data, items).size, 0);
+});
+
+test('every action has a who label for the UI', () => {
+  for (const action of ACTIONS) assert.ok(typeof action.who === 'string' && action.who.trim(), action.id);
+  const label = (id) => ACTIONS.find((a) => a.id === id).who;
+  assert.equal(label('accept'), 'Assign to');
+  assert.equal(label('assign-owner'), 'Assign to');
+  assert.equal(label('ask-reporter'), 'Ask');
+  assert.equal(label('nudge-author'), 'Ask');
+});
+
+const actionLine = (system, id) => system.split('\n').find((line) => line.startsWith(`- ${id}: `)) ?? '';
+
+test('system prompt says what who means for each action, with the label the UI shows', () => {
+  for (const type of ['issue', 'pr']) {
+    const { system } = buildPrompt(task, { ...item, type }, null);
+    for (const id of actionsFor(type)) {
+      const { who } = ACTIONS.find((a) => a.id === id);
+      assert.match(actionLine(system, id), new RegExp(`who, shown as "${who} <who>": \\S`), id);
+    }
+  }
+  const { system } = buildPrompt(task, item, null);
+  for (const id of ['accept', 'assign-owner']) {
+    assert.match(actionLine(system, id), /the person to assign/, id);
+    assert.match(actionLine(system, id), /on-call/, id);
+  }
+  assert.match(actionLine(system, 'ask-reporter'), /login of the reporter/);
+});
+
+test('system prompt takes the who labels from ACTIONS', () => {
+  const accept = ACTIONS.find((a) => a.id === 'accept');
+  const saved = accept.who;
+  accept.who = 'Hand to';
+  try {
+    assert.match(actionLine(buildPrompt(task, item, null).system, 'accept'), /"Hand to <who>"/);
+  } finally {
+    accept.who = saved;
+  }
+});
+
+test('system prompt asks why to name the action and its goal first, then the deciding fact', () => {
+  const { system } = buildPrompt(task, item, null);
+  assert.match(system, /why: .*The first sentence names the action and its goal in plain words, then "because" and the fact that decides it\./);
+  assert.match(system, /why: .*Do not list facts from the thread\./);
+});
+
+test('loadRecs ignores recommendations saved before who and why changed meaning', () => {
+  assert.ok(RECS_VERSION > 1);
+  const data = { version: 1, recs: { '123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 5 } } };
   assert.equal(loadRecs(data, items).size, 0);
 });

@@ -30,7 +30,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 10;
+const CACHE_VERSION = 11;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();

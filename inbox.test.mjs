@@ -134,6 +134,42 @@ test('close candidate ranks above stale close', () => {
   assert.deepEqual(t.also, ['close']);
 });
 
+test('open fix PR blocks stale close; closed or non-fix PRs do not', () => {
+  const stale = { createdAt: daysAgo(200), conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(30) } };
+  const passed = { createdAt: daysAgo(200), triage: { verification: { outcome: 'pass' } }, conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(30) } };
+  const open = linkedPr(10, { state: 'OPEN', mergedAt: null });
+  for (const base of [stale, passed]) {
+    assert.ok(!kinds(one(issue({ ...base, linkedPrs: [open] }))).includes('close'));
+    assert.ok(kinds(one(issue({ ...base, linkedPrs: [linkedPr(10, { state: 'CLOSED', mergedAt: null })] }))).includes('close'));
+    assert.ok(kinds(one(issue({ ...base, linkedPrs: [{ ...open, fix: false }] }))).includes('close'));
+  }
+});
+
+const idlePr = (over = {}) => pr({ conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(90) }, updatedAt: daysAgo(90), ...over });
+
+test('stale PR close needs requested changes', () => {
+  assert.equal(one(idlePr({ reviewDecision: 'REVIEW_REQUIRED' })), undefined);
+  assert.ok(!kinds(one(idlePr({ reviewDecision: 'APPROVED', assignees: [{ login: 'me' }] }), { me: 'me', mode: 'mine' })).includes('close'));
+  const t = one(idlePr({ reviewDecision: 'CHANGES_REQUESTED' }));
+  assert.equal(t.kind, 'close');
+  assert.ok(t.reasons.some((r) => r.text === 'no activity 90d'));
+});
+
+test('PR idle age is the last human activity, not updatedAt', () => {
+  const t = one(idlePr({ reviewDecision: 'CHANGES_REQUESTED', updatedAt: daysAgo(1) }));
+  assert.equal(t.kind, 'close');
+  assert.ok(t.reasons.some((r) => r.text === 'no activity 90d'));
+  assert.equal(one(idlePr({ reviewDecision: 'CHANGES_REQUESTED', conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(10) } })), undefined);
+});
+
+test('on-call: long-idle approved PR with failing checks gets a nudge', () => {
+  const t = one(idlePr({ reviewDecision: 'APPROVED', checks: 'FAILURE' }));
+  assert.equal(t.kind, 'nudge');
+  assert.ok(t.reasons.some((r) => r.text === 'idle 90d'));
+  assert.equal(TASK_KINDS.nudge.oncall, false);
+  assert.equal(one(idlePr({ reviewDecision: 'APPROVED', checks: 'FAILURE', conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(10) } })), undefined);
+});
+
 test('internal issues get no reply/verify tasks', () => {
   assert.equal(one(issue({ conversation: { waitingOn: 'internal', teamReplied: true, since: daysAgo(1) } })), undefined);
 });

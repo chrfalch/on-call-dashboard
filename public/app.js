@@ -4,6 +4,7 @@ import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
+import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -38,7 +39,9 @@ const DEFAULT_FILTERS = {
   staleDays: 0,
   newerThanDays: 0,
   view: '',
+  hideUnsupportedSdks: true,
 };
+const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks'];
 
 let data = { items: [], labels: [] };
 let filters = readHash();
@@ -46,6 +49,8 @@ let shown = PAGE;
 let selected = new Set();
 let facetQuery = '';
 const collapsedGroups = new Set(JSON.parse(localStorage.getItem('collapsedGroups') || '["Package","SDK / RN","Upstream","Project","Other"]'));
+// Stores the unsupported set, so a new SDK label starts out supported.
+const unsupportedSdks = parseUnsupportedSdks(localStorage.getItem('unsupportedSdks'));
 
 // ---------- runbook views ----------
 
@@ -58,7 +63,7 @@ function activeView(f = filters) {
 
 // A view replaces every filter except search, so selecting one starts from a clean slate.
 function selectView(id) {
-  filters = { ...DEFAULT_FILTERS, tab: filters.tab, sort: filters.sort, q: filters.q, view: filters.view === id ? '' : id };
+  filters = { ...DEFAULT_FILTERS, tab: filters.tab, sort: filters.sort, q: filters.q, hideUnsupportedSdks: filters.hideUnsupportedSdks, view: filters.view === id ? '' : id };
   shown = PAGE;
   render();
 }
@@ -269,10 +274,15 @@ function sortItems(items) {
   return items.sort(by || (() => 0));
 }
 
+// Every list and count reads this. Lookups and write actions keep using the full data.items.
+function shownItems() {
+  return filters.hideUnsupportedSdks ? data.items.filter((i) => !isUnsupportedSdk(i, unsupportedSdks)) : data.items;
+}
+
 function visibleItems() {
   const view = activeView();
-  if (view) return applyView(view, data.items.filter((i) => matchesQuery(i, filters.q)), { now: Date.now() });
-  return sortItems(data.items.filter((i) => matches(i, filters)));
+  if (view) return applyView(view, shownItems().filter((i) => matchesQuery(i, filters.q)), { now: Date.now() });
+  return sortItems(shownItems().filter((i) => matches(i, filters)));
 }
 
 // ---------- rendering ----------
@@ -284,9 +294,10 @@ function render() {
   $('#inbox').hidden = !inInbox;
   $('#browse').hidden = inInbox;
   renderInbox();
+  renderSdkFilter();
 
   const visible = visibleItems();
-  const tabCount = (tab) => data.items.filter((i) => matches(i, { ...filters, tab })).length;
+  const tabCount = (tab) => shownItems().filter((i) => matches(i, { ...filters, tab })).length;
   $('#count-issue').textContent = tabCount('issue');
   $('#count-pr').textContent = tabCount('pr');
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab));
@@ -432,7 +443,7 @@ function triageHtml(i, { fixPrs = true } = {}) {
 
 function renderViews() {
   const collapsed = localStorage.getItem('commandsCollapsed') === '1';
-  const counts = viewCounts(data.items, { now: Date.now() });
+  const counts = viewCounts(shownItems(), { now: Date.now() });
   const cards = GROUPS[filters.tab]
     .map((group) => {
       const buttons = VIEWS.filter((v) => v.scope === filters.tab && v.group === group.id)
@@ -474,13 +485,13 @@ function renderActiveFilters() {
 }
 
 function isFiltered() {
-  return Object.entries(DEFAULT_FILTERS).some(([k, v]) => k !== 'tab' && k !== 'sort' && JSON.stringify(filters[k]) !== JSON.stringify(v));
+  return Object.entries(DEFAULT_FILTERS).some(([k, v]) => !KEPT_ON_CLEAR.includes(k) && JSON.stringify(filters[k]) !== JSON.stringify(v));
 }
 
 function renderFacets() {
   // Counts are computed against the current filters *except* labels, plus the
   // currently-included labels, so they show how many results each label would leave.
-  const base = data.items.filter((i) => matches(i, filters, { ignoreLabels: true }));
+  const base = shownItems().filter((i) => matches(i, filters, { ignoreLabels: true }));
   const pool = base.filter((i) => {
     const names = new Set(i.labels.map((l) => l.name));
     return filters.include.every((l) => names.has(l)) && !filters.exclude.some((l) => names.has(l));
@@ -535,7 +546,7 @@ function syncControls() {
 
 function renderAssigneeOptions() {
   const counts = new Map();
-  for (const i of data.items) if (i.type === filters.tab) for (const a of i.assignees) counts.set(a.login, (counts.get(a.login) || 0) + 1);
+  for (const i of shownItems()) if (i.type === filters.tab) for (const a of i.assignees) counts.set(a.login, (counts.get(a.login) || 0) + 1);
   const users = [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
   // Keep a filtered-on user selectable even if they have nothing on this tab.
   const current = filters.assignee.startsWith('user:') ? filters.assignee.slice(5) : null;
@@ -549,6 +560,25 @@ function renderAssigneeOptions() {
     ...users.map(([login, n]) => `<option value="user:${esc(login)}">${esc(login)} (${n})</option>`),
     '</optgroup>',
   ].join('');
+}
+
+let sdkListHtml = '';
+function renderSdkFilter() {
+  const unsupportedCount = data.items.filter((i) => isUnsupportedSdk(i, unsupportedSdks)).length;
+  $('#hide-unsupported-sdks').checked = filters.hideUnsupportedSdks;
+  $('#sdk-hidden').textContent = `${unsupportedCount} ${filters.hideUnsupportedSdks ? 'hidden' : 'unsupported'}`;
+  const colorOf = Object.fromEntries(data.labels.map((l) => [l.name, l.color]));
+  const names = sdkLabels(data.labels);
+  const html = names.length
+    ? names
+        .map(
+          (name) =>
+            `<label class="sdk-option"><input type="checkbox" value="${esc(name)}"${unsupportedSdks.has(name) ? '' : ' checked'} /><span class="sdk-label" style="${labelStyle(colorOf[name])}">${esc(name)}</span></label>`
+        )
+        .join('')
+    : '<p class="muted">No SDK labels yet.</p>';
+  // Rebuilding on every render would drop keyboard focus inside the open menu.
+  if (html !== sdkListHtml) $('#sdk-list').innerHTML = sdkListHtml = html;
 }
 
 function updateBulk(visible) {
@@ -934,7 +964,7 @@ function snooze(task, days = 3) {
 
 function renderInbox() {
   const mode = filters.inboxMode;
-  const all = computeTasks(data.items, { me: me?.login, mode, includeAssigned: filters.inboxOthers });
+  const all = computeTasks(shownItems(), { me: me?.login, mode, includeAssigned: filters.inboxOthers });
   const inScope = all.filter((t) => filters.inboxScope === 'all' || t.item.type === filters.inboxScope);
   const open = inScope.filter((t) => !isHidden(t, inboxState));
   $('#count-inbox').textContent = all.filter((t) => !isHidden(t, inboxState)).length;
@@ -1216,13 +1246,14 @@ async function postComment(item, body) {
 
 document.addEventListener('click', (e) => {
   const t = e.target;
+  if (!t.closest('#sdk-menu')) $('#sdk-menu').open = false;
   const viewButton = t.closest('[data-view]');
   if (viewButton) return selectView(viewButton.dataset.view);
   // Labels/assignees clicked inside the inbox jump to the matching list view.
   const taskRow = t.closest('[data-task]');
   if (taskRow && t.closest('.AssigneeChip, .IssueLabel')) {
     const item = data.items.find((i) => i.number === Number(taskRow.dataset.task.split(':')[0]));
-    filters = { ...DEFAULT_FILTERS, tab: item.type };
+    filters = { ...DEFAULT_FILTERS, tab: item.type, hideUnsupportedSdks: filters.hideUnsupportedSdks };
   }
   const chip = t.closest('.AssigneeChip');
   if (chip) {
@@ -1265,7 +1296,7 @@ document.addEventListener('click', (e) => {
     return renderFacets();
   }
   if (t.id === 'more-btn') { shown += PAGE; return render(); }
-  if (t.id === 'clear-filters') { filters = { ...DEFAULT_FILTERS, tab: filters.tab, sort: filters.sort }; return render(); }
+  if (t.id === 'clear-filters') { filters = { ...DEFAULT_FILTERS, ...Object.fromEntries(KEPT_ON_CLEAR.map((k) => [k, filters[k]])) }; return render(); }
   const details = t.closest('[data-details]');
   if (details) {
     const n = Number(details.dataset.details);
@@ -1333,6 +1364,14 @@ bind('#assignee-filter', 'assignee');
 bind('#waiting', 'waiting');
 bind('#idle', 'idleDays', Number);
 bind('#verdict', 'verdict');
+bind('#hide-unsupported-sdks', 'hideUnsupportedSdks');
+$('#sdk-list').addEventListener('change', (e) => {
+  if (e.target.checked) unsupportedSdks.delete(e.target.value);
+  else unsupportedSdks.add(e.target.value);
+  localStorage.setItem('unsupportedSdks', JSON.stringify([...unsupportedSdks]));
+  shown = PAGE;
+  render();
+});
 $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
 document.addEventListener('keydown', inboxKey);
@@ -1349,6 +1388,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     e.preventDefault();
     $('#search').focus();
+  }
+  if (e.key === 'Escape' && $('#sdk-menu').open) {
+    $('#sdk-menu').open = false;
+    $('#sdk-menu summary').focus();
   }
 });
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });

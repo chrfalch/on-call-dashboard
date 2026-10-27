@@ -65,6 +65,17 @@ test('on-call: skips owned items and owner-only task kinds, no personal boost', 
   assert.equal(mine.score, theirs.score);
 });
 
+test('on-call: bot review done and no reviewer requested -> ready for human review', () => {
+  const reviewed = { bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true } };
+  const t = one(pr(reviewed));
+  assert.equal(t.kind, 'human-review');
+  assert.equal(TASK_KINDS['human-review'].oncall, true);
+  assert.equal(one(pr({ ...reviewed, reviewRequests: [{ login: 'kudo' }] })), undefined);
+  assert.equal(one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: false } })), undefined);
+  assert.equal(one(pr({ ...reviewed, checks: 'FAILURE' })), undefined);
+  assert.equal(one(pr({ bot: { lastCommand: { command: 'rebase' }, botRepliedAfterCommand: true } })), undefined);
+});
+
 test('my work: only items assigned to me or requesting my review, all task kinds', () => {
   const opts = { me: 'me', mode: 'mine' };
   assert.equal(one(issue(), opts), undefined);

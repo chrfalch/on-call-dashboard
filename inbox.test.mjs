@@ -14,7 +14,7 @@ const issue = (over = {}) => ({
   assignees: [],
   severity: 0,
   thumbsUp: 0,
-  bot: { lastCommand: null, botRepliedAfterCommand: false },
+  bot: { lastCommand: null, botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false },
   triage: null,
   conversation: { waitingOn: 'team', teamReplied: false, since: daysAgo(3) },
   ...over,
@@ -30,6 +30,8 @@ const pr = (over = {}) => ({
   ...over,
 });
 const one = (item, opts) => computeTasks([item], { now: NOW, ...opts })[0];
+const reviewCmd = { command: 'review', at: daysAgo(2) };
+const botReview = (replied) => ({ bot: { lastCommand: reviewCmd, botRepliedAfterCommand: replied, lastReview: reviewCmd, botRepliedAfterReview: replied } });
 
 test('new unverified issue: verify before first response', () => {
   const t = one(issue());
@@ -66,21 +68,35 @@ test('on-call: skips owned items and owner-only task kinds, no personal boost', 
 });
 
 test('on-call: bot review done and no reviewer requested -> ready for human review', () => {
-  const reviewed = { bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true } };
+  const reviewed = botReview(true);
   const t = one(pr(reviewed));
   assert.equal(t.kind, 'human-review');
   assert.equal(TASK_KINDS['human-review'].oncall, true);
   assert.equal(one(pr({ ...reviewed, reviewRequests: [{ login: 'kudo' }] })), undefined);
-  assert.equal(one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: false } })), undefined);
+  assert.equal(one(pr(botReview(false))), undefined);
   assert.equal(one(pr({ ...reviewed, checks: 'FAILURE' })), undefined);
-  assert.equal(one(pr({ bot: { lastCommand: { command: 'rebase' }, botRepliedAfterCommand: true } })), undefined);
+});
+
+test('PR tasks follow the last review command, not the newest command', () => {
+  const verified = { bot: { lastCommand: { command: 'verify', at: daysAgo(1) }, botRepliedAfterCommand: true, lastReview: null, botRepliedAfterReview: false } };
+  assert.equal(one(pr(verified)).kind, 'bot-review');
+  const rebased = { bot: { lastCommand: { command: 'rebase', at: daysAgo(1) }, botRepliedAfterCommand: true, lastReview: null, botRepliedAfterReview: false } };
+  assert.equal(one(pr(rebased)).kind, 'bot-review');
+
+  const rebasedAfterReview = { bot: { lastCommand: { command: 'rebase', at: daysAgo(1) }, botRepliedAfterCommand: false, lastReview: reviewCmd, botRepliedAfterReview: true } };
+  assert.equal(one(pr(rebasedAfterReview)).kind, 'human-review');
+  assert.deepEqual(kinds(one(pr({ ...rebasedAfterReview, assignees: [{ login: 'me' }] }), { me: 'me', mode: 'mine' })), ['review', 'human-review']);
+
+  const rebaseRepliedReviewPending = { bot: { lastCommand: { command: 'rebase', at: daysAgo(1) }, botRepliedAfterCommand: true, lastReview: reviewCmd, botRepliedAfterReview: false } };
+  assert.equal(one(pr(rebaseRepliedReviewPending)), undefined);
+  assert.equal(one(pr({ ...rebaseRepliedReviewPending, assignees: [{ login: 'me' }] }), { me: 'me', mode: 'mine' }), undefined);
 });
 
 test('my work: only items assigned to me or requesting my review, all task kinds', () => {
   const opts = { me: 'me', mode: 'mine' };
   assert.equal(one(issue(), opts), undefined);
   assert.equal(one(pr({ reviewDecision: 'APPROVED', assignees: [{ login: 'me' }] }), opts).kind, 'merge');
-  const t = one(pr({ bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true }, reviewRequests: [{ login: 'me' }] }), opts);
+  const t = one(pr({ ...botReview(true), reviewRequests: [{ login: 'me' }] }), opts);
   assert.equal(t.kind, 'review');
   assert.ok(t.reasons.some((r) => r.text === 'your review requested'));
 });
@@ -190,8 +206,8 @@ test('PRs: merge, bot review first, then human review', () => {
   const mine = { assignees: [{ login: 'me' }] };
   assert.equal(one(pr({ ...mine, reviewDecision: 'APPROVED' }), all).kind, 'merge');
   assert.equal(one(pr(mine), all).kind, 'bot-review');
-  assert.equal(one(pr({ ...mine, bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: false } }), all), undefined);
-  assert.equal(one(pr({ ...mine, bot: { lastCommand: { command: 'review' }, botRepliedAfterCommand: true } }), all).kind, 'review');
+  assert.equal(one(pr({ ...mine, ...botReview(false) }), all), undefined);
+  assert.equal(one(pr({ ...mine, ...botReview(true) }), all).kind, 'review');
   assert.equal(one(pr({ ...mine, isDraft: true, reviewDecision: 'APPROVED' }), all), undefined);
 });
 

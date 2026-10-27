@@ -93,6 +93,7 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   let verification = null;
   const fixPrs = [];
   let lastCommand = null;
+  let lastReview = null;
   let lastBotReply = null;
   let lastHuman = null;
   let teamReplies = 0;
@@ -111,6 +112,7 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
     const cmd = c.body.match(COMMAND_RE) ?? (isTeam(c.authorAssociation) ? c.body.match(SLASH_COMMAND_RE) : null);
     if (cmd) {
       lastCommand = { command: cmd[1].toLowerCase(), by: login, at: c.createdAt };
+      if (lastCommand.command === 'review') lastReview = lastCommand;
       // A bare "@expo-bot verify" or "/verify" is an action, not a reply to the reporter.
       if (c.body.replace(cmd[0], '').trim().length < 20) continue;
     }
@@ -130,6 +132,8 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       lastCommand,
       lastBotReply,
       botRepliedAfterCommand: !!(lastCommand && lastBotReply && lastBotReply.at > lastCommand.at),
+      lastReview,
+      botRepliedAfterReview: !!(lastReview && lastBotReply && lastBotReply.at > lastReview.at),
     },
     triage: assessment || verification || fixPrs.length ? { assessment, verification, fixPrs: [...new Set(fixPrs)] } : null,
     conversation: {

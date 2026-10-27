@@ -97,9 +97,31 @@ test('a leading slash from a non-team member is a normal comment', () => {
   assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
 });
 
+test('lastReview tracks the newest review command, not other commands', () => {
+  const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
+  const reply = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', 'Review done');
+  const rebase = c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '@expo-bot rebase');
+
+  const reviewed = analyzeComments([review, reply, rebase], issue);
+  assert.deepEqual(reviewed.bot.lastReview, { command: 'review', by: 'kudo', at: '2026-01-02T00:00:00Z' });
+  assert.equal(reviewed.bot.botRepliedAfterReview, true);
+  assert.equal(reviewed.bot.lastCommand.command, 'rebase');
+  assert.equal(reviewed.bot.botRepliedAfterCommand, false);
+
+  const earlier = c('expo-bot', 'NONE', '2026-01-01T12:00:00Z', 'Thank you for filing this issue!');
+  const pending = analyzeComments([earlier, review, c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '/verify')], issue);
+  assert.equal(pending.bot.lastReview.command, 'review');
+  assert.equal(pending.bot.botRepliedAfterReview, false);
+
+  const none = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify'), reply], issue);
+  assert.equal(none.bot.lastReview, null);
+  assert.equal(none.bot.botRepliedAfterReview, false);
+});
+
 test('a team comment that starts with a path is not a command', () => {
   const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/Users/x/app.json')], issue);
   assert.equal(r.bot.lastCommand, null);
+  assert.equal(r.bot.lastReview, null);
   assert.equal(r.conversation.waitingOn, 'reporter');
 });
 

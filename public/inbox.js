@@ -37,7 +37,6 @@ function candidates(item, now) {
   const age = days(item.createdAt, now);
   const verdict = item.triage?.verification?.outcome;
   const botCmd = item.bot?.lastCommand;
-  const botPending = !!botCmd && !item.bot.botRepliedAfterCommand;
   const internal = conv.waitingOn === 'internal';
 
   if (item.type === 'issue') {
@@ -70,11 +69,12 @@ function candidates(item, now) {
     const clean = item.mergeable === 'MERGEABLE';
     if (green && clean && item.reviewDecision === 'APPROVED') out.push({ kind: 'merge', base: 70 });
     if (green && clean && item.reviewDecision === 'REVIEW_REQUIRED' && conv.waitingOn !== 'reporter') {
-      if (!botCmd) out.push({ kind: 'bot-review', base: 50 });
-      else if (!botPending) {
+      // Only a review command counts; a later verify or rebase must not hide or fake the review.
+      if (!item.bot?.lastReview) out.push({ kind: 'bot-review', base: 50 });
+      else if (item.bot.botRepliedAfterReview) {
         out.push({ kind: 'review', base: 55, reasons: ['bot review done'] });
         // A requested reviewer owns the review; on-call only routes the rest.
-        if (botCmd.command === 'review' && !(item.reviewRequests ?? []).length) out.push({ kind: 'human-review', base: 54, reasons: ['bot review done', 'no reviewer requested'] });
+        if (!(item.reviewRequests ?? []).length) out.push({ kind: 'human-review', base: 54, reasons: ['bot review done', 'no reviewer requested'] });
       }
     }
     if (item.reviewDecision === 'APPROVED' && (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE')) {

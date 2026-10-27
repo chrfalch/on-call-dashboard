@@ -1,5 +1,6 @@
 // Triage inbox: turns open issues/PRs into a ranked list of concrete tasks.
 // Pure functions only (no DOM), so it can be unit-tested with node.
+import { isUnsupportedSdk, sdkLabels } from './sdk.js';
 
 // `oncall`: part of the on-call rotation's job (triage and routing of unowned
 // work) rather than an owner's job (reviewing, merging, fixing).
@@ -16,6 +17,7 @@ export const TASK_KINDS = {
   nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open', oncall: false },
   'close-candidate': { label: 'Close candidate', icon: 'merge', tone: 'success', action: 'close', oncall: true },
   close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close', oncall: true },
+  'unsupported-sdk': { label: 'Unsupported SDK', icon: 'x', tone: 'muted', action: 'close', oncall: true, chipOnly: true },
 };
 
 export const MODES = {
@@ -125,13 +127,17 @@ function modifiers(item, now, me, mode) {
 // mode 'oncall': only on-call task kinds; `includeAssigned` keeps items that
 //   already have an owner (otherwise they're left to that owner).
 // mode 'mine': every task kind, but only for items assigned to / awaiting `me`.
-export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncall', includeAssigned = false } = {}) {
+// `unsupported`: SDK labels whose items only need closing, whatever else they would qualify for.
+export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncall', includeAssigned = false, unsupported = new Set() } = {}) {
   const tasks = [];
   for (const item of items) {
     const mod = modifiers(item, now, me, mode);
     if (mode === 'mine' && !mod.mine) continue;
     if (mode === 'oncall' && mod.assigned && !includeAssigned) continue;
-    const cands = candidates(item, now).filter((c) => mode !== 'oncall' || (c.oncall ?? TASK_KINDS[c.kind].oncall));
+    const all = isUnsupportedSdk(item, unsupported)
+      ? [{ kind: 'unsupported-sdk', base: 10, reasons: [sdkLabels(item.labels).join(', ')] }]
+      : candidates(item, now);
+    const cands = all.filter((c) => mode !== 'oncall' || (c.oncall ?? TASK_KINDS[c.kind].oncall));
     if (!cands.length) continue;
     const ranked = cands.sort((a, b) => b.base - a.base);
     const best = ranked[0];
@@ -148,6 +154,10 @@ export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncal
   }
   return tasks.sort((a, b) => b.score - a.score || a.item.number - b.item.number);
 }
+
+// `chipOnly` kinds stay out of the main list and show only when their chip is selected.
+export const listedTasks = (tasks, kind) =>
+  kind ? tasks.filter((t) => t.kind === kind) : tasks.filter((t) => !TASK_KINDS[t.kind].chipOnly);
 
 // Done = hidden until the item changes on GitHub; snoozed = hidden until a date.
 export function isHidden(task, state, now = Date.now()) {

@@ -1,5 +1,5 @@
 // Expo triage dashboard client.
-import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
+import { computeTasks, isHidden, listedTasks, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
@@ -726,16 +726,27 @@ const CLOSE_TEMPLATES = {
       reason: 'not_planned',
       body: 'This behavior comes from React Native itself rather than Expo, so it needs to be reported upstream at https://github.com/facebook/react-native/issues. Thanks!',
     },
+    {
+      name: 'Unsupported SDK',
+      reason: 'not_planned',
+      body: 'This was reported on an Expo SDK version that we no longer support. Please check if it still happens on a supported SDK version, and open a new issue with a minimal reproduction if it does. Thanks!',
+    },
     { name: 'Custom…', reason: 'not_planned', body: '' },
   ],
   pr: [
     { name: 'Stale / no response', reason: 'not_planned', body: "Closing this since there hasn't been activity in a while. Feel free to reopen or open a new PR if you'd like to pick it back up. Thanks for the contribution!" },
+    {
+      name: 'Unsupported SDK',
+      reason: 'not_planned',
+      body: 'This targets an Expo SDK version that we no longer support. If the change is still needed, please open a new PR against the main branch. Thanks for the contribution!',
+    },
     { name: 'Custom…', reason: 'not_planned', body: '' },
   ],
 };
 
-// `draft` ({ body, reason }) starts from the Custom… template instead of the first one.
-function openCloseDialog(type = filters.tab, draft) {
+// `draft` ({ body, reason }) starts from the Custom… template, and `template` (a template name) from that
+// template, instead of the first one.
+function openCloseDialog(type = filters.tab, draft, template) {
   if (!requireToken()) return;
   const tpls = CLOSE_TEMPLATES[type];
   const sel = $('#close-template');
@@ -746,6 +757,7 @@ function openCloseDialog(type = filters.tab, draft) {
   };
   sel.onchange = () => pick();
   if (draft) sel.value = String(tpls.findIndex((t) => !t.body));
+  else if (template) sel.value = String(tpls.findIndex((t) => t.name === template));
   pick(draft);
   $('#close-reason').querySelector('[value=duplicate]').disabled = type === 'pr';
   $('#close-title').textContent = `Comment & close ${selected.size} ${type === 'pr' ? 'pull request' : 'issue'}${selected.size === 1 ? '' : 's'}`;
@@ -968,10 +980,12 @@ function snooze(task, days = 3) {
 
 function renderInbox() {
   const mode = filters.inboxMode;
-  const all = computeTasks(shownItems(), { me: me?.login, mode, includeAssigned: filters.inboxOthers });
+  // Hidden unsupported-SDK items still get a task here, so they can be closed from the Inbox.
+  const unsupported = filters.hideUnsupportedSdks ? unsupportedSdks : new Set();
+  const all = computeTasks(data.items, { me: me?.login, mode, includeAssigned: filters.inboxOthers, unsupported });
   const inScope = all.filter((t) => filters.inboxScope === 'all' || t.item.type === filters.inboxScope);
   const open = inScope.filter((t) => !isHidden(t, inboxState));
-  $('#count-inbox').textContent = all.filter((t) => !isHidden(t, inboxState)).length;
+  $('#count-inbox').textContent = listedTasks(all.filter((t) => !isHidden(t, inboxState))).length;
   if (filters.tab !== 'inbox') return;
 
   document.querySelectorAll('#inbox-mode button').forEach((b) => b.classList.toggle('selected', b.dataset.mode === mode));
@@ -982,23 +996,24 @@ function renderInbox() {
   const kinds = new Map();
   for (const t of pool) kinds.set(t.kind, (kinds.get(t.kind) || 0) + 1);
   $('#inbox-kinds').innerHTML = Object.entries(TASK_KINDS)
-    .filter(([k]) => kinds.has(k))
+    // The selected chip stays at 0 so its filter can still be turned off.
+    .filter(([k]) => kinds.has(k) || k === filters.inboxKind)
     .map(
       ([k, def]) =>
-        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k], `${filters.inboxKind === k ? 'Click to show all tasks again.' : `Click to show only the ${kinds.get(k)} "${def.label}" tasks.`}\n\n${TASK_TIPS[k].meaning}`)}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
+        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k], `${filters.inboxKind === k ? 'Click to show all tasks again.' : `Click to show only the ${kinds.get(k)} "${def.label}" tasks.`}\n\n${TASK_TIPS[k].meaning}`)}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k) ?? 0}</span></button>`
     )
     .join('');
   document.querySelectorAll('#inbox-scope button').forEach((b) => b.classList.toggle('selected', b.dataset.scope === filters.inboxScope));
   $('#inbox-others').checked = filters.inboxOthers;
   $('#inbox-hidden').checked = filters.inboxHidden;
 
-  inboxVisible = pool.filter((t) => !filters.inboxKind || t.kind === filters.inboxKind);
+  inboxVisible = listedTasks(pool, filters.inboxKind);
   inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
   const doneToday = Number(localStorage.getItem(todayKey()) || 0);
   $('#inbox-progress').innerHTML = `<div class="trend-title">Inbox</div>
     <div class="trend-net">${doneToday}</div>
     <div class="trend-caption">done today</div>
-    <p>${open.length} open tasks</p>`;
+    <p>${listedTasks(open).length} open tasks</p>`;
 
   $('#inbox-list').innerHTML = inboxVisible.length
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')
@@ -1075,7 +1090,7 @@ async function doTask(t) {
     if (!severityMismatch(t.item)) markDone(t);
   } else if (def.action === 'close') {
     selected = new Set([t.item.number]);
-    openCloseDialog(t.item.type);
+    openCloseDialog(t.item.type, undefined, t.kind === 'unsupported-sdk' ? 'Unsupported SDK' : undefined);
   } else {
     window.open(t.item.url, '_blank', 'noopener');
   }

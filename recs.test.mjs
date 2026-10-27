@@ -20,6 +20,13 @@ test('recRequest turns label reasons into text and drops empty ones', () => {
   assert.deepEqual(body.tasks[0].reasons, [{ text: 'severity: high' }]);
 });
 
+test('recRequest leaves out chip-only tasks, whose action is fixed', () => {
+  const tasks = [task({ ...issue, number: 1 }, 'unsupported-sdk'), ...Array.from({ length: 30 }, (_, i) => task({ ...issue, number: i + 2 }))];
+  const keys = recRequest(tasks).tasks.map((t) => t.key);
+  assert.equal(keys.length, 30);
+  assert.equal(keys[0], '2:reply');
+});
+
 test('recRequest keeps the first 30 tasks in order', () => {
   const tasks = Array.from({ length: 35 }, (_, i) => task({ ...issue, number: i + 1 }));
   const keys = recRequest(tasks).tasks.map((t) => t.key);

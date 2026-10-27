@@ -6,9 +6,10 @@ import { TASK_KINDS } from './inbox.js';
 
 const MAX_TASKS = 30;
 
+// Chip-only kinds have a fixed action, so an agent run would only cost money.
 export function recRequest(tasks) {
   return {
-    tasks: tasks.slice(0, MAX_TASKS).map(({ key, kind, reasons }) => ({
+    tasks: tasks.filter((t) => !TASK_KINDS[t.kind].chipOnly).slice(0, MAX_TASKS).map(({ key, kind, reasons }) => ({
       key,
       kind,
       reasons: reasons.map((r) => ({ text: r.text ?? r.label })).filter((r) => r.text),

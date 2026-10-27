@@ -28,8 +28,10 @@ dependencies, no build step.
 - `public/actions.js` — the actions a recommendation can propose (`ACTIONS`).
   Shared by `recommend.mjs` and the browser.
 - `public/recs.js` — pure browser helpers for recommendations: the request
-  body for the visible tasks, freshness checks, and `applyPlan`, which maps a
-  recommendation to what the apply button does. Tested by `recs.test.mjs`.
+  body for the visible tasks, freshness checks, `applyPlan`, which maps a
+  recommendation to what the apply button does, and `recDisagrees`, which
+  tells when a recommendation does not do what a close or bot-command task
+  asks. Tested by `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the

@@ -1,7 +1,7 @@
 // Expo triage dashboard client.
 import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
-import { applyPlan, hasPending, recFor, recLabel, recRequest, recSignature } from './recs.js';
+import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -1096,7 +1096,11 @@ function recHtml(t) {
       ? `<span class="rec-action" ${actionTip}>${esc(label.button)}</span>`
       : `<button class="btn btn-xs" data-rec-apply="${t.key}" ${actionTip}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
   const who = label.who ? `<span class="rec-who" ${tipAttr(CHIP_TIPS.recWho)}>${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
-  return `<div class="rec">${tag}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
+  const conflict = recDisagrees(t, rec);
+  const disagrees = conflict
+    ? `<span class="rec-disagrees" ${tipAttr(CHIP_TIPS.recDisagrees, `The task says "${conflict.task}". The agent recommends "${conflict.agent}". Check the thread before you act.`)}>agent disagrees</span>`
+    : '';
+  return `<div class="rec">${tag}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
 }
 
 function applyRec(t) {

@@ -2,6 +2,7 @@
 // recommendation does. Rec text is untrusted model output, so a plan only ever takes the
 // draft from it; command bodies, close reasons and URLs come from ACTIONS and the item.
 import { ACTIONS } from './actions.js';
+import { TASK_KINDS } from './inbox.js';
 
 const MAX_TASKS = 30;
 
@@ -43,6 +44,21 @@ export function recLabel(rec, item) {
   const action = recAction(rec, item);
   if (!action) return null;
   return action.button ? { button: `${action.button} ${rec.who}`, who: null } : { button: action.label, who: action.who };
+}
+
+const TASK_COMMAND = { verify: 'verify', 'bot-review': 'request-review' };
+
+// Only close and bot-command tasks name one specific action. Tasks that open the item leave
+// the next step open, so no rec can disagree with them.
+export function recDisagrees(task, rec) {
+  const kind = Object.hasOwn(TASK_KINDS, task.kind) ? TASK_KINDS[task.kind] : undefined;
+  const action = recAction(rec, task.item);
+  if (!kind || !action || (kind.action === 'command' && !TASK_COMMAND[task.kind])) return null;
+  const agrees =
+    kind.action === 'close' ? action.apply === 'close'
+    : kind.action === 'command' ? action.id === TASK_COMMAND[task.kind]
+    : true;
+  return agrees ? null : { task: kind.label, agent: action.label };
 }
 
 export function applyPlan(rec, item) {

@@ -936,6 +936,7 @@ function taskHtml(t, idx) {
     <div class="task-rank">${idx + 1}</div>
     <div class="task-body">
       <div class="task-head">
+        <span class="type-chip">${icon}${t.item.type === 'pr' ? 'PR' : 'Issue'}</span>
         <span class="kind-badge tone-${def.tone}">${icons[def.icon] ?? ''} ${esc(def.label)}</span>
         ${fixPrs}
         ${reasons}

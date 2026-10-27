@@ -293,6 +293,8 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .kind-badge.tone-attention { color: var(--attention); }
 .kind-badge.tone-success { color: var(--success); }
 .kind-badge.tone-muted { color: var(--fg-muted); }
+.type-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 2em; background: var(--bg-muted); border: 1px solid var(--border); line-height: 18px; font-weight: 600; color: var(--fg-muted); margin-right: 4px; }
+.type-chip .octicon { width: 12px; height: 12px; margin-top: 0; }
 .reason { padding: 0 7px; border-radius: 2em; background: var(--bg-muted); border: 1px solid var(--border); line-height: 18px; color: var(--fg-muted); }
 .fix-pr { padding: 0 7px; border-radius: 2em; border: 1px solid var(--border); line-height: 18px; color: var(--fg); }
 .fix-pr:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }

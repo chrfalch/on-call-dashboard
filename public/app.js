@@ -633,10 +633,12 @@ async function postCommand(numbers) {
         body: JSON.stringify({ body: action.body }),
       });
       postedThisSession.set(item.number, comment.id);
+      const lastCommand = { command: action.command, by: me?.login, at: new Date().toISOString() };
       item.bot = {
         ...item.bot,
-        lastCommand: { command: action.command, by: me?.login, at: new Date().toISOString() },
+        lastCommand,
         botRepliedAfterCommand: false,
+        ...(action.command === 'review' && { lastReview: lastCommand, botRepliedAfterReview: false }),
       };
       return item;
     })
@@ -856,9 +858,10 @@ async function refresh(force = false) {
   data = d;
   // Keep optimistic bot state for anything we posted until the server catches up.
   for (const item of data.items) {
-    if (postedThisSession.has(item.number) && !item.bot.lastCommand) {
-      item.bot.lastCommand = { command: ACTIONS[item.type].command, by: me?.login, at: new Date().toISOString() };
-    }
+    if (!postedThisSession.has(item.number)) continue;
+    const posted = { command: ACTIONS[item.type].command, by: me?.login, at: new Date().toISOString() };
+    if (!item.bot.lastCommand) item.bot.lastCommand = posted;
+    if (posted.command === 'review' && !item.bot.lastReview) item.bot.lastReview = posted;
   }
   $('#repo-link').href = `https://github.com/${d.repo}`;
   const st = $('#sync-status');

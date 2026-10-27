@@ -420,7 +420,7 @@ function triageHtml(i, { fixPrs = true } = {}) {
   }
   if (v) {
     parts.push(
-      `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}" ${tipAttr(OUTCOME_TIPS[v.outcome] ?? CHIP_TIPS.verdict)}>${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
+      `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}" ${tipAttr(OUTCOME_TIPS[v.outcome] ?? CHIP_TIPS.verdict)}>Verified · ${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
         (v.headline ? `<span class="verdict-headline" ${tipAttr(CHIP_TIPS.verdictHeadline, v.headline)}>${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
     );
   }

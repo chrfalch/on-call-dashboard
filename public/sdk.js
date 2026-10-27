@@ -14,3 +14,13 @@ export function isUnsupportedSdk(item, unsupported) {
   const sdks = item.labels.map((l) => l.name).filter(isSdkLabel);
   return sdks.length > 0 && sdks.every((name) => unsupported.has(name));
 }
+
+// The stored value is a JSON array of label names; anything else means nothing is unsupported.
+export function parseUnsupportedSdks(raw) {
+  try {
+    const names = JSON.parse(raw);
+    return new Set(Array.isArray(names) ? names.filter((n) => typeof n === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}

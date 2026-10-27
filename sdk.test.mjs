@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isSdkLabel, sdkLabels, isUnsupportedSdk } from './public/sdk.js';
+import { isSdkLabel, sdkLabels, isUnsupportedSdk, parseUnsupportedSdks } from './public/sdk.js';
 
 const label = (name) => ({ name, color: 'ededed', description: '' });
 const item = (...names) => ({ number: 1, labels: names.map(label) });
@@ -47,4 +47,17 @@ test('isUnsupportedSdk ignores non-SDK labels', () => {
 
 test('isUnsupportedSdk is false with an empty unsupported set', () => {
   assert.equal(isUnsupportedSdk(item('sdk-55'), new Set()), false);
+});
+
+test('parseUnsupportedSdks reads a JSON array of label names', () => {
+  assert.deepEqual(parseUnsupportedSdks('["sdk-52","sdk-53"]'), new Set(['sdk-52', 'sdk-53']));
+  assert.deepEqual(parseUnsupportedSdks('[]'), new Set());
+});
+
+test('parseUnsupportedSdks treats a missing or broken value as nothing unsupported', () => {
+  assert.deepEqual(parseUnsupportedSdks(null), new Set());
+  assert.deepEqual(parseUnsupportedSdks('not json'), new Set());
+  assert.deepEqual(parseUnsupportedSdks('"sdk-52"'), new Set());
+  assert.deepEqual(parseUnsupportedSdks('{"sdk-52":true}'), new Set());
+  assert.deepEqual(parseUnsupportedSdks('["sdk-52",52,null]'), new Set(['sdk-52']));
 });

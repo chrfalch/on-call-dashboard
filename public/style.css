@@ -94,6 +94,22 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
   text-align: center; background: rgba(129, 139, 152, 0.2); border-radius: 2em;
 }
 
+/* Supported SDKs (tab bar, applies to every tab) */
+.sdk-filter { display: flex; align-items: center; gap: 8px; align-self: center; }
+.sdk-hidden { font-size: 12px; color: var(--fg-muted); }
+.sdk-menu { position: relative; }
+.sdk-menu summary { list-style: none; }
+.sdk-menu summary::-webkit-details-marker { display: none; }
+.sdk-popover {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; width: 280px; padding: 8px 12px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+.sdk-popover .hint { margin-top: 0; }
+.sdk-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 8px; }
+.sdk-list .muted { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.sdk-option { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.sdk-option .sdk-label { margin: 0; }
+
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 16px; font-size: 14px; font-weight: 500; line-height: 20px;
@@ -235,7 +251,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .more button { margin: 12px; }
 
 /* Labels — mirrors GitHub's IssueLabel rendering. */
-.IssueLabel {
+.IssueLabel, .sdk-label {
   display: inline-block; padding: 0 7px; margin: 0 4px 2px 0; font-size: 12px; font-weight: 500; line-height: 18px;
   white-space: nowrap; border: 1px solid transparent; border-radius: 2em; cursor: pointer; vertical-align: middle;
 }

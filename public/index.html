@@ -39,7 +39,10 @@
   </nav>
 
   <main class="container">
-    <section id="trends" class="trend-tiles" aria-label="Opened and closed this week"></section>
+    <section class="trend-tiles">
+      <div class="trend-tile inbox-progress" id="inbox-progress"></div>
+      <div id="trends" class="trend-tiles-list" aria-label="Opened and closed this week"></div>
+    </section>
 
     <section id="inbox" hidden>
       <div class="inbox-header">
@@ -48,7 +51,6 @@
           <p class="inbox-mode-desc" id="inbox-mode-desc"></p>
           <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> open, <kbd>x</kbd> do it, <kbd>d</kbd> done, <kbd>l</kbd> later.</p>
         </div>
-        <div class="inbox-progress" id="inbox-progress"></div>
       </div>
       <div class="inbox-controls">
         <div class="segmented" id="inbox-mode" title="On-call: unowned triage work. My work: your assigned items and review requests.">

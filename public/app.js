@@ -961,7 +961,10 @@ function renderInbox() {
   inboxVisible = pool.filter((t) => !filters.inboxKind || t.kind === filters.inboxKind);
   inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
   const doneToday = Number(localStorage.getItem(todayKey()) || 0);
-  $('#inbox-progress').innerHTML = `<strong>${doneToday}</strong> done today<br><span class="muted">${open.length} open tasks</span>`;
+  $('#inbox-progress').innerHTML = `<div class="trend-title">Inbox</div>
+    <div class="trend-net">${doneToday}</div>
+    <div class="trend-caption">done today</div>
+    <p>${open.length} open tasks</p>`;
 
   $('#inbox-list').innerHTML = inboxVisible.length
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')

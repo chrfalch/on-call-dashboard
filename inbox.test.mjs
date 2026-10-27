@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeTasks, isHidden, TASK_KINDS } from './public/inbox.js';
+import { computeTasks, isHidden, listedTasks, TASK_KINDS } from './public/inbox.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -228,4 +228,48 @@ test('done hides until the item changes; snooze hides until a date', () => {
   assert.equal(isHidden(t, { [t.key]: { doneAt: NOW, updatedAt: daysAgo(5) } }, NOW), false);
   assert.equal(isHidden(t, { [t.key]: { snoozeUntil: NOW + 1000 } }, NOW), true);
   assert.equal(isHidden(t, { [t.key]: { snoozeUntil: NOW - 1000 } }, NOW), false);
+});
+
+const UNSUPPORTED = new Set(['sdk-52', 'sdk-53']);
+const sdks = (...names) => names.map((name) => ({ name }));
+
+test('issue with only unsupported SDK labels -> only an unsupported-sdk task, newest SDK first', () => {
+  const t = one(issue({ labels: sdks('sdk-52', 'sdk-53') }), { unsupported: UNSUPPORTED });
+  assert.equal(t.kind, 'unsupported-sdk');
+  assert.deepEqual(t.also, []);
+  assert.equal(t.reasons[0].text, 'sdk-53, sdk-52');
+  assert.equal(TASK_KINDS['unsupported-sdk'].action, 'close');
+});
+
+test('PR with only unsupported SDK labels, draft or not -> only an unsupported-sdk task', () => {
+  for (const isDraft of [false, true]) {
+    const t = one(pr({ isDraft, reviewDecision: 'APPROVED', labels: sdks('sdk-52') }), { unsupported: UNSUPPORTED });
+    assert.equal(t.kind, 'unsupported-sdk');
+    assert.deepEqual(t.also, []);
+    assert.equal(t.reasons[0].text, 'sdk-52');
+  }
+});
+
+test('one supported SDK label keeps the ordinary tasks', () => {
+  const t = one(issue({ labels: sdks('sdk-53', 'sdk-54') }), { unsupported: UNSUPPORTED });
+  assert.equal(t.kind, 'verify');
+});
+
+test('no unsupported SDKs by default', () => {
+  const t = one(issue({ labels: sdks('sdk-52') }));
+  assert.equal(t.kind, 'verify');
+  assert.deepEqual(t.also, ['first-response']);
+});
+
+test('unsupported-sdk tasks still respect on-call ownership', () => {
+  const owned = issue({ labels: sdks('sdk-52'), assignees: [{ login: 'someone' }] });
+  assert.equal(one(owned, { unsupported: UNSUPPORTED }), undefined);
+  assert.equal(one(owned, { unsupported: UNSUPPORTED, includeAssigned: true }).kind, 'unsupported-sdk');
+});
+
+test('listed tasks: chip-only kinds show only when their chip is selected', () => {
+  const tasks = computeTasks([issue({ number: 1 }), issue({ number: 2, labels: sdks('sdk-52') })], { now: NOW, unsupported: UNSUPPORTED });
+  assert.deepEqual(listedTasks(tasks).map((t) => t.item.number), [1]);
+  assert.deepEqual(listedTasks(tasks, 'unsupported-sdk').map((t) => t.item.number), [2]);
+  assert.deepEqual(listedTasks(tasks, 'verify').map((t) => t.item.number), [1]);
 });

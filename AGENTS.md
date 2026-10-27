@@ -42,7 +42,9 @@ dependencies, no build step.
   helpers that look them up and merge them in, and the state update when a PR
   closes or merges. Tested by `linked-prs.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
-  `isHidden`). Shared by browser and Node; tested by `inbox.test.mjs`.
+  `isHidden`, `listedTasks`). Items with only unsupported SDK labels get one
+  `unsupported-sdk` close task, listed only under its chip. Shared by browser
+  and Node; tested by `inbox.test.mjs`.
 - `public/views.js` — pure runbook views for the Issues and PRs tabs (`VIEWS`,
   `GROUPS`, `applyView`, `viewCounts`). Each view has a fixed rule, a fixed
   sort and an audience. Shared by browser and Node; tested by `views.test.mjs`.

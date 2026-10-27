@@ -19,6 +19,8 @@ const CACHE_FILE = path.join(__dirname, '.cache', `${OWNER}-${NAME}.json`);
 const INCREMENTAL_MS = Number(process.env.INCREMENTAL_MS || 2 * 60 * 1000);
 const FULL_MS = Number(process.env.FULL_MS || 60 * 60 * 1000);
 const RECS_FILE = path.join(__dirname, '.cache', `recommendations-${OWNER}-${NAME}.json`);
+const TRENDS_FILE = path.join(__dirname, '.cache', `trends-${OWNER}-${NAME}.json`);
+const TRENDS_DAYS = 9;
 // The claude CLI runs in an empty directory so no CLAUDE.md, AGENTS.md or project settings apply.
 const CLAUDE_CWD = path.join(__dirname, '.cache', 'claude-cwd');
 const JOB_TIMEOUT_MS = 180_000;
@@ -44,6 +46,8 @@ const state = {
   syncing: false,
   syncError: null,
 };
+
+let trends = { fetchedAt: null, since: null, issues: [], pullRequests: [] };
 
 const agent = {
   recs: new Map(), // key: recKey, value: { rec, at }
@@ -120,6 +124,18 @@ query($cursor: String, $owner: String!, $name: String!) {
     ${kind}(first: 20, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
       nodes { ${kind === 'pullRequests' ? PR_FIELDS : ISSUE_FIELDS} }
+    }
+  }
+}`;
+
+// GitHub search returns at most 1000 results per query; a busier window is cut off there.
+const TRENDS_QUERY = `
+query($cursor: String, $q: String!) {
+  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on Issue { number createdAt closedAt state }
+      ... on PullRequest { number createdAt closedAt state }
     }
   }
 }`;
@@ -302,6 +318,46 @@ async function incrementalSync() {
   if (n) log(`incremental sync: ${n} updated`);
 }
 
+async function searchTrend(q) {
+  const out = [];
+  let cursor = null;
+  do {
+    const d = await gql(TRENDS_QUERY, { cursor, q });
+    out.push(...d.search.nodes);
+    cursor = d.search.pageInfo.hasNextPage ? d.search.pageInfo.endCursor : null;
+  } while (cursor);
+  return out;
+}
+
+// Items created or closed since `since`. A reopened item is OPEN again and does not count as closed.
+async function fetchTrend(type, since) {
+  const [created, closed] = await Promise.all(
+    ['created', 'closed'].map((field) => searchTrend(`repo:${OWNER}/${NAME} is:${type} ${field}:>=${since}`))
+  );
+  const byNumber = new Map(
+    [...created, ...closed].map((n) => [n.number, { number: n.number, createdAt: n.createdAt, closedAt: n.state === 'OPEN' ? null : n.closedAt }])
+  );
+  return [...byNumber.values()];
+}
+
+// Own guard, not state.syncing, so a slow search never makes the hourly full sync skip its turn.
+let trendsBusy = false;
+async function refreshTrends() {
+  if (trendsBusy) return;
+  trendsBusy = true;
+  try {
+    const fetchedAt = new Date().toISOString();
+    const since = new Date(Date.now() - TRENDS_DAYS * 86_400_000).toISOString().replace(/\.\d+Z$/, 'Z');
+    const [issues, pullRequests] = await Promise.all([fetchTrend('issue', since), fetchTrend('pr', since)]);
+    trends = { fetchedAt, since, issues, pullRequests };
+    persistTrends();
+  } catch (e) {
+    log(`trends error: ${e.message || e}`);
+  } finally {
+    trendsBusy = false;
+  }
+}
+
 async function runSync(kind) {
   if (state.syncing) return;
   state.syncing = kind;
@@ -310,6 +366,7 @@ async function runSync(kind) {
     else await incrementalSync();
     state.syncError = null;
     persist();
+    refreshTrends();
   } catch (e) {
     state.syncError = String(e.message || e);
     log(`sync error: ${state.syncError}`);
@@ -516,6 +573,27 @@ function persistRecs() {
   }
 }
 
+function persistTrends() {
+  const temp = `${TRENDS_FILE}.tmp`;
+  try {
+    fs.writeFileSync(temp, JSON.stringify(trends));
+    fs.renameSync(temp, TRENDS_FILE);
+  } catch (e) {
+    log(`could not save trends: ${e.message}`);
+  }
+}
+
+function restoreTrends() {
+  try {
+    const d = JSON.parse(fs.readFileSync(TRENDS_FILE, 'utf8'));
+    if (!Array.isArray(d.issues) || !Array.isArray(d.pullRequests)) throw new Error('unexpected shape');
+    trends = d;
+    log(`restored trends from ${d.fetchedAt}`);
+  } catch (e) {
+    if (e.code !== 'ENOENT') log(`could not restore trends, starting empty: ${e.message}`);
+  }
+}
+
 function restoreRecs() {
   try {
     agent.recs = loadRecs(JSON.parse(fs.readFileSync(RECS_FILE, 'utf8')), state.items);
@@ -571,6 +649,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     return res.end(body);
   }
+  if (url.pathname === '/api/trends') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    return res.end(JSON.stringify(trends));
+  }
   if (url.pathname === '/api/refresh' && req.method === 'POST') {
     runSync('incremental');
     res.writeHead(202, { 'content-type': 'application/json' });
@@ -618,6 +700,7 @@ for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]
 
 const hadCache = restore();
 restoreRecs();
+restoreTrends();
 fs.mkdirSync(CLAUDE_CWD, { recursive: true });
 await runSync(hadCache ? 'incremental' : 'full');
 setInterval(() => runSync('incremental'), INCREMENTAL_MS);

@@ -3,6 +3,7 @@ import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
+import { weekTrend } from './trends.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -819,6 +820,7 @@ $('#token-dialog').addEventListener('close', async () => {
 
 async function refresh(force = false) {
   if (force) await fetch('/api/refresh', { method: 'POST' });
+  loadTrends();
   const res = await fetch('/api/items');
   const d = await res.json();
   data = d;
@@ -840,6 +842,62 @@ async function refresh(force = false) {
         : '';
   render();
   if (!d.items.length || d.syncing) setTimeout(refresh, 4000);
+}
+
+// ---------- trend tiles ----------
+
+const TREND_TIP = tooltip({
+  meaning: 'Opened and closed in expo/expo since Monday 00:00 (your local time). PRs closed includes merged.',
+  source: 'GitHub search, refreshed after each sync',
+});
+const TREND_ARROWS = { up: '▲', down: '▼', flat: '■' };
+let trends = null;
+let trendsRequest = 0;
+
+// Calls overlap (60 s timer, sync poll, refresh button): only the newest response may
+// replace the data, and a failure keeps the last good data.
+async function loadTrends() {
+  const request = ++trendsRequest;
+  try {
+    const res = await fetch('/api/trends');
+    const data = res.ok ? await res.json() : null;
+    if (data && request === trendsRequest) trends = data;
+  } catch {}
+  renderTrends();
+}
+
+function renderTrends() {
+  const now = new Date();
+  const week = (key) => (trends?.fetchedAt && Array.isArray(trends[key]) ? weekTrend(trends[key], now) : null);
+  $('#trends').innerHTML = trendTile('Issues', week('issues')) + trendTile('Pull requests', week('pullRequests'));
+}
+
+function trendTile(title, week) {
+  const head = `<div class="trend-tile${week ? '' : ' trend-empty'}" title="${esc(TREND_TIP)}"><div class="trend-title">${esc(title)}</div>`;
+  if (!week) return `${head}<p>No trend data yet</p></div>`;
+  const { net, direction, opened, closed } = week;
+  const signed = net > 0 ? `+${net}` : net < 0 ? `−${-net}` : '0';
+  return `${head}
+    <div class="trend-net trend-${direction}"><span aria-hidden="true">${TREND_ARROWS[direction]}</span> ${signed}</div>
+    <div class="trend-caption">this week</div>
+    <div class="trend-caption"><span class="trend-swatch trend-opened" aria-hidden="true"></span>opened ${opened} · <span class="trend-swatch trend-closed" aria-hidden="true"></span>closed ${closed}</div>
+    ${trendChart(week)}
+  </div>`;
+}
+
+function trendChart({ days, opened, closed }) {
+  const [width, height, pad] = [100, 50, 3];
+  const max = Math.max(opened, closed, 1);
+  const x = (i) => (days.length > 1 ? pad + (i * (width - 2 * pad)) / (days.length - 1) : width / 2);
+  const y = (count) => height - pad - (count * (height - 2 * pad)) / max;
+  // Markers on every day keep a single-day week (Monday) visible, where a polyline draws nothing.
+  const series = (key) => {
+    const points = days.map((day, i) => [+x(i).toFixed(1), +y(day[key]).toFixed(1)]);
+    return `<g class="trend-${key}"><polyline points="${points.map((p) => p.join(',')).join(' ')}"/>${points.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="1.6"/>`).join('')}</g>`;
+  };
+  return `<svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Opened ${opened} and closed ${closed} since Monday">
+    <line class="trend-axis" x1="0" x2="${width}" y1="${height - pad}" y2="${height - pad}"/>${series('opened')}${series('closed')}
+  </svg>`;
 }
 
 

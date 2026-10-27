@@ -2,6 +2,7 @@
 import { computeTasks, isHidden, TASK_KINDS, MODES } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recFor, recLabel, recRequest, recSignature } from './recs.js';
+import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -125,14 +126,13 @@ function labelStyle(color) {
 function labelHtml(l, opts = {}) {
   const active = filters.include.includes(l.name) ? ' active' : '';
   const excl = filters.exclude.includes(l.name) ? ' excluded' : '';
-  return `<a class="IssueLabel${active}${excl}" style="${labelStyle(l.color)}" data-label="${esc(l.name)}" title="${esc(
-    l.description || l.name
-  )}">${esc(l.name)}${opts.removable ? ' <span class="chip-remove" data-remove="1">×</span>' : ''}</a>`;
+  const title = opts.title ?? tooltip(CHIP_TIPS.label, l.description || CHIP_TIPS.label.meaning);
+  return `<a class="IssueLabel${active}${excl}" style="${labelStyle(l.color)}" data-label="${esc(l.name)}" title="${esc(title)}">${esc(l.name)}${opts.removable ? ' <span class="chip-remove" data-remove="1">×</span>' : ''}</a>`;
 }
 
 function assigneeChipHtml(a) {
   const active = filters.assignee === `user:${a.login}` ? ' active' : '';
-  return `<a class="AssigneeChip${active}" data-assignee="${esc(a.login)}" title="Assigned to ${esc(a.login)} — click to filter"><img src="${a.avatarUrl}&s=32" alt="" loading="lazy">assigned: ${esc(a.login)}</a>`;
+  return `<a class="AssigneeChip${active}" data-assignee="${esc(a.login)}" ${tipAttr(CHIP_TIPS.assignee, `Assigned to ${a.login} — click to filter`)}><img src="${a.avatarUrl}&s=32" alt="" loading="lazy">assigned: ${esc(a.login)}</a>`;
 }
 
 // ---------- helpers ----------
@@ -140,6 +140,9 @@ function assigneeChipHtml(a) {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
+const tipAttr = (tip, meaning) => `title="${esc(tooltip(tip, meaning))}"`;
+// SVG elements ignore the title attribute; they take a <title> child instead.
+const titled = (svg, tip) => svg.replace('>', `><title>${esc(tooltip(tip))}</title>`);
 function ago(iso) {
   if (!iso) return '';
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -308,33 +311,34 @@ function render() {
 }
 
 function itemParts(i, triageOpts) {
-  const icon = i.type === 'pr' ? (i.isDraft ? icons.draft : icons.pr) : icons.issue;
+  const icon = i.type === 'pr' ? (i.isDraft ? titled(icons.draft, CHIP_TIPS.draftState) : titled(icons.pr, CHIP_TIPS.prState)) : titled(icons.issue, CHIP_TIPS.issueState);
   const meta = [`<a href="${i.url}" target="_blank" rel="noreferrer">#${i.number}</a> opened ${ago(i.createdAt)} by <a href="https://github.com/${esc(i.author.login)}" target="_blank" rel="noreferrer">${esc(i.author.login)}</a>`];
   meta.push(`<span class="sep">·</span> updated ${ago(i.updatedAt)}`);
   if (i.type === 'pr') {
-    if (i.isDraft) meta.push(`<span class="status">Draft</span>`);
-    if (i.checks === 'SUCCESS') meta.push(`<span class="status success" title="Checks passing">${icons.check} checks</span>`);
-    else if (i.checks === 'FAILURE' || i.checks === 'ERROR') meta.push(`<span class="status failure" title="Checks failing">${icons.x} checks</span>`);
-    else if (i.checks) meta.push(`<span class="status pending" title="Checks ${i.checks.toLowerCase()}">${icons.dot} checks</span>`);
-    if (i.reviewDecision === 'APPROVED') meta.push(`<span class="status approved">${icons.check} Approved</span>`);
-    else if (i.reviewDecision === 'CHANGES_REQUESTED') meta.push(`<span class="status changes">Changes requested</span>`);
-    else if (i.reviewDecision === 'REVIEW_REQUIRED') meta.push(`<span class="status">Review required</span>`);
-    if (i.mergeable === 'CONFLICTING') meta.push(`<span class="status conflict">Conflicts</span>`);
+    if (i.isDraft) meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.draft)}>Draft</span>`);
+    if (i.checks === 'SUCCESS') meta.push(`<span class="status success" ${tipAttr(CHIP_TIPS.checks, 'Checks passing')}>${icons.check} checks</span>`);
+    else if (i.checks === 'FAILURE' || i.checks === 'ERROR') meta.push(`<span class="status failure" ${tipAttr(CHIP_TIPS.checks, 'Checks failing')}>${icons.x} checks</span>`);
+    else if (i.checks) meta.push(`<span class="status pending" ${tipAttr(CHIP_TIPS.checks, `Checks ${i.checks.toLowerCase()}`)}>${icons.dot} checks</span>`);
+    if (i.reviewDecision === 'APPROVED') meta.push(`<span class="status approved" ${tipAttr(CHIP_TIPS.approved)}>${icons.check} Approved</span>`);
+    else if (i.reviewDecision === 'CHANGES_REQUESTED') meta.push(`<span class="status changes" ${tipAttr(CHIP_TIPS.changesRequested)}>Changes requested</span>`);
+    else if (i.reviewDecision === 'REVIEW_REQUIRED') meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.reviewRequired)}>Review required</span>`);
+    if (i.mergeable === 'CONFLICTING') meta.push(`<span class="status conflict" ${tipAttr(CHIP_TIPS.conflicts)}>Conflicts</span>`);
     for (const li of i.linkedIssues || []) {
-      meta.push(`<a class="status" href="${li.url}" target="_blank" rel="noreferrer" title="Linked issue: ${esc(li.title)}">${icons.issueSmall} #${li.number}</a>`);
+      meta.push(`<a class="status" href="${li.url}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.linkedIssue, `Linked issue: ${li.title}`)}>${icons.issueSmall} #${li.number}</a>`);
     }
-    meta.push(`<span class="diffstat"><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`);
+    meta.push(`<span class="diffstat" ${tipAttr(CHIP_TIPS.diffstat)}><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`);
   }
-  if (i.thumbsUp) meta.push(`<span>👍 ${i.thumbsUp}</span>`);
+  if (i.thumbsUp) meta.push(`<span ${tipAttr(CHIP_TIPS.thumbsUp)}>👍 ${i.thumbsUp}</span>`);
   meta.push(waitingHtml(i));
   const c = i.bot.lastCommand;
   if (c) {
     const replied = i.bot.botRepliedAfterCommand;
     const outcome = replied && i.bot.lastBotReply.outcome ? ` · ${esc(i.bot.lastBotReply.outcome)}` : '';
     meta.push(
-      `<span class="bot-status ${replied ? 'replied' : 'pending'}" title="Last @expo-bot command by ${esc(c.by)} ${ago(c.at)}${
-        replied ? `; bot replied ${ago(i.bot.lastBotReply.at)}` : '; no bot reply yet'
-      }">${icons.bot} ${esc(c.command)} ${ago(c.at)}${replied ? ' ✓' + outcome : ' …'}</span>`
+      `<span class="bot-status ${replied ? 'replied' : 'pending'}" ${tipAttr(
+        CHIP_TIPS.botCommand,
+        `Last @expo-bot command by ${c.by} ${ago(c.at)}${replied ? `; bot replied ${ago(i.bot.lastBotReply.at)}` : '; no bot reply yet'}`
+      )}>${icons.bot} ${esc(c.command)} ${ago(c.at)}${replied ? ' ✓' + outcome : ' …'}</span>`
     );
   }
   const people = (i.latestReviews || []).filter((r) => r.login);
@@ -361,7 +365,7 @@ function rowHtml(i) {
     <div class="row-main">${main}</div>
     <div class="row-side">
       <span class="avatars">${avatars}</span>
-      <span class="comments-count">${i.commentCount ? `${icons.comment} ${i.commentCount}` : ''}</span>
+      <span class="comments-count" ${i.commentCount ? tipAttr(CHIP_TIPS.comments) : ''}>${i.commentCount ? `${icons.comment} ${i.commentCount}` : ''}</span>
       <button class="btn btn-action${posted ? ' done' : ''}" data-action="${i.number}" title="Comment “${action.body}” on #${i.number}">${posted ? '✓ Requested' : action.label}</button>
     </div>
   </li>`;
@@ -373,9 +377,10 @@ function waitingHtml(i) {
   const days = Math.floor((Date.now() - new Date(c.since)) / 864e5);
   const dur = days < 1 ? 'today' : `${days}d`;
   const last = c.lastHuman ? `Last human comment by ${c.lastHuman.login} (${c.lastHuman.role}) ${ago(c.lastHuman.at)}` : 'No human comments yet';
-  if (c.waitingOn === 'reporter') return `<span class="waiting reporter" title="${esc(last)}">${icons.clock} waiting on ${i.type === 'pr' ? 'author' : 'reporter'} · ${dur}</span>`;
-  if (!c.teamReplied) return `<span class="waiting never" title="${esc(last)}">${icons.alert} no team reply yet · ${dur}</span>`;
-  return `<span class="waiting team" title="${esc(last)}">${icons.reply} we owe a reply · ${dur}</span>`;
+  const title = tipAttr(CHIP_TIPS.waiting, last);
+  if (c.waitingOn === 'reporter') return `<span class="waiting reporter" ${title}>${icons.clock} waiting on ${i.type === 'pr' ? 'author' : 'reporter'} · ${dur}</span>`;
+  if (!c.teamReplied) return `<span class="waiting never" ${title}>${icons.alert} no team reply yet · ${dur}</span>`;
+  return `<span class="waiting team" ${title}>${icons.reply} we owe a reply · ${dur}</span>`;
 }
 
 function severityMismatch(item) {
@@ -383,7 +388,6 @@ function severityMismatch(item) {
   return !!s && !item.labels.some((l) => l.name === s.label);
 }
 
-const OUTCOME_TEXT = { problem: 'Reproduced', blocked: 'Blocked', pass: 'Not reproduced' };
 const expanded = new Set();
 
 function triageHtml(i, { fixPrs = true } = {}) {
@@ -396,21 +400,21 @@ function triageHtml(i, { fixPrs = true } = {}) {
     let sev = '';
     if (a.severity) {
       const color = data.labels.find((l) => l.name === a.severity.label)?.color;
-      sev = ` · suggests ${labelHtml({ name: a.severity.label, color })}`;
+      sev = ` · suggests ${labelHtml({ name: a.severity.label, color }, { title: tooltip(CHIP_TIPS.suggestedSeverity) })}`;
       if (severityMismatch(i)) sev += ` <button class="btn btn-xs" data-apply-severity="${i.number}" title="Replace the current severity label with ${esc(a.severity.label)}">Apply</button>`;
     }
-    parts.push(`<span>${icons.bot} <a href="${a.url}" target="_blank" rel="noreferrer">${esc(a.kind ?? 'Assessed')}${a.confidence != null ? ` · ${a.confidence}%` : ''}</a>${sev}</span>`);
+    parts.push(`<span ${tipAttr(CHIP_TIPS.assessment)}>${icons.bot} <a href="${a.url}" target="_blank" rel="noreferrer">${esc(a.kind ?? 'Assessed')}${a.confidence != null ? ` · ${a.confidence}%` : ''}</a>${sev}</span>`);
   }
   if (v) {
     parts.push(
-      `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}">${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
-        (v.headline ? `<span class="verdict-headline" title="${esc(v.headline)}">${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
+      `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}" ${tipAttr(OUTCOME_TIPS[v.outcome] ?? CHIP_TIPS.verdict)}>${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
+        (v.headline ? `<span class="verdict-headline" ${tipAttr(CHIP_TIPS.verdictHeadline, v.headline)}>${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
     );
   }
-  if (fixPrs) for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer">🔧 fix PR #${n}</a>`);
+  if (fixPrs) for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.fixPr)}>🔧 fix PR #${n}</a>`);
   const hasDetails = a?.impact || a?.scope || v?.maintainer || v?.reporter;
   if (!parts.length && !hasDetails) return '';
-  if (hasDetails) parts.push(`<button class="details-toggle" data-details="${i.number}">${expanded.has(i.number) ? 'hide details ▴' : 'details ▾'}</button>`);
+  if (hasDetails) parts.push(`<button class="details-toggle" data-details="${i.number}" ${tipAttr(CHIP_TIPS.details)}>${expanded.has(i.number) ? 'hide details ▴' : 'details ▾'}</button>`);
   const details =
     hasDetails && expanded.has(i.number)
       ? `<div class="triage-details">${[
@@ -434,7 +438,7 @@ function renderViews() {
         .map((v) => {
           const n = counts[v.id];
           const active = filters.view === v.id;
-          return `<button class="cmd${active ? ' selected' : ''}${n ? '' : ' zero'}" data-view="${v.id}" aria-pressed="${active}" title="${esc(`${v.step}\n${v.hint}`)}">
+          return `<button class="cmd${active ? ' selected' : ''}${n ? '' : ' zero'}" data-view="${v.id}" aria-pressed="${active}" ${tipAttr(CHIP_TIPS.view, `${v.step}\n${v.hint}`)}>
             <span class="cmd-name">${esc(v.name)}</span><span class="cmd-audience">${esc(v.audience)}</span><span class="cmd-count">${n}</span>
           </button>`;
         })
@@ -461,9 +465,10 @@ function renderActiveFilters() {
     ...filters.include.map((n) => labelHtml({ name: n, color: colorOf[n] }, { removable: true })),
     ...filters.exclude.map((n) => labelHtml({ name: n, color: colorOf[n] }, { removable: true })),
   ];
-  if (filters.newerThanDays) chips.push(`<span class="muted">created in last ${filters.newerThanDays}d</span>`);
-  if (filters.staleDays) chips.push(`<span class="muted">no activity for ${filters.staleDays}d+</span>`);
-  if (filters.minSeverity === -1) chips.push(`<span class="muted">no severity label</span>`);
+  const filterTip = tipAttr(CHIP_TIPS.activeFilter);
+  if (filters.newerThanDays) chips.push(`<span class="muted" ${filterTip}>created in last ${filters.newerThanDays}d</span>`);
+  if (filters.staleDays) chips.push(`<span class="muted" ${filterTip}>no activity for ${filters.staleDays}d+</span>`);
+  if (filters.minSeverity === -1) chips.push(`<span class="muted" ${filterTip}>no severity label</span>`);
   $('#active-filters').innerHTML = chips.length || isFiltered() ? chips.join('') + `<button class="clear-link" id="clear-filters">✕ Clear filters</button>` : '';
 }
 
@@ -498,7 +503,7 @@ function renderFacets() {
       const ls = groups.get(g).sort((a, b) => (g === 'Severity' ? sevOrder(a.name) - sevOrder(b.name) : b.n - a.n));
       const collapsed = collapsedGroups.has(g) && !q;
       return `<div class="facet-group${collapsed ? ' collapsed' : ''}" data-group="${esc(g)}">
-        <h4><span>${esc(g)}</span><span>${collapsed ? '▸' : '▾'} ${ls.length}</span></h4>
+        <h4 ${tipAttr(CHIP_TIPS.labelGroup)}><span>${esc(g)}</span><span>${collapsed ? '▸' : '▾'} ${ls.length}</span></h4>
         ${ls.map((l) => `<div class="facet">${labelHtml(l)}<span class="count">${l.n}</span></div>`).join('')}
       </div>`;
     })
@@ -775,6 +780,7 @@ function toast(msg, { undo, error } = {}) {
 
 let me = null;
 async function loadMe() {
+  $('#token-btn').title = '';
   if (!getToken()) {
     me = null;
     $('#token-btn').textContent = 'Sign in';
@@ -783,6 +789,7 @@ async function loadMe() {
   try {
     me = await gh('/user');
     $('#token-btn').innerHTML = `<img class="avatar" src="${me.avatar_url}&s=40" alt=""> ${esc(me.login)}`;
+    $('#token-btn').title = tooltip(CHIP_TIPS.signedIn);
   } catch (e) {
     me = null;
     $('#token-btn').textContent = 'Token invalid — sign in';
@@ -886,7 +893,7 @@ function renderInbox() {
     .filter(([k]) => kinds.has(k))
     .map(
       ([k, def]) =>
-        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}">${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
+        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k])}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
     )
     .join('');
   document.querySelectorAll('#inbox-scope button').forEach((b) => b.classList.toggle('selected', b.dataset.scope === filters.inboxScope));
@@ -925,24 +932,24 @@ function taskHtml(t, idx) {
   const def = TASK_KINDS[t.kind];
   const { icon, main } = itemParts(t.item, { fixPrs: false });
   const fixPrs = (t.item.triage?.fixPrs ?? [])
-    .map((n) => `<a class="fix-pr" href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" title="Fix PR opened by expo-bot">🔧 #${n}</a>`)
+    .map((n) => `<a class="fix-pr" href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.fixPr)}>🔧 #${n}</a>`)
     .join('');
   const hidden = isHidden(t, inboxState);
   const reasons = t.reasons
-    .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason">${esc(r.text)}</span>`))
+    .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason" ${tipAttr(CHIP_TIPS.reason)}>${esc(r.text)}</span>`))
     .join('');
-  const also = t.also.length ? `<span class="muted">also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
+  const also = t.also.length ? `<span class="muted" ${tipAttr(CHIP_TIPS.also)}>also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
   return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}" data-task="${t.key}">
     <div class="task-rank">${idx + 1}</div>
     <div class="task-body">
       <div class="task-head">
-        <span class="type-chip">${icon}${t.item.type === 'pr' ? 'PR' : 'Issue'}</span>
-        <span class="kind-badge tone-${def.tone}">${icons[def.icon] ?? ''} ${esc(def.label)}</span>
+        <span class="type-chip" ${tipAttr(t.item.type === 'pr' ? CHIP_TIPS.prState : CHIP_TIPS.issueState)}>${icon}${t.item.type === 'pr' ? 'PR' : 'Issue'}</span>
+        <span class="kind-badge tone-${def.tone}" ${tipAttr(TASK_TIPS[t.kind])}>${icons[def.icon] ?? ''} ${esc(def.label)}</span>
         ${fixPrs}
         ${reasons}
         ${also}
         <span class="header-spacer"></span>
-        <span class="task-score" title="Priority score: task base + severity, waiting time, 👍, assignment">${t.score}</span>
+        <span class="task-score" ${tipAttr(CHIP_TIPS.taskScore)}>${t.score}</span>
       </div>
       <div class="task-item">${icon}<div class="row-main">${main}</div></div>
       ${recHtml(t)}
@@ -1075,20 +1082,21 @@ const REC_SUFFIX = { comment: '…', close: '…', github: ' ↗' };
 function recHtml(t) {
   const entry = recFor(recResponse, t);
   if (!entry) return '';
-  const tag = '<span class="rec-tag">Agent</span>';
+  const tag = `<span class="rec-tag" ${tipAttr(CHIP_TIPS.recTag)}>Agent</span>`;
   if (entry.status === 'pending') return `<div class="rec">${tag}Thinking…</div>`;
-  if (entry.status !== 'done') return `<div class="rec" title="${esc(entry.error)}">${tag}No recommendation</div>`;
+  if (entry.status !== 'done') return `<div class="rec" ${tipAttr(CHIP_TIPS.recError, entry.error)}>${tag}No recommendation</div>`;
   const { rec } = entry;
   const label = recLabel(rec, t.item);
   if (!label) return '';
   const { kind } = applyPlan(rec, t.item);
   const posted = kind === 'command' && postedThisSession.has(t.item.number);
+  const actionTip = tipAttr(ACTION_TIPS[rec.action]);
   const apply =
     kind === 'none'
-      ? `<span class="rec-action">${esc(label.button)}</span>`
-      : `<button class="btn btn-xs" data-rec-apply="${t.key}"${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
-  const who = label.who ? `<span class="rec-who">${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
-  return `<div class="rec">${tag}${apply}${who}<span class="rec-confidence" title="Agent confidence">${esc(rec.confidence)}%</span><span class="rec-why">${esc(rec.why)}</span></div>`;
+      ? `<span class="rec-action" ${actionTip}>${esc(label.button)}</span>`
+      : `<button class="btn btn-xs" data-rec-apply="${t.key}" ${actionTip}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
+  const who = label.who ? `<span class="rec-who" ${tipAttr(CHIP_TIPS.recWho)}>${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
+  return `<div class="rec">${tag}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
 }
 
 function applyRec(t) {
@@ -1280,6 +1288,15 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });
 darkMode.addEventListener('change', render);
+
+const STATIC_TIPS = {
+  '#count-inbox': CHIP_TIPS.inboxCount,
+  '#count-issue': CHIP_TIPS.issueCount,
+  '#count-pr': CHIP_TIPS.prCount,
+  '#inbox-progress': CHIP_TIPS.inboxProgress,
+  '#sync-status': CHIP_TIPS.syncStatus,
+};
+for (const [sel, tip] of Object.entries(STATIC_TIPS)) $(sel).title = tooltip(tip);
 
 loadMe().then(render);
 refresh();

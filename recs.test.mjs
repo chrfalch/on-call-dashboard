@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
-import { applyPlan, hasPending, recAction, recFor, recLabel, recRequest, recSignature } from './public/recs.js';
+import { TASK_KINDS } from './public/inbox.js';
+import { applyPlan, hasPending, recAction, recDisagrees, recFor, recLabel, recRequest, recSignature } from './public/recs.js';
 import { recKey } from './recommend.mjs';
 
 const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
@@ -147,4 +148,42 @@ test('recLabel keeps the action label and a separate who when the person only do
 test('recLabel returns null for an unknown action or one for the other item type', () => {
   assert.equal(recLabel(rec('nope'), issue), null);
   assert.equal(recLabel(rec('nudge-author', { who: 'brentvatne' }), issue), null);
+});
+
+test('recDisagrees: a close task and a rec that does not close', () => {
+  assert.deepEqual(recDisagrees(task(pr, 'close'), rec('nudge-author')), { task: 'Close stale', agent: 'Nudge author' });
+  assert.deepEqual(recDisagrees(task(issue, 'close-candidate'), rec('wait')), { task: 'Close candidate', agent: 'Wait' });
+});
+
+test('recDisagrees: a close task agrees with close and close as duplicate', () => {
+  assert.equal(recDisagrees(task(pr, 'close'), rec('close')), null);
+  assert.equal(recDisagrees(task(issue, 'close'), rec('close-duplicate')), null);
+});
+
+test('recDisagrees: a bot-command task agrees only with that command', () => {
+  assert.equal(recDisagrees(task(issue, 'verify'), rec('verify')), null);
+  assert.equal(recDisagrees(task(pr, 'bot-review'), rec('request-review')), null);
+  assert.deepEqual(recDisagrees(task(issue, 'verify'), rec('ask-reporter')), { task: 'Verify new issue', agent: 'Ask reporter' });
+  assert.deepEqual(recDisagrees(task(pr, 'bot-review'), rec('close')), { task: 'Request bot review', agent: 'Close' });
+});
+
+test('recDisagrees: tasks that only open the item never disagree', () => {
+  for (const kind of ['reply', 'first-response', 'review', 'merge', 'nudge', 'assign-repro', 'fix-severity']) {
+    assert.equal(recDisagrees(task(pr, kind), rec('wait')), null, kind);
+  }
+});
+
+test('recDisagrees: no answer for an unknown action, an action for the other item type, or an unknown task kind', () => {
+  assert.equal(recDisagrees(task(pr, 'close'), rec('nope')), null);
+  assert.equal(recDisagrees(task(pr, 'close'), rec('accept')), null);
+  assert.equal(recDisagrees(task(pr, 'nope'), rec('wait')), null);
+  assert.equal(recDisagrees(task(pr, 'close'), undefined), null);
+});
+
+test('recDisagrees: every bot-command task kind agrees with some action', () => {
+  for (const [kind, { action }] of Object.entries(TASK_KINDS)) {
+    if (action !== 'command') continue;
+    const item = kind === 'bot-review' ? pr : issue;
+    assert.ok(ACTIONS.some((a) => recDisagrees(task(item, kind), rec(a.id)) === null), kind);
+  }
 });

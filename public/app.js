@@ -1453,6 +1453,36 @@ const STATIC_TIPS = {
 };
 for (const [sel, tip] of Object.entries(STATIC_TIPS)) $(sel).title = tooltip(tip);
 
+// Some browsers never show the native title tooltip on a <button>, so every title is shown by this box instead.
+// The title moves to data-tip on hover; code that sets .title later wins again on the next hover.
+const tipBox = document.body.appendChild(Object.assign(document.createElement('div'), { className: 'tip', hidden: true }));
+let tipTarget = null;
+function hideTip() {
+  tipTarget = null;
+  tipBox.hidden = true;
+}
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest?.('[title], [data-tip]');
+  if (el === tipTarget) return;
+  hideTip();
+  if (!el) return;
+  if (el.hasAttribute('title')) {
+    el.dataset.tip = el.title;
+    el.removeAttribute('title');
+  }
+  if (!el.dataset.tip) return;
+  tipTarget = el;
+  tipBox.textContent = el.dataset.tip;
+  tipBox.hidden = false;
+  const r = el.getBoundingClientRect();
+  const { width, height } = tipBox.getBoundingClientRect();
+  const below = r.bottom + 6 + height <= window.innerHeight;
+  tipBox.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - width - 8))}px`;
+  tipBox.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - height)}px`;
+});
+document.addEventListener('mousedown', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
 loadMe().then(render);
 refresh();
 setInterval(refresh, 60_000);

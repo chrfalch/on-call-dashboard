@@ -1047,6 +1047,7 @@ function taskHtml(t, idx) {
     </div>
     <div class="task-actions">
       ${taskActionButton(t)}
+      ${recTaskButton(t)}
       <div class="task-secondary">
         <button class="btn btn-sm" data-task-done="${t.key}" title="Hide until this item changes on GitHub (d)">✓ Done</button>
         <button class="btn btn-sm" data-task-later="${t.key}" title="Snooze for 3 days (l)">Later</button>
@@ -1192,6 +1193,17 @@ function recHtml(t) {
     ? `<span class="rec-disagrees" ${tipAttr(CHIP_TIPS.recDisagrees, `The task says "${conflict.task}". The agent recommends "${conflict.agent}". Check the thread before you act.`)}>agent disagrees</span>`
     : '';
   return `<div class="rec">${tag}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
+}
+
+// Only a disagreeing rec gets a button next to the task's own, so the operator can pick either.
+function recTaskButton(t) {
+  const entry = recFor(recResponse, t);
+  if (entry?.status !== 'done' || !recDisagrees(t, entry.rec)) return '';
+  const label = recLabel(entry.rec, t.item);
+  const { kind } = applyPlan(entry.rec, t.item);
+  if (!label || kind === 'none') return '';
+  const posted = kind === 'command' && postedThisSession.has(t.item.number);
+  return `<button class="btn btn-sm btn-primary" data-rec-apply="${t.key}" ${tipAttr(ACTION_TIPS[entry.rec.action])}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
 }
 
 function applyRec(t) {

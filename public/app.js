@@ -562,13 +562,14 @@ function renderAssigneeOptions() {
   ].join('');
 }
 
+let sdkListHtml = '';
 function renderSdkFilter() {
   const unsupportedCount = data.items.filter((i) => isUnsupportedSdk(i, unsupportedSdks)).length;
   $('#hide-unsupported-sdks').checked = filters.hideUnsupportedSdks;
   $('#sdk-hidden').textContent = `${unsupportedCount} ${filters.hideUnsupportedSdks ? 'hidden' : 'unsupported'}`;
   const colorOf = Object.fromEntries(data.labels.map((l) => [l.name, l.color]));
   const names = sdkLabels(data.labels);
-  $('#sdk-list').innerHTML = names.length
+  const html = names.length
     ? names
         .map(
           (name) =>
@@ -576,6 +577,8 @@ function renderSdkFilter() {
         )
         .join('')
     : '<p class="muted">No SDK labels yet.</p>';
+  // Rebuilding on every render would drop keyboard focus inside the open menu.
+  if (html !== sdkListHtml) $('#sdk-list').innerHTML = sdkListHtml = html;
 }
 
 function updateBulk(visible) {
@@ -1363,7 +1366,8 @@ bind('#idle', 'idleDays', Number);
 bind('#verdict', 'verdict');
 bind('#hide-unsupported-sdks', 'hideUnsupportedSdks');
 $('#sdk-list').addEventListener('change', (e) => {
-  e.target.checked ? unsupportedSdks.delete(e.target.value) : unsupportedSdks.add(e.target.value);
+  if (e.target.checked) unsupportedSdks.delete(e.target.value);
+  else unsupportedSdks.add(e.target.value);
   localStorage.setItem('unsupportedSdks', JSON.stringify([...unsupportedSdks]));
   shown = PAGE;
   render();
@@ -1384,6 +1388,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     e.preventDefault();
     $('#search').focus();
+  }
+  if (e.key === 'Escape' && $('#sdk-menu').open) {
+    $('#sdk-menu').open = false;
+    $('#sdk-menu summary').focus();
   }
 });
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });

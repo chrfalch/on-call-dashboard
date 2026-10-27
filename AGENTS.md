@@ -14,8 +14,11 @@ dependencies, no build step.
 ## Layout
 
 - `server.mjs` — GraphQL sync (full hourly, incremental every 2 min), cache in
-  `.cache/<owner>-<name>.json`, routes `GET /api/items`, `POST /api/refresh`,
-  `POST /api/recommendations`, static files from `public/`. Recommendations run
+  `.cache/<owner>-<name>.json`, routes `GET /api/items`, `GET /api/trends`,
+  `POST /api/refresh`, `POST /api/recommendations`, static files from `public/`.
+  After each sync it fetches the issues and PRs created or closed in the last
+  9 days (raw timestamps for the trend tiles) into
+  `.cache/trends-<owner>-<name>.json`. Recommendations run
   `claude -p` with no tools, three at a time, in the empty `.cache/claude-cwd/`;
   results are cached in `.cache/recommendations-<owner>-<name>.json`. The route
   rejects a request whose `Origin` header is present and is not
@@ -43,6 +46,9 @@ dependencies, no build step.
 - `public/views.js` — pure runbook views for the Issues and PRs tabs (`VIEWS`,
   `GROUPS`, `applyView`, `viewCounts`). Each view has a fixed rule, a fixed
   sort and an audience. Shared by browser and Node; tested by `views.test.mjs`.
+- `public/trends.js` — pure math for the trend tiles (`weekStart`,
+  `weekTrend`): cumulative opened and closed counts per local day since
+  Monday 00:00, and the week's net change. Tested by `trends.test.mjs`.
 - `public/app.js` — all UI: rendering, Runbook view cards, filters (URL hash),
   GitHub write actions.
 - `public/index.html`, `public/style.css` — markup and GitHub-like styles.

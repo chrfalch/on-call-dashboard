@@ -63,7 +63,7 @@
         <div>
           <h2>Triage inbox</h2>
           <p class="inbox-mode-desc" id="inbox-mode-desc"></p>
-          <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> open, <kbd>x</kbd> do it, <kbd>d</kbd> done, <kbd>l</kbd> later.</p>
+          <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> open, <kbd>x</kbd> do it, <kbd>d</kbd> done, <kbd>l</kbd> later, <kbd>g</kbd> go to a number.</p>
         </div>
       </div>
       <div class="inbox-controls">
@@ -243,6 +243,19 @@
         <div class="header-spacer"></div>
         <button value="cancel" class="btn">Cancel</button>
         <button value="save" id="token-save" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="quick-open-dialog" class="dialog">
+    <form method="dialog">
+      <h3>Open issue or PR</h3>
+      <input id="quick-open-input" placeholder="#49630" autocomplete="off" />
+      <p id="quick-open-msg" class="muted" hidden></p>
+      <div class="dialog-actions">
+        <div class="header-spacer"></div>
+        <button type="button" id="quick-open-cancel" class="btn">Cancel</button>
+        <button class="btn btn-primary">Open</button>
       </div>
     </form>
   </dialog>

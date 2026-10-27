@@ -53,6 +53,10 @@ dependencies, no build step.
   `isUnsupportedSdk`, `parseUnsupportedSdks`): the `sdk-<n>` labels newest
   first, and whether an item has only SDK labels the team no longer supports.
   Shared by browser and Node; tested by `sdk.test.mjs`.
+- `public/quick-open.js` — pure helpers for the `g` quick-open box
+  (`parseItemNumber`, `findItem`, `quickOpenFilters`): read a typed issue or
+  PR number and build the filters that show only that item. Shared by
+  browser and Node; tested by `quick-open.test.mjs`.
 - `public/app.js` — all UI: rendering, Runbook view cards, filters (URL hash),
   GitHub write actions.
 - `public/index.html`, `public/style.css` — markup and GitHub-like styles.

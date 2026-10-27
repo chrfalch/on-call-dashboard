@@ -5,6 +5,7 @@ import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recS
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
+import { findItem, parseItemNumber, quickOpenFilters } from './quick-open.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -1400,15 +1401,46 @@ $('#refresh-btn').addEventListener('click', async () => {
 });
 $('#token-btn').addEventListener('click', openTokenDialog);
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+  const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+  if (e.key === '/' && !typing) {
     e.preventDefault();
     $('#search').focus();
+  }
+  if (e.key === 'g' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('dialog[open]')) {
+    e.preventDefault();
+    openQuickOpen();
   }
   if (e.key === 'Escape' && $('#sdk-menu').open) {
     $('#sdk-menu').open = false;
     $('#sdk-menu summary').focus();
   }
 });
+function openQuickOpen() {
+  $('#quick-open-input').value = '';
+  $('#quick-open-msg').hidden = true;
+  $('#quick-open-dialog').showModal();
+  $('#quick-open-input').focus();
+}
+
+function quickOpenMessage(html) {
+  $('#quick-open-msg').innerHTML = html;
+  $('#quick-open-msg').hidden = false;
+}
+
+$('#quick-open-dialog form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const n = parseItemNumber($('#quick-open-input').value);
+  if (!n) return quickOpenMessage('Type an issue or PR number.');
+  if (!data.repo) return quickOpenMessage('The dashboard is still loading. Try again in a moment.');
+  const item = findItem(data.items, n);
+  if (!item) return quickOpenMessage(`#${n} is not open in the dashboard. <a href="https://github.com/${data.repo}/issues/${n}" target="_blank" rel="noreferrer">Open it on GitHub</a>`);
+  $('#quick-open-dialog').close();
+  filters = quickOpenFilters(filters, DEFAULT_FILTERS, item);
+  selected.clear();
+  shown = PAGE;
+  render();
+});
+$('#quick-open-cancel').addEventListener('click', () => $('#quick-open-dialog').close());
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });
 darkMode.addEventListener('change', render);
 

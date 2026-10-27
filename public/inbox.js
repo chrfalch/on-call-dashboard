@@ -11,6 +11,7 @@ export const TASK_KINDS = {
   verify: { label: 'Verify new issue', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
   review: { label: 'Review PR', icon: 'eye', tone: 'attention', action: 'open', oncall: false },
   'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
+  'human-review': { label: 'Ready for human review', icon: 'eye', tone: 'attention', action: 'open', oncall: true },
   'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity', oncall: true },
   nudge: { label: 'Nudge author', icon: 'clock', tone: 'muted', action: 'open', oncall: false },
   'close-candidate': { label: 'Close candidate', icon: 'merge', tone: 'success', action: 'close', oncall: true },
@@ -70,7 +71,11 @@ function candidates(item, now) {
     if (green && clean && item.reviewDecision === 'APPROVED') out.push({ kind: 'merge', base: 70 });
     if (green && clean && item.reviewDecision === 'REVIEW_REQUIRED' && conv.waitingOn !== 'reporter') {
       if (!botCmd) out.push({ kind: 'bot-review', base: 50 });
-      else if (!botPending) out.push({ kind: 'review', base: 55, reasons: ['bot review done'] });
+      else if (!botPending) {
+        out.push({ kind: 'review', base: 55, reasons: ['bot review done'] });
+        // A requested reviewer owns the review; on-call only routes the rest.
+        if (botCmd.command === 'review' && !(item.reviewRequests ?? []).length) out.push({ kind: 'human-review', base: 54, reasons: ['bot review done', 'no reviewer requested'] });
+      }
     }
     if (item.reviewDecision === 'APPROVED' && (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE')) {
       const reasons = [item.mergeable === 'CONFLICTING' ? 'approved but conflicting' : 'approved but checks failing'];

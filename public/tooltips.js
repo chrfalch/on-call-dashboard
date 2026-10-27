@@ -60,6 +60,7 @@ export const TASK_TIPS = {
   'first-response': { meaning: 'Nobody from the team replied yet. Give a first response.', source: REPLIES },
   verify: { meaning: 'Opened in the last 30 days, and nobody asked expo-bot to verify it. Ask the bot to reproduce it.', source: '@expo-bot commands in comments, and the expo-bot sandbox verification comments' },
   review: { meaning: 'Checks pass, there are no conflicts and expo-bot replied to the last @expo-bot command. Review it.', source: 'GitHub: checks, mergeable state and review decision, and the replies from expo-bot' },
+  'human-review': { meaning: 'Checks pass, there are no conflicts and expo-bot has reviewed it, but nobody is asked to review it. Request a reviewer.', source: 'GitHub: checks, mergeable state, review decision and requested reviewers, and the replies from expo-bot' },
   'bot-review': { meaning: 'Checks pass, there are no conflicts and a review is required. Ask expo-bot to review it first.', source: 'GitHub: checks, mergeable state and review decision, and @expo-bot commands in comments' },
   'fix-severity': { meaning: 'expo-bot suggests a different severity than the label. Apply the suggestion or fix the label.', source: `${BOT_TRIAGE}, and GitHub labels` },
   nudge: { meaning: 'Approved, but it has conflicts or failing checks. Ask the author to update it.', source: 'GitHub: review decision, mergeable state and checks' },

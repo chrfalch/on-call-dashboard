@@ -54,18 +54,18 @@ export const CHIP_TIPS = {
 };
 
 export const TASK_TIPS = {
-  'assign-repro': { meaning: 'expo-bot verified this issue and reproduced the bug, and nobody is assigned. Read the result and assign an owner.', source: `${BOT_SANDBOX}, and GitHub assignees` },
-  merge: { meaning: 'Checks pass, there are no conflicts and the pull request is approved. Merge it.', source: 'GitHub: checks, mergeable state and review decision' },
-  reply: { meaning: 'The team replied before, but the last human comment is from someone else. Reply to it.', source: REPLIES },
-  'first-response': { meaning: 'Nobody from the team replied yet. Give a first response.', source: REPLIES },
-  verify: { meaning: 'Opened in the last 30 days, and nobody asked expo-bot to verify it. Ask the bot to reproduce it.', source: '@expo-bot commands in comments, and the expo-bot sandbox verification comments' },
-  review: { meaning: 'Checks pass, there are no conflicts and expo-bot replied to the last @expo-bot command. Review it.', source: 'GitHub: checks, mergeable state and review decision, and the replies from expo-bot' },
-  'human-review': { meaning: 'Checks pass, there are no conflicts and expo-bot has reviewed it, but nobody is asked to review it. Request a reviewer.', source: 'GitHub: checks, mergeable state, review decision and requested reviewers, and the replies from expo-bot' },
-  'bot-review': { meaning: 'Checks pass, there are no conflicts and a review is required. Ask expo-bot to review it first.', source: 'GitHub: checks, mergeable state and review decision, and @expo-bot commands in comments' },
-  'fix-severity': { meaning: 'expo-bot suggests a different severity than the label. Apply the suggestion or fix the label.', source: `${BOT_TRIAGE}, and GitHub labels` },
-  nudge: { meaning: 'Approved, but it has conflicts or failing checks. Ask the author to update it.', source: 'GitHub: review decision, mergeable state and checks' },
-  'close-candidate': { meaning: 'A pull request that fixes this issue was merged. Check that the fix shipped, then close the issue.', source: 'Linked PRs from the GitHub timeline and team comments' },
-  close: { meaning: 'The reporter or author went quiet, or expo-bot could not reproduce the bug. Close it if nothing changed.', source: `${REPLIES}, and the ${BOT_SANDBOX}` },
+  'assign-repro': { meaning: 'Issues that expo-bot verified and reproduced, with nobody assigned. Read the bot result, then assign an owner.', source: `${BOT_SANDBOX}, and GitHub assignees` },
+  merge: { meaning: 'Pull requests that are approved, with passing checks and no conflicts. Merge them.', source: 'GitHub: checks, mergeable state and review decision' },
+  reply: { meaning: 'Issues where the team replied before, but the last human comment is from someone outside the team. Reply to it.', source: REPLIES },
+  'first-response': { meaning: 'Issues where nobody from the team replied yet, newest reports ranked highest. Give a first response.', source: REPLIES },
+  verify: { meaning: 'Issues opened in the last 30 days that have no @expo-bot command and no bot verification yet. Ask expo-bot to verify, so it tries to reproduce the bug.', source: '@expo-bot commands in comments, and the expo-bot sandbox verification comments' },
+  review: { meaning: 'Pull requests that need a review, with passing checks and no conflicts, where expo-bot replied to the last review command. Review them.', source: 'GitHub: checks, mergeable state and review decision, and the replies from expo-bot' },
+  'human-review': { meaning: 'Pull requests that expo-bot reviewed, with passing checks and no conflicts, but no requested reviewer. Request a reviewer from the team.', source: 'GitHub: checks, mergeable state, review decision and requested reviewers, and the replies from expo-bot' },
+  'bot-review': { meaning: 'Pull requests that need a review, with passing checks and no conflicts, where nobody asked expo-bot to review yet. Ask expo-bot to review first.', source: 'GitHub: checks, mergeable state and review decision, and @expo-bot commands in comments' },
+  'fix-severity': { meaning: 'Issues where expo-bot suggests a severity label that the issue does not have. Apply the suggestion or fix the label.', source: `${BOT_TRIAGE}, and GitHub labels` },
+  nudge: { meaning: 'Approved pull requests that have conflicts or failing checks; on-call sees them after 60 days without activity. Ask the author to update them.', source: 'GitHub: review decision, mergeable state and checks' },
+  'close-candidate': { meaning: 'Issues with a merged pull request that GitHub links as a fix or that a team member named. Check that the fix shipped, then close the issue.', source: 'Linked PRs from the GitHub timeline and team comments' },
+  close: { meaning: 'Issues with no open fix where the reporter is silent for 14 days, or where expo-bot could not reproduce the bug and nobody replied for 7 days, and pull requests with requested changes and no activity for 60 days. Close them if nothing changed.', source: `${REPLIES}, and the ${BOT_SANDBOX}` },
 };
 
 export const ACTION_TIPS = {

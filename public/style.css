@@ -294,6 +294,8 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .kind-badge.tone-success { color: var(--success); }
 .kind-badge.tone-muted { color: var(--fg-muted); }
 .reason { padding: 0 7px; border-radius: 2em; background: var(--bg-muted); border: 1px solid var(--border); line-height: 18px; color: var(--fg-muted); }
+.fix-pr { padding: 0 7px; border-radius: 2em; border: 1px solid var(--border); line-height: 18px; color: var(--fg); }
+.fix-pr:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .task-head .IssueLabel { margin: 0; }
 .task-score { font-weight: 600; color: var(--fg-muted); font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; cursor: help; }
 .task-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }

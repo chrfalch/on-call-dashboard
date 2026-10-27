@@ -80,7 +80,7 @@ test('stale issue waiting on reporter -> close, unless accepted', () => {
   assert.equal(one(issue({ ...stale, labels: [{ name: 'Issue accepted' }] })), undefined);
 });
 
-const linkedPr = (number, over = {}) => ({ number, title: `Fix ${number}`, state: 'MERGED', mergedAt: daysAgo(5), baseRefName: 'main', ...over });
+const linkedPr = (number, over = {}) => ({ number, title: `Fix ${number}`, state: 'MERGED', mergedAt: daysAgo(5), baseRefName: 'main', fix: true, ...over });
 // Old enough to skip verify, and waiting on the reporter for too short a time to be stale.
 const quiet = { createdAt: daysAgo(60), conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(2) } };
 const kinds = (t) => (t ? [t.kind, ...t.also] : []);
@@ -107,6 +107,20 @@ test('no close candidate without a merged linked PR', () => {
   assert.ok(!kinds(one(issue({ ...quiet, linkedPrs: [linkedPr(10, { state: 'OPEN', mergedAt: null }), linkedPr(11, { state: 'CLOSED', mergedAt: null })] }))).includes('close-candidate'));
   assert.ok(!kinds(one(issue({ ...quiet, linkedPrs: [] }))).includes('close-candidate'));
   assert.doesNotThrow(() => assert.equal(one(issue(quiet)), undefined), 'old cached issues have no linkedPrs');
+});
+
+test('no close candidate when the merged PRs only mention the issue, as on #34136 and #45511', () => {
+  const fromBot = linkedPr(31955, { fix: false, via: 'comment', by: { login: 'expo-bot', association: 'MEMBER' } });
+  assert.ok(!kinds(one(issue({ ...quiet, number: 34136, linkedPrs: [fromBot] }))).includes('close-candidate'));
+  const mention = linkedPr(48787, { fix: false });
+  assert.ok(!kinds(one(issue({ ...quiet, number: 45511, linkedPrs: [linkedPr(20008, { fix: false, via: 'comment', by: { login: 'expo-bot', association: 'MEMBER' } }), mention] }))).includes('close-candidate'));
+  assert.ok(!kinds(one(issue({ ...quiet, linkedPrs: [linkedPr(10, { fix: undefined })] }))).includes('close-candidate'), 'a PR without the fix field is no fix');
+});
+
+test('close candidate lists only the merged fix PRs', () => {
+  const t = one(issue({ ...quiet, linkedPrs: [linkedPr(10, { fix: false }), linkedPr(11)] }));
+  assert.equal(t.kind, 'close-candidate');
+  assert.deepEqual(t.reasons.map((r) => r.text), ['#11 merged 5d ago into main']);
 });
 
 test('no close candidate for parked issues or PRs', () => {
@@ -138,7 +152,7 @@ test('close-candidate scores 45 before bonuses', () => {
   const t = one(issue({
     triage: { verification: { outcome: 'pass' } },
     conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(1) },
-    linkedPrs: [{ number: 7, title: 'Fix', state: 'MERGED', mergedAt: daysAgo(2), baseRefName: 'main' }],
+    linkedPrs: [{ number: 7, title: 'Fix', state: 'MERGED', mergedAt: daysAgo(2), baseRefName: 'main', fix: true }],
   }));
   assert.equal(t.kind, 'close-candidate');
   assert.deepEqual(t.also, []);

@@ -14,11 +14,11 @@ const prNode = (number, over = {}) => ({
   ...over,
 });
 const timeline = (...nodes) => ({ timelineItems: { nodes } });
-const entry = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', ...over });
+const entry = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', fix: false, ...over });
 
 test('linkedPrs takes PRs from cross-references and connected events', () => {
   const node = timeline({ source: prNode(1) }, { subject: prNode(2, { state: 'OPEN', mergedAt: null, baseRefName: 'stack/feature' }) });
-  assert.deepEqual(linkedPrs(node, REPO), [entry(1), entry(2, { state: 'OPEN', mergedAt: null, baseRefName: 'stack/feature' })]);
+  assert.deepEqual(linkedPrs(node, REPO), [entry(1), entry(2, { state: 'OPEN', mergedAt: null, baseRefName: 'stack/feature', fix: true })]);
 });
 
 test('linkedPrs keeps only PRs in the same repository, compared without case', () => {
@@ -36,16 +36,36 @@ test('linkedPrs skips null timeline entries', () => {
 });
 
 test('linkedPrs skips PRs whose repository is not visible', () => {
-  assert.deepEqual(linkedPrs(timeline({ source: prNode(1, { repository: null }) }, { subject: prNode(2) }), REPO), [entry(2)]);
+  assert.deepEqual(linkedPrs(timeline({ source: prNode(1, { repository: null }) }, { subject: prNode(2) }), REPO), [entry(2, { fix: true })]);
 });
 
 test('linkedPrs lists each PR once, in timeline order', () => {
   const node = timeline({ source: prNode(5) }, { subject: prNode(4) }, { subject: prNode(5) }, { source: prNode(4) });
-  assert.deepEqual(linkedPrs(node, REPO), [entry(5), entry(4)]);
+  assert.deepEqual(linkedPrs(node, REPO), [entry(5, { fix: true }), entry(4, { fix: true })]);
 });
 
 test('linkedPrs returns an empty list for an issue without links', () => {
   assert.deepEqual(linkedPrs(timeline(), REPO), []);
+});
+
+test('linkedPrs marks a PR connected in the Development sidebar as a fix', () => {
+  assert.deepEqual(linkedPrs(timeline({ subject: prNode(1) }), REPO), [entry(1, { fix: true })]);
+});
+
+test('linkedPrs marks a PR that closes the issue when merged as a fix', () => {
+  assert.deepEqual(linkedPrs(timeline({ willCloseTarget: true, source: prNode(1) }), REPO), [entry(1, { fix: true })]);
+});
+
+test('linkedPrs does not mark a PR that only mentions the issue as a fix, as #48787 on #45511', () => {
+  assert.deepEqual(linkedPrs(timeline({ willCloseTarget: false, source: prNode(48787) }, { source: prNode(2) }), REPO), [entry(48787), entry(2)]);
+});
+
+test('linkedPrs marks a PR as a fix when any of its events does, in either order', () => {
+  const mention = { willCloseTarget: false, source: prNode(1) };
+  const closing = { willCloseTarget: true, source: prNode(1) };
+  for (const events of [[mention, closing], [closing, mention], [mention, { subject: prNode(1) }], [{ subject: prNode(1) }, mention]]) {
+    assert.deepEqual(linkedPrs(timeline(...events), REPO), [entry(1, { fix: true })]);
+  }
 });
 
 test('updateLinkedPrs copies a PR state onto every issue that links it', () => {
@@ -163,27 +183,57 @@ test('withCommentLinks adds the merged PR a team comment names on #49378', () =>
   const pr = facts(49351, { title: 'Always use use in useLoaderData', baseRefName: '@ubax/always-use-use-in-useLoaderData' });
   const issue = { number: 49378, type: 'issue', linkedPrs: [], commentRefs: [ref(49351)] };
   const out = withCommentLinks(issue, new Map(), new Map([[49351, pr]]));
-  assert.deepEqual(out.linkedPrs, [{ ...pr, via: 'comment', by: by() }]);
+  assert.deepEqual(out.linkedPrs, [{ ...pr, via: 'comment', by: by(), fix: true }]);
   assert.deepEqual(issue.linkedPrs, [], 'the input issue is not changed');
 });
 
 test('withCommentLinks takes open PRs from the items, drops issues and unknown numbers, and lets the timeline win', () => {
   const items = new Map([[100, openPr], [101, openIssue]]);
-  const resolved = new Map([[100, facts(100, { state: 'CLOSED', mergedAt: null })], [103, null]]);
+  const resolved = new Map([[10, facts(10)], [100, facts(100, { state: 'CLOSED', mergedAt: null })], [103, null]]);
   const issue = { number: 1, type: 'issue', linkedPrs: [entry(10)], commentRefs: [ref(10), ref(100, 'a'), ref(101), ref(103), ref(999)] };
-  assert.deepEqual(withCommentLinks(issue, items, resolved).linkedPrs, [entry(10), { number: 100, title: 'PR 100', state: 'OPEN', mergedAt: null, baseRefName: 'feature', via: 'comment', by: by('a') }]);
+  assert.deepEqual(withCommentLinks(issue, items, resolved).linkedPrs, [entry(10, { fix: true }), { number: 100, title: 'PR 100', state: 'OPEN', mergedAt: null, baseRefName: 'feature', via: 'comment', by: by('a'), fix: true }]);
 });
 
 test('withCommentLinks replaces the comment links it added before', () => {
   const resolved = new Map([[2, facts(2)], [3, facts(3)]]);
   const once = withCommentLinks({ number: 1, type: 'issue', linkedPrs: [entry(10)], commentRefs: [ref(2)] }, new Map(), resolved);
   assert.deepEqual(withCommentLinks(once, new Map(), resolved), once);
-  assert.deepEqual(withCommentLinks({ ...once, commentRefs: [ref(3)] }, new Map(), resolved).linkedPrs, [entry(10), { ...facts(3), via: 'comment', by: by() }]);
+  assert.deepEqual(withCommentLinks({ ...once, commentRefs: [ref(3)] }, new Map(), resolved).linkedPrs, [entry(10), { ...facts(3), via: 'comment', by: by(), fix: true }]);
 });
 
 test('mergeCommentLinks keeps cached comment links next to a fresh timeline', () => {
   const cached = [entry(1, { via: 'comment', by: by() }), entry(2), entry(3, { via: 'comment', by: by() })];
   assert.deepEqual(mergeCommentLinks([entry(1)], cached), [entry(1), entry(3, { via: 'comment', by: by() })]);
+});
+
+test('withCommentLinks marks a PR that expo-bot names as no fix, as #31955 on #34136', () => {
+  const issue = { number: 34136, type: 'issue', linkedPrs: [], commentRefs: [{ number: 31955, by: by('expo-bot', 'MEMBER') }] };
+  assert.deepEqual(withCommentLinks(issue, new Map(), new Map([[31955, facts(31955)]])).linkedPrs, [{ ...facts(31955), via: 'comment', by: by('expo-bot', 'MEMBER'), fix: false }]);
+});
+
+test('withCommentLinks marks a PR that a team member names as a fix', () => {
+  for (const association of ['MEMBER', 'OWNER', 'COLLABORATOR']) {
+    const issue = { number: 1, type: 'issue', linkedPrs: [], commentRefs: [{ number: 2, by: by('teammate', association) }] };
+    assert.deepEqual(withCommentLinks(issue, new Map(), new Map([[2, facts(2)]])).linkedPrs, [{ ...facts(2), via: 'comment', by: by('teammate', association), fix: true }], association);
+  }
+});
+
+test('withCommentLinks lets a team comment mark a timeline PR as a fix, but not an expo-bot comment', () => {
+  const resolved = new Map([[1, facts(1)], [2, facts(2)]]);
+  const issue = { number: 3, type: 'issue', linkedPrs: [entry(1), entry(2)], commentRefs: [ref(1), { number: 2, by: by('expo-bot', 'MEMBER') }] };
+  assert.deepEqual(withCommentLinks(issue, new Map(), resolved).linkedPrs, [entry(1, { fix: true }), entry(2)]);
+});
+
+test('mergeCommentLinks lets the timeline win, but a team comment link makes it a fix', () => {
+  const cached = [entry(1, { via: 'comment', by: by(), fix: true }), entry(2, { via: 'comment', by: by('expo-bot', 'MEMBER') })];
+  assert.deepEqual(mergeCommentLinks([entry(1), entry(2)], cached), [entry(1, { fix: true }), entry(2)]);
+  assert.deepEqual(mergeCommentLinks([entry(1, { fix: true })], [entry(1, { via: 'comment', by: by('expo-bot', 'MEMBER') })]), [entry(1, { fix: true })]);
+});
+
+test('updateLinkedPrs keeps whether a PR is a fix', () => {
+  const items = new Map([[10, { number: 10, type: 'issue', linkedPrs: [entry(1, { state: 'OPEN', mergedAt: null, fix: true }), entry(2, { state: 'OPEN', mergedAt: null })] }]]);
+  const out = updateLinkedPrs(items, { number: 1, state: 'MERGED', mergedAt: '2026-10-25T00:00:00Z' });
+  assert.deepEqual(out.get(10).linkedPrs, [entry(1, { mergedAt: '2026-10-25T00:00:00Z', fix: true }), entry(2, { state: 'OPEN', mergedAt: null })]);
 });
 
 test('updateLinkedPrs updates comment links and keeps who mentioned them', () => {

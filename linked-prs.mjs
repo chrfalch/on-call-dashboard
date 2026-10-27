@@ -1,7 +1,8 @@
-import { isTeam } from './triage.mjs';
+import { isBot, isTeam } from './triage.mjs';
 
 // Pull requests linked to an issue: they mention it (CROSS_REFERENCED_EVENT, `source`) or are
 // connected in its Development sidebar (CONNECTED_EVENT, `subject`).
+// `fix` is true when the PR is connected or closes the issue on merge; a mention can be the PR that caused the bug.
 
 const prFacts = ({ number, title, state, mergedAt, baseRefName }) => ({ number, title, state, mergedAt, baseRefName });
 
@@ -11,9 +12,12 @@ export function linkedPrs(node, repo) {
   const byNumber = new Map();
   for (const event of node.timelineItems.nodes) {
     const pr = event?.source ?? event?.subject;
-    if (pr?.__typename !== 'PullRequest' || byNumber.has(pr.number)) continue;
+    if (pr?.__typename !== 'PullRequest') continue;
     if (pr.repository?.nameWithOwner.toLowerCase() !== repo.toLowerCase()) continue;
-    byNumber.set(pr.number, prFacts(pr));
+    const fix = !!event.subject || event.willCloseTarget === true;
+    const seen = byNumber.get(pr.number);
+    if (seen) seen.fix ||= fix;
+    else byNumber.set(pr.number, { ...prFacts(pr), fix });
   }
   return [...byNumber.values()];
 }
@@ -103,16 +107,22 @@ export const readRefs = (repository) =>
 // Issues and merged PRs never change, so they need no second lookup. A closed PR can reopen.
 export const lastingRefs = (resolved) => new Map([...resolved].filter(([, pr]) => pr === null || pr.state === 'MERGED'));
 
-// Timeline links win over comment links for the same PR.
+// Timeline links win over comment links for the same PR, but a team comment can make it a fix.
 export function mergeCommentLinks(timeline, links) {
+  const comments = links.filter((pr) => pr.via === 'comment');
+  const fixes = new Set(comments.filter((pr) => pr.fix).map((pr) => pr.number));
   const numbers = new Set(timeline.map((pr) => pr.number));
-  return [...timeline, ...links.filter((pr) => pr.via === 'comment' && !numbers.has(pr.number))];
+  return [
+    ...timeline.map((pr) => (fixes.has(pr.number) ? { ...pr, fix: true } : pr)),
+    ...comments.filter((pr) => !numbers.has(pr.number)),
+  ];
 }
 
 export function withCommentLinks(issue, items, resolved) {
   const links = (issue.commentRefs ?? []).flatMap(({ number, by }) => {
     const pr = known(number, items, resolved);
-    return pr ? [{ ...pr, via: 'comment', by }] : [];
+    // expo-bot is a MEMBER, and it often names the PR that caused the bug.
+    return pr ? [{ ...pr, via: 'comment', by, fix: isTeam(by.association) && !isBot(by.login) }] : [];
   });
   return { ...issue, linkedPrs: mergeCommentLinks(issue.linkedPrs.filter((pr) => !pr.via), links) };
 }

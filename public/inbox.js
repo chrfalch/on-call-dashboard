@@ -4,7 +4,7 @@
 // `oncall`: part of the on-call rotation's job (triage and routing of unowned
 // work) rather than an owner's job (reviewing, merging, fixing).
 export const TASK_KINDS = {
-  'assign-repro': { label: 'Assign reproduced bug', icon: 'bug', tone: 'danger', action: 'open', oncall: true },
+  'assign-repro': { label: 'Verified', icon: 'bug', tone: 'danger', action: 'open', oncall: true },
   merge: { label: 'Merge', icon: 'merge', tone: 'success', action: 'open', oncall: false },
   reply: { label: 'Reply', icon: 'reply', tone: 'attention', action: 'open', oncall: true },
   'first-response': { label: 'First response', icon: 'alert', tone: 'danger', action: 'open', oncall: true },

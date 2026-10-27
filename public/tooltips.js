@@ -54,7 +54,7 @@ export const CHIP_TIPS = {
 };
 
 export const TASK_TIPS = {
-  'assign-repro': { meaning: 'expo-bot reproduced this bug and nobody is assigned. Assign an owner.', source: `${BOT_SANDBOX}, and GitHub assignees` },
+  'assign-repro': { meaning: 'expo-bot verified this issue and reproduced the bug, and nobody is assigned. Read the result and assign an owner.', source: `${BOT_SANDBOX}, and GitHub assignees` },
   merge: { meaning: 'Checks pass, there are no conflicts and the pull request is approved. Merge it.', source: 'GitHub: checks, mergeable state and review decision' },
   reply: { meaning: 'The team replied before, but the last human comment is from someone else. Reply to it.', source: REPLIES },
   'first-response': { meaning: 'Nobody from the team replied yet. Give a first response.', source: REPLIES },

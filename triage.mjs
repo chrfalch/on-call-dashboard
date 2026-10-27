@@ -5,6 +5,8 @@
 export const BOT_LOGINS = new Set(['expo-bot', 'github-actions', 'codecov', 'dependabot']);
 const TEAM_ASSOCIATIONS = new Set(['MEMBER', 'OWNER', 'COLLABORATOR']);
 const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
+// Team-only: a reporter's comment can start with a path such as "/Users/…".
+const SLASH_COMMAND_RE = /^\s*\/([a-z-]+)(?![\w/])/i;
 
 export function isBot(login) {
   return !login || BOT_LOGINS.has(login) || login.endsWith('[bot]');
@@ -106,11 +108,11 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       }
       continue;
     }
-    const cmd = c.body.match(COMMAND_RE);
+    const cmd = c.body.match(COMMAND_RE) ?? (isTeam(c.authorAssociation) ? c.body.match(SLASH_COMMAND_RE) : null);
     if (cmd) {
       lastCommand = { command: cmd[1].toLowerCase(), by: login, at: c.createdAt };
-      // A bare "@expo-bot verify" is an action, not a reply to the reporter.
-      if (c.body.replace(COMMAND_RE, '').trim().length < 20) continue;
+      // A bare "@expo-bot verify" or "/verify" is an action, not a reply to the reporter.
+      if (c.body.replace(cmd[0], '').trim().length < 20) continue;
     }
     const role = isTeam(c.authorAssociation) ? 'team' : login === authorLogin ? 'reporter' : 'community';
     if (role === 'team') teamReplies++;

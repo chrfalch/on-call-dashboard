@@ -74,6 +74,35 @@ test('bot comments and bare @expo-bot commands are not replies', () => {
   assert.equal(r.bot.botRepliedAfterCommand, true);
 });
 
+test('a bare slash command from the team is a command, not a reply', () => {
+  const report = c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Still broken on SDK 55');
+  const r = analyzeComments([report, c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '  /verify')], issue);
+  assert.deepEqual(r.bot.lastCommand, { command: 'verify', by: 'kudo', at: '2026-01-03T00:00:00Z' });
+  assert.equal(r.conversation.waitingOn, 'team');
+  assert.equal(r.conversation.teamReplied, false);
+  assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
+});
+
+test('a slash command with a long note still counts as a team reply', () => {
+  const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/verify can you also share your app.json please?')], issue);
+  assert.equal(r.bot.lastCommand.command, 'verify');
+  assert.equal(r.conversation.waitingOn, 'reporter');
+  assert.equal(r.conversation.teamReplied, true);
+});
+
+test('a leading slash from a non-team member is a normal comment', () => {
+  const r = analyzeComments([c('reporter1', 'NONE', '2026-01-02T00:00:00Z', '/verify')], issue);
+  assert.equal(r.bot.lastCommand, null);
+  assert.equal(r.conversation.lastHuman.role, 'reporter');
+  assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
+});
+
+test('a team comment that starts with a path is not a command', () => {
+  const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/Users/x/app.json')], issue);
+  assert.equal(r.bot.lastCommand, null);
+  assert.equal(r.conversation.waitingOn, 'reporter');
+});
+
 test('community comments do not count as team replies', () => {
   const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', 'Need repro'), c('someone', 'CONTRIBUTOR', '2026-01-03T00:00:00Z', 'Same here')], issue);
   assert.equal(r.conversation.waitingOn, 'team');

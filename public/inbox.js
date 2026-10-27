@@ -59,8 +59,10 @@ function candidates(item, now) {
     if (!parked && merged.length) {
       out.push({ kind: 'close-candidate', base: 45, reasons: merged.map((pr) => `#${pr.number} merged ${days(pr.mergedAt, now)}d ago into ${pr.baseRefName}`) });
     }
-    if (!parked && conv.waitingOn === 'reporter' && waited >= 14) out.push({ kind: 'close', base: 20, reasons: [`reporter silent ${waited}d`] });
-    else if (!parked && verdict === 'pass' && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
+    const fixPending = (item.linkedPrs ?? []).some((pr) => pr.state === 'OPEN' && pr.fix === true);
+    const closable = !parked && !fixPending;
+    if (closable && conv.waitingOn === 'reporter' && waited >= 14) out.push({ kind: 'close', base: 20, reasons: [`reporter silent ${waited}d`] });
+    else if (closable && verdict === 'pass' && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
   } else {
     if (item.isDraft) return out;
     const green = item.checks === 'SUCCESS';
@@ -70,9 +72,14 @@ function candidates(item, now) {
       if (!botCmd) out.push({ kind: 'bot-review', base: 50 });
       else if (!botPending) out.push({ kind: 'review', base: 55, reasons: ['bot review done'] });
     }
-    if (item.reviewDecision === 'APPROVED' && (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE'))
-      out.push({ kind: 'nudge', base: 25, reasons: [item.mergeable === 'CONFLICTING' ? 'approved but conflicting' : 'approved but checks failing'] });
-    if (conv.waitingOn === 'reporter' && days(item.updatedAt, now) >= 60) out.push({ kind: 'close', base: 15, reasons: [`no activity ${days(item.updatedAt, now)}d`] });
+    if (item.reviewDecision === 'APPROVED' && (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE')) {
+      const reasons = [item.mergeable === 'CONFLICTING' ? 'approved but conflicting' : 'approved but checks failing'];
+      // An approved PR left broken this long has no active owner, so on-call picks it up.
+      if (waited >= 60) out.push({ kind: 'nudge', base: 25, oncall: true, reasons: [...reasons, `idle ${waited}d`] });
+      else out.push({ kind: 'nudge', base: 25, reasons });
+    }
+    if (item.reviewDecision === 'CHANGES_REQUESTED' && conv.waitingOn === 'reporter' && waited >= 60)
+      out.push({ kind: 'close', base: 15, reasons: [`no activity ${waited}d`] });
   }
   return out;
 }
@@ -119,7 +126,7 @@ export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncal
     const mod = modifiers(item, now, me, mode);
     if (mode === 'mine' && !mod.mine) continue;
     if (mode === 'oncall' && mod.assigned && !includeAssigned) continue;
-    const cands = candidates(item, now).filter((c) => mode !== 'oncall' || TASK_KINDS[c.kind].oncall);
+    const cands = candidates(item, now).filter((c) => mode !== 'oncall' || (c.oncall ?? TASK_KINDS[c.kind].oncall));
     if (!cands.length) continue;
     const ranked = cands.sort((a, b) => b.base - a.base);
     const best = ranked[0];

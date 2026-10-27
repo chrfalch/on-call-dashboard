@@ -985,7 +985,7 @@ function renderInbox() {
     .filter(([k]) => kinds.has(k))
     .map(
       ([k, def]) =>
-        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k])}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
+        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k], `${filters.inboxKind === k ? 'Click to show all tasks again.' : `Click to show only the ${kinds.get(k)} "${def.label}" tasks.`}\n\n${TASK_TIPS[k].meaning}`)}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k)}</span></button>`
     )
     .join('');
   document.querySelectorAll('#inbox-scope button').forEach((b) => b.classList.toggle('selected', b.dataset.scope === filters.inboxScope));

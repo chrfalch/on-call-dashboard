@@ -329,7 +329,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .task.is-hidden { opacity: 0.5; }
 .task-rank { text-align: right; color: var(--fg-muted); font-weight: 600; font-variant-numeric: tabular-nums; padding-top: 2px; }
 .task-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; }
-.kind-badge { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 13px; margin-right: 4px; }
+.kind-badge { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 2em; border: 1px solid currentColor; line-height: 18px; font-weight: 600; font-size: 13px; margin-right: 4px; }
 .tone-danger.kind-badge, .kind-badge.tone-danger { color: var(--danger); }
 .kind-badge.tone-attention { color: var(--attention); }
 .kind-badge.tone-success { color: var(--success); }

@@ -56,6 +56,10 @@ function untrusted(kind, { author, association, at }, text, limit = Infinity) {
 const CLOSE_CANDIDATE_RULE =
   '- Task "close-candidate" (a linked pull request merged): recommend close, with a draft that names the pull request, only when it merged into the repository\'s default branch and, if the thread shows that a release matters, the thread confirms the fix is released. If it merged into another branch, the fix is not released yet, or the thread shows the problem still happens, use ask-reporter or wait instead.';
 
+// An old SDK label does not prove the problem is gone, so the agent checks the thread.
+const UNSUPPORTED_SDK_RULE =
+  '- Task "unsupported-sdk" (only labels for SDK versions the team no longer supports): recommend close, with a draft that says the SDK version is no longer supported and asks for a new report if the problem happens on a current SDK. If the thread shows the problem still happens on a supported SDK, or a team member is working on it, use another action instead.';
+
 function systemPrompt(type) {
   const actions = ACTIONS.filter((a) => a.type === type || a.type === 'both');
   const byApply = (apply) => actions.filter((a) => a.apply === apply).map((a) => a.id).join(', ');
@@ -67,6 +71,7 @@ Runbook:
 - Label "Issue accepted", unassigned: make sure a Linear task exists and assign a lead.
 - Label "Issue accepted", assigned: wait.
 - When a reproduction is needed, suggest a Snack (snack.expo.dev) first.${type === 'issue' ? `\n${CLOSE_CANDIDATE_RULE}` : ''}
+${UNSUPPORTED_SDK_RULE}
 
 Allowed actions, and what who means for each:
 ${actions.map((a) => `- ${a.id}: ${MEANING[a.id]}. who, shown as "${a.who} <who>": ${a.whoMeaning}.`).join('\n')}

@@ -621,6 +621,23 @@ test('issue system text tells the agent to close only when the fix is on the def
   assert.doesNotMatch(buildPrompt({ ...task, item: prItem }, prItem, null).system, /close-candidate/);
 });
 
+test('issue and PR system text tells the agent when to close an unsupported-SDK item', () => {
+  for (const type of ['issue', 'pr']) {
+    const it = { ...item, type };
+    const { system } = buildPrompt({ key: '123:unsupported-sdk', kind: 'unsupported-sdk', reasons: [{ text: 'sdk-49' }] }, it, null);
+    const line = system.split('\n').find((l) => l.includes('unsupported-sdk'));
+    assert.ok(line, `${type} runbook has an unsupported-sdk rule`);
+    assert.match(line, /recommend close/);
+    assert.match(line, /still happens on a supported SDK/);
+  }
+});
+
+test('validateTasks accepts an unsupported-SDK task', () => {
+  const sdkTask = { key: '123:unsupported-sdk', kind: 'unsupported-sdk', reasons: [{ text: 'sdk-49' }] };
+  const [entry] = validateTasks({ tasks: [sdkTask] }, items);
+  assert.deepEqual(entry, { key: '123:unsupported-sdk', task: sdkTask, item });
+});
+
 test('validateTasks accepts a close-candidate task', () => {
   const [entry] = validateTasks({ tasks: [closeTask] }, items);
   assert.deepEqual(entry, { key: '123:close-candidate', task: closeTask, item });

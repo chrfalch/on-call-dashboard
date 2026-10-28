@@ -23,9 +23,13 @@
 
   <nav class="repo-tabs">
     <div class="container">
-      <a href="#" data-tab="inbox" class="tab">
+      <a href="#" data-tab="inbox" data-mode="oncall" class="tab">
         <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M2.8 2.06A1.75 1.75 0 0 1 4.41 1h7.18c.7 0 1.333.417 1.61 1.06l2.74 6.395c.04.093.06.194.06.295v4.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25v-4.5c0-.101.02-.202.06-.295Zm1.61.44a.25.25 0 0 0-.23.152L1.887 8H4.75a.75.75 0 0 1 .6.3L6.625 10h2.75l1.275-1.7a.75.75 0 0 1 .6-.3h2.863L11.82 2.652a.25.25 0 0 0-.23-.152Zm10.09 7h-2.875l-1.275 1.7a.75.75 0 0 1-.6.3h-3.5a.75.75 0 0 1-.6-.3L4.375 9.5H1.5v3.75c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25Z"/></svg>
-        Inbox <span class="counter" id="count-inbox"></span>
+        On-call inbox
+      </a>
+      <a href="#" data-tab="inbox" data-mode="mine" class="tab">
+        <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M10.561 8.073a6.005 6.005 0 0 1 3.432 5.142.75.75 0 1 1-1.498.07 4.5 4.5 0 0 0-8.99 0 .75.75 0 0 1-1.498-.07 6.004 6.004 0 0 1 3.431-5.142 3.999 3.999 0 1 1 5.123 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/></svg>
+        My Work
       </a>
       <span class="tab-total">
         <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>
@@ -40,7 +44,6 @@
         <label class="checkbox-wrap" title="Hide issues and PRs whose SDK labels are all unsupported. Items without an SDK label always show.">
           <input type="checkbox" id="hide-unsupported-sdks" /> Hide unsupported SDKs
         </label>
-        <span id="sdk-hidden" class="sdk-hidden"></span>
         <details class="sdk-menu" id="sdk-menu">
           <summary class="btn btn-sm">Supported SDKs ▾</summary>
           <div class="sdk-popover">
@@ -56,27 +59,31 @@
     <section class="trend-tiles">
       <div class="trend-tile inbox-progress" id="inbox-progress"></div>
       <div id="trends" class="trend-tiles-list" aria-label="Opened and closed this week"></div>
+      <div id="inbox-cleanup" class="inbox-cleanup"></div>
     </section>
 
     <section id="inbox" hidden>
       <div class="inbox-header">
         <div>
-          <h2>Triage inbox</h2>
+          <h2 id="inbox-title">On-call inbox</h2>
           <p class="inbox-mode-desc" id="inbox-mode-desc"></p>
-          <p class="muted">The most valuable next step for each open issue and PR, ranked. Work from the top; <kbd>g</kbd> go to a number.</p>
+          <p class="muted">Issues and PRs by workflow state. Use the cleanup filters to find follow-up work; <kbd>g</kbd> goes to a number.</p>
         </div>
       </div>
       <div class="inbox-controls">
-        <div class="segmented" id="inbox-mode" title="On-call: unowned triage work. My work: your assigned items and review requests.">
-          <button data-mode="oncall">On-call</button><button data-mode="mine">My work</button>
+        <div class="inbox-kinds" id="inbox-kinds">
+          <div class="inbox-kinds" role="group" aria-label="Issues">
+            <span class="muted">Issues</span>
+            <div class="inbox-kinds" id="inbox-issue-states"></div>
+          </div>
+          <div class="inbox-kinds" role="group" aria-label="PRs">
+            <span class="muted">PRs</span>
+            <div class="inbox-kinds" id="inbox-pr-states"></div>
+          </div>
         </div>
-        <div class="segmented" id="inbox-scope">
-          <button data-scope="all">All</button><button data-scope="issue">Issues</button><button data-scope="pr">PRs</button>
-        </div>
-        <div class="inbox-kinds" id="inbox-kinds"></div>
         <div class="header-spacer"></div>
         <label class="checkbox-wrap" id="inbox-others-wrap" title="By default on-call skips items that already have an owner"><input type="checkbox" id="inbox-others" /> Include already-assigned items</label>
-        <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done/snoozed</label>
+        <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done</label>
       </div>
       <ol id="inbox-list" class="Box inbox-list"></ol>
       <div id="inbox-more" class="more"></div>

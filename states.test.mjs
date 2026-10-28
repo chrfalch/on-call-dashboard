@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { needsBotTriage } from './public/inbox.js';
-import { cleanupFilters, isOpen, stateOf } from './public/states.js';
+import { CLEANUP_FILTERS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateOf } from './public/states.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -424,3 +424,231 @@ for (const [name, item, expected] of [
     assert.equal(isOpen(item), expected);
   });
 }
+
+test('STATES lists the issue track, then the PR track, with labels', () => {
+  assert.deepEqual(STATES.map(({ id, label, track }) => [id, label, track]), [
+    ['I1', 'New', 'issue'],
+    ['I2', 'Triaging', 'issue'],
+    ['I3', 'Needs verification', 'issue'],
+    ['I4', 'Waiting on reporter', 'issue'],
+    ['I5', 'Not reproducible', 'issue'],
+    ['I6', 'Reproduced', 'issue'],
+    ['I7', 'Waiting for PR', 'issue'],
+    ['I8', 'Fix in progress', 'issue'],
+    ['I9', 'Fix merged', 'issue'],
+    ['I10', 'Closed', 'issue'],
+    ['P1', 'Draft', 'pr'],
+    ['P2', 'Needs bot review', 'pr'],
+    ['P3', 'Bot reviewing', 'pr'],
+    ['P4', 'Changes requested', 'pr'],
+    ['P5', 'Author answered', 'pr'],
+    ['P6', 'Ready for human', 'pr'],
+    ['P7', 'In human review', 'pr'],
+    ['P8', 'Ready to merge', 'pr'],
+    ['P9', 'Merged', 'pr'],
+    ['P10', 'Abandoned', 'pr'],
+  ]);
+  assert.ok(STATES.every((s) => s.icon));
+});
+
+test('STATES: on-call states and tones', () => {
+  const ids = (pick) => STATES.filter(pick).map((s) => s.id);
+  assert.deepEqual(ids((s) => s.oncall), ['I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I9', 'P2', 'P3', 'P6']);
+  assert.deepEqual(ids((s) => s.tone === 'attention'), ['I1', 'I3', 'P2', 'P5', 'P6']);
+  assert.deepEqual(ids((s) => s.tone === 'danger'), ['I6']);
+  assert.deepEqual(ids((s) => s.tone === 'success'), ['I5', 'I9', 'P8']);
+  assert.equal(ids((s) => s.tone === 'muted').length, 11);
+});
+
+test('CLEANUP_FILTERS skips C6', () => {
+  assert.deepEqual(CLEANUP_FILTERS.map(({ id, label }) => [id, label]), [
+    ['C1', 'Team owes a reply'],
+    ['C2', 'Reporter silent 14d'],
+    ['C3', 'Not reproducible still open 7d'],
+    ['C4', 'Unsupported SDK'],
+    ['C5', 'Fell through triage'],
+    ['C7', 'Stale PR'],
+    ['C8', 'Owner silent'],
+    ['C9', 'Approved but cannot land'],
+    ['C10', 'Stuck waiting for the bot'],
+  ]);
+});
+
+const action = (item, stateId) => stateAction(item, stateId, { now: NOW });
+
+test('stateAction: I1, I3 and P2 post a bot command', () => {
+  assert.deepEqual([action(issue(), 'I1'), action(issue(), 'I3'), action(pr(), 'P2')].map(({ kind, body }) => [kind, body]), [
+    ['command', '@expo-bot triage'],
+    ['command', '@expo-bot verify'],
+    ['command', '@expo-bot review'],
+  ]);
+});
+
+test('stateAction: I5 and I9 close', () => {
+  assert.equal(action(issue(), 'I5').kind, 'close');
+  assert.equal(action(issue(), 'I9').kind, 'close');
+});
+
+test('stateAction: I6 applies the severity when the label is wrong', () => {
+  const triage = { assessment: { ...assessment, severity: { label: 'severity: 3' } }, verification: null, fixPrs: [] };
+  assert.equal(action(issue({ triage }), 'I6').kind, 'apply-severity');
+  assert.equal(action(issue({ triage, labels: labels('severity: 3') }), 'I6').kind, 'open');
+});
+
+test('stateAction: I8 opens the first open fix PR', () => {
+  const linkedPrs = [
+    { ...linkedPr('OPEN', false), url: 'https://x/mention' },
+    { ...linkedPr('MERGED', true), url: 'https://x/merged' },
+    { ...linkedPr('OPEN', true), url: 'https://x/fix' },
+  ];
+  const result = action(issue({ linkedPrs }), 'I8');
+  assert.equal(result.kind, 'open');
+  assert.equal(result.url, 'https://x/fix');
+});
+
+test('stateAction: P4 nudges after 7 days of requested changes', () => {
+  assert.equal(action(changesRequested(7), 'P4').kind, 'nudge');
+  assert.equal(action(changesRequested(6), 'P4').kind, 'open');
+});
+
+test('stateAction: nothing for I10, P9 and P10; open for the rest', () => {
+  assert.equal(action(issue({ state: 'CLOSED' }), 'I10'), null);
+  assert.equal(action(pr({ state: 'MERGED' }), 'P9'), null);
+  assert.equal(action(pr({ state: 'CLOSED' }), 'P10'), null);
+  assert.equal(action(issue(), 'I2').kind, 'open');
+  assert.equal(action(pr(), 'P6').kind, 'open');
+});
+
+test('cleanupAction: C1 replies; C2, C3, C4 and C7 close; the rest open', () => {
+  const reply = cleanupAction(issue(), 'C1');
+  assert.deepEqual([reply.kind, reply.label], ['open', 'Reply']);
+  for (const id of ['C2', 'C3', 'C4', 'C7']) assert.equal(cleanupAction(issue(), id).kind, 'close', id);
+  for (const id of ['C5', 'C8', 'C9']) assert.equal(cleanupAction(issue(), id).kind, 'open', id);
+});
+
+test('cleanupAction: C10 re-posts the unanswered bot command', () => {
+  const result = cleanupAction(issue(botAsked('verify', daysAgo(1))), 'C10');
+  assert.equal(result.kind, 'command');
+  assert.equal(result.body, '@expo-bot verify');
+});
+
+test('cleanupAction: C10 re-posts the review when that is what the bot owes', () => {
+  const bot = { lastCommand: command('verify', daysAgo(1)), botRepliedAfterCommand: true, lastReview: command('review', daysAgo(3)), botRepliedAfterReview: false };
+  assert.equal(cleanupAction(pr({ bot }), 'C10').body, '@expo-bot review');
+});
+
+const rowOpts = { now: NOW, me: 'me', mode: 'oncall', unsupportedSdks: new Set(['sdk-50']) };
+const rows = (items, over = {}) => inboxRows(items, { ...rowOpts, ...over });
+const keys = (items, over) => rows(items, over).map((row) => row.key);
+const fresh = (over) => ({ ...waiting('team', 1), ...over });
+const mineToo = [{ login: 'me' }];
+
+test('inboxRows: open items only, in STATES order, then oldest first', () => {
+  const items = [
+    pr({ number: 5, ...fresh() }),
+    issue({ number: 4, ...fresh({ labels: routed, createdAt: daysAgo(2) }) }),
+    issue({ number: 3, ...fresh({ labels: routed, createdAt: daysAgo(5) }) }),
+    issue({ number: 2, ...fresh() }),
+    issue({ number: 1, ...fresh({ state: 'CLOSED' }) }),
+  ];
+  assert.deepEqual(keys(items), ['issue#2:I1', 'issue#3:I3', 'issue#4:I3', 'pr#5:P2']);
+  const [first] = rows(items);
+  assert.equal(first.item.number, 2);
+  assert.equal(first.stateId, 'I1');
+  assert.ok(Array.isArray(first.cleanup));
+});
+
+test('inboxRows: a state chip lists only that state, closed included', () => {
+  const items = [issue({ number: 1, assignees: mineToo, state: 'CLOSED' }), issue({ number: 2, assignees: mineToo })];
+  assert.deepEqual(keys(items, { mode: 'mine', stateId: 'I10' }), ['issue#1:I10']);
+  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I1']);
+});
+
+test('inboxRows: on-call closed chips list closed items without a cleanup filter', () => {
+  const items = [issue({ number: 1, ...fresh({ state: 'CLOSED' }) }), pr({ number: 2, ...fresh({ state: 'MERGED' }) })];
+  assert.deepEqual(keys(items, { mode: 'oncall', stateId: 'I10' }), ['issue#1:I10']);
+  assert.deepEqual(keys(items, { mode: 'oncall', stateId: 'P9' }), ['pr#2:P9']);
+  assert.equal(inboxCounts(items, { ...rowOpts, mode: 'oncall' }).states.I10, 1);
+});
+
+test('inboxRows: a cleanup chip lists only items with that filter', () => {
+  const items = [issue({ number: 1, labels: labels('sdk-50') }), issue({ number: 2, labels: labels('sdk-54') })];
+  assert.deepEqual(keys(items, { cleanupId: 'C4' }), ['issue#1:I1']);
+});
+
+test('inboxRows: on-call mode keeps on-call states and items with a cleanup filter', () => {
+  const draft = pr({ number: 1, ...fresh({ isDraft: true }) });
+  const unsupportedDraft = pr({ number: 2, ...fresh({ isDraft: true, labels: labels('sdk-50') }) });
+  assert.deepEqual(keys([draft, unsupportedDraft]), ['pr#2:P1']);
+});
+
+test('inboxRows: on-call mode leaves assigned items unless includeAssigned', () => {
+  const items = [issue({ number: 1, ...fresh({ assignees: assigned }) })];
+  assert.deepEqual(keys(items), []);
+  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I1']);
+});
+
+test('inboxRows: My Work lists items assigned to me or awaiting my review, in any state', () => {
+  const items = [
+    pr({ number: 1, isDraft: true, reviewRequests: mineToo }),
+    issue({ number: 2, labels: labels('Issue accepted'), assignees: mineToo }),
+    issue({ number: 3, assignees: assigned }),
+    issue({ number: 4 }),
+  ];
+  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I7', 'pr#1:P1']);
+});
+
+test('inboxRows: hidden rows drop out', () => {
+  const items = [issue({ number: 1 }), issue({ number: 2 })];
+  assert.deepEqual(keys(items, { hidden: (key) => key === 'issue#1:I1' }), ['issue#2:I1']);
+});
+
+test('inboxCounts match inboxRows; state counts include closed items, cleanup counts do not', () => {
+  const items = [
+    issue({ number: 1, labels: labels('sdk-50') }),
+    issue({ number: 2, labels: labels('sdk-50'), state: 'CLOSED' }),
+    issue({ number: 3, ...fresh({ labels: routed }) }),
+    issue({ number: 4, ...fresh({ assignees: assigned }) }),
+    pr({ number: 5, ...fresh() }),
+  ];
+  const hidden = (key) => key === 'pr#5:P2';
+  const counts = inboxCounts(items, { ...rowOpts, hidden });
+  assert.deepEqual([counts.states.I1, counts.states.I3, counts.states.I10, counts.states.P2], [1, 1, 1, 0]);
+  assert.equal(counts.cleanup.C4, 1);
+  assert.equal(counts.cleanup.C4, rows(items, { hidden, cleanupId: 'C4' }).length);
+  assert.equal(counts.states.I3, rows(items, { hidden, stateId: 'I3' }).length);
+});
+
+test('inboxRows: on-call mode keeps an assigned item with a cleanup filter', () => {
+  const items = [issue({ number: 1, ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(7) })];
+  assert.deepEqual(keys(items, { cleanupId: 'C8' }), ['issue#1:I7']);
+  assert.equal(inboxCounts(items, rowOpts).cleanup.C8, 1);
+});
+
+test('inboxRows: on-call mode keeps an assigned closed item', () => {
+  const items = [issue({ number: 1, ...fresh({ assignees: assigned, state: 'CLOSED' }) })];
+  assert.deepEqual(keys(items, { stateId: 'I10' }), ['issue#1:I10']);
+  assert.equal(inboxCounts(items, rowOpts).states.I10, 1);
+});
+
+test('inboxRows: hideUnsupported drops unsupported SDK rows outside the C4 chip', () => {
+  const items = [issue({ number: 1, labels: labels('sdk-50') }), issue({ number: 2 })];
+  assert.deepEqual(keys(items, { hideUnsupported: true }), ['issue#2:I1']);
+  assert.deepEqual(keys(items, { hideUnsupported: true, stateId: 'I1' }), ['issue#2:I1']);
+  assert.deepEqual(keys(items, { hideUnsupported: false }), ['issue#1:I1', 'issue#2:I1']);
+  const counts = inboxCounts(items, { ...rowOpts, hideUnsupported: true });
+  assert.equal(counts.states.I1, 1);
+  assert.equal(counts.cleanup.C4, 1);
+});
+
+test('inboxRows: hideUnsupported still lists unsupported SDK rows under the C4 chip', () => {
+  const items = [issue({ number: 1, labels: labels('sdk-50') })];
+  assert.deepEqual(keys(items, { hideUnsupported: true, cleanupId: 'C4' }), ['issue#1:I1']);
+});
+
+test('inboxRows: hideUnsupported also drops unsupported SDK rows under other cleanup chips', () => {
+  const items = [issue({ number: 1, labels: labels('sdk-50'), ...waiting('team', 10) }), issue({ number: 2, ...waiting('team', 10) })];
+  assert.deepEqual(keys(items, { hideUnsupported: true, cleanupId: 'C1' }), ['issue#2:I1']);
+  assert.equal(inboxCounts(items, { ...rowOpts, hideUnsupported: true }).cleanup.C1, 1);
+  assert.equal(inboxCounts(items, { ...rowOpts, hideUnsupported: true }).cleanup.C4, 1);
+});

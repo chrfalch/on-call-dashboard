@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { localDay, dayKey, parseLog, addDone, doneCounts } from './public/done-log.js';
+import { localDay, dayKey, parseLog, addDone, doneCounts, weekDone } from './public/done-log.js';
 
 // Local time, so the tests pass in any TZ.
 const at = (d, h = 0, min = 0) => new Date(2026, 9, d, h, min);
@@ -80,4 +80,14 @@ test('doneCounts: counts distinct numbers in a mixed log', () => {
     { number: 3, type: 'issue' },
     { number: 2, type: 'pr' },
   ]), { total: 3, issues: 2, prs: 1 });
+});
+
+test('weekDone: items done on each local day from Monday to today', () => {
+  const logs = { '2026-10-26': [{ number: 1, type: 'pr' }, { number: 2, type: 'issue' }], '2026-10-28': [{ number: 3, type: 'pr' }] };
+  const days = weekDone((date) => logs[localDay(date)] ?? [], at(28, 15));
+  assert.deepEqual(days.map((d) => [localDay(d.date), d.done]), [['2026-10-26', 2], ['2026-10-27', 0], ['2026-10-28', 1]]);
+});
+
+test('weekDone: on Monday the week has one day', () => {
+  assert.deepEqual(weekDone(() => [], at(26, 9)).map((d) => d.done), [0]);
 });

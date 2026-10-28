@@ -2,13 +2,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
 import { TASK_KINDS } from './public/inbox.js';
-import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './public/tooltips.js';
+import { CLEANUP_FILTERS, STATES } from './public/states.js';
+import { ACTION_TIPS, CHIP_TIPS, CLEANUP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, STATE_TIPS, TASK_TIPS, tooltip } from './public/tooltips.js';
 
 const sentences = (text) => text.trim().split(/(?<=[.!?])\s+/).length;
-const allTips = () => Object.entries({ CHIP_TIPS, TASK_TIPS, ACTION_TIPS, OUTCOME_TIPS }).flatMap(([group, tips]) => Object.entries(tips).map(([key, tip]) => [`${group}.${key}`, tip]));
+const allTips = () =>
+  Object.entries({ CHIP_TIPS, TASK_TIPS, STATE_TIPS, CLEANUP_TIPS, ACTION_TIPS, OUTCOME_TIPS }).flatMap(([group, tips]) =>
+    Object.entries(tips).map(([key, tip]) => [`${group}.${key}`, tip]),
+  );
 
 test('every task kind has a tooltip', () => {
   assert.deepEqual(Object.keys(TASK_TIPS).sort(), Object.keys(TASK_KINDS).sort());
+});
+
+test('every workflow state and cleanup filter has a tooltip', () => {
+  assert.deepEqual(Object.keys(STATE_TIPS), STATES.map((state) => state.id));
+  assert.deepEqual(Object.keys(CLEANUP_TIPS), CLEANUP_FILTERS.map((filter) => filter.id));
 });
 
 test('every recommendation action has a tooltip', () => {
@@ -21,7 +30,7 @@ test('every verification outcome has a tooltip', () => {
 });
 
 test('the chip tooltips cover the chips that app.js renders', () => {
-  for (const key of ['label', 'assignee', 'checks', 'conflicts', 'waiting', 'botCommand', 'verdict', 'fixPr', 'recTag', 'recConfidence', 'taskScore']) {
+  for (const key of ['label', 'assignee', 'checks', 'conflicts', 'waiting', 'botCommand', 'verdict', 'fixPr', 'recTag', 'recConfidence']) {
     assert.ok(CHIP_TIPS[key], key);
   }
 });

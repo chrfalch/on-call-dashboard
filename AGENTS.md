@@ -61,6 +61,8 @@ dependencies, no build step.
 - `public/trends.js` — pure math for the trend tiles (`weekStart`,
   `weekTrend`): cumulative opened and closed counts per local day since
   Monday 00:00, and the week's net change. Tested by `trends.test.mjs`.
+- `public/done-log.js` — pure helpers for the Inbox "done today" tile: the
+  items handled per local day, split into issues and PRs. Tested by `done-log.test.mjs`.
 - `public/sdk.js` — pure helpers for Expo SDK labels (`sdkLabels`,
   `isUnsupportedSdk`, `parseUnsupportedSdks`): the `sdk-<n>` labels newest
   first, and whether an item has only SDK labels the team no longer supports.
@@ -89,6 +91,7 @@ dependencies, no build step.
   clicks, and drafts open in an editable dialog first.
 - Per-browser state lives in localStorage keys `ghToken`, `inboxState`,
   `collapsedGroups`, `commandsCollapsed` (the Runbook cards),
-  `unsupportedSdks` (a JSON array of the SDK labels marked unsupported).
+  `unsupportedSdks` (a JSON array of the SDK labels marked unsupported),
+  `inboxDoneLog:<YYYY-MM-DD>` (a JSON array of {number, type} for that local day).
   Filter state, including the active view (`view=<id>`) and
   `hideUnsupportedSdks=0`, lives in the URL hash.

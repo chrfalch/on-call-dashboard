@@ -1,5 +1,5 @@
 // Expo triage dashboard client.
-import { computeTasks, isHidden, listedTasks, TASK_KINDS, MODES } from './inbox.js';
+import { computeTasks, isHidden, listedTasks, TASK_KINDS, MODES, PLATFORM_LABEL } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
@@ -13,6 +13,7 @@ const ACTIONS = {
   pr: { command: 'review', body: '@expo-bot review', label: 'Request review', bulk: 'Request review' },
   issue: { command: 'verify', body: '@expo-bot verify', label: 'Verify', bulk: 'Verify' },
 };
+const TRIAGE = { command: 'triage', body: '@expo-bot triage', label: 'Triage', bulk: 'Triage' };
 
 const DEFAULT_FILTERS = {
   tab: 'inbox',
@@ -159,7 +160,7 @@ function ago(iso) {
 }
 function labelGroup(name) {
   if (name.startsWith('severity:')) return 'Severity';
-  if (/^(Android|iOS|iOS \d+|iPadOS|macOS|tvOS|Platform: web|OS: .*)$/.test(name)) return 'Platform';
+  if (PLATFORM_LABEL.test(name)) return 'Platform';
   if (name.startsWith('📦')) return 'Package';
   if (/^(bot:|ai-)/.test(name)) return 'Bot';
   if (/^(contributor:|partner:)/.test(name)) return 'Contributor';
@@ -371,7 +372,7 @@ function itemParts(i, triageOpts) {
 function rowHtml(i) {
   const action = ACTIONS[i.type];
   const { icon, main, avatars } = itemParts(i);
-  const posted = postedThisSession.has(i.number);
+  const posted = isPosted(i.number, action);
   return `<li class="row${selected.has(i.number) ? ' selected' : ''}" data-number="${i.number}">
     <input type="checkbox" class="row-check" ${selected.has(i.number) ? 'checked' : ''} />
     ${icon}
@@ -583,10 +584,11 @@ function renderSdkFilter() {
 }
 
 function updateBulk(visible) {
-  const action = ACTIONS[filters.tab];
-  const btn = $('#bulk-btn');
-  btn.disabled = !selected.size;
-  btn.textContent = selected.size ? `${action.bulk} (${selected.size})` : `${action.bulk} — select items`;
+  for (const [id, action] of [['#bulk-btn', ACTIONS[filters.tab]], ['#bulk-triage-btn', TRIAGE]]) {
+    const btn = $(id);
+    btn.disabled = !selected.size;
+    btn.textContent = selected.size ? `${action.bulk} (${selected.size})` : `${action.bulk} — select items`;
+  }
   $('#bulk-close-btn').disabled = !selected.size;
   $('#bulk-close-btn').textContent = selected.size ? `Close… (${selected.size})` : 'Close…';
   const sa = $('#select-all');
@@ -597,7 +599,10 @@ function updateBulk(visible) {
 
 // ---------- GitHub actions (run in the browser with the user's own token) ----------
 
-const postedThisSession = new Map(); // number -> comment id
+// One entry per item and command, so posting triage does not mark the item's verify or review as requested.
+const postedThisSession = new Map(); // `${number}:${command}` -> { number, command, commentId }
+const postedKey = (number, action) => `${number}:${action.command}`;
+const isPosted = (number, action) => postedThisSession.has(postedKey(number, action));
 
 function getToken() {
   return localStorage.getItem('ghToken');
@@ -620,7 +625,8 @@ async function gh(path, opts = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-async function postCommand(numbers) {
+// `action` defaults to the item type's own command, so one call can mix issues and PRs.
+async function postCommand(numbers, action = null) {
   if (!getToken()) {
     openTokenDialog();
     return;
@@ -628,42 +634,43 @@ async function postCommand(numbers) {
   const items = numbers.map((n) => data.items.find((i) => i.number === n)).filter(Boolean);
   const results = await Promise.allSettled(
     items.map(async (item) => {
-      const action = ACTIONS[item.type];
+      const posted = action ?? ACTIONS[item.type];
       const comment = await gh(`/repos/${data.repo}/issues/${item.number}/comments`, {
         method: 'POST',
-        body: JSON.stringify({ body: action.body }),
+        body: JSON.stringify({ body: posted.body }),
       });
-      postedThisSession.set(item.number, comment.id);
-      const lastCommand = { command: action.command, by: me?.login, at: new Date().toISOString() };
+      postedThisSession.set(postedKey(item.number, posted), { number: item.number, command: posted.command, commentId: comment.id });
+      const lastCommand = { command: posted.command, by: me?.login, at: new Date().toISOString() };
       item.bot = {
         ...item.bot,
         lastCommand,
         botRepliedAfterCommand: false,
-        ...(action.command === 'review' && { lastReview: lastCommand, botRepliedAfterReview: false }),
+        ...(posted.command === 'review' && { lastReview: lastCommand, botRepliedAfterReview: false }),
       };
-      return item;
+      return { item, action: posted };
     })
   );
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
-  selected = new Set([...selected].filter((n) => !ok.some((i) => i.number === n)));
+  selected = new Set([...selected].filter((n) => !ok.some((p) => p.item.number === n)));
   render();
   if (ok.length) {
     toast(
-      ok.length === 1 ? `Posted “${ACTIONS[ok[0].type].body}” on #${ok[0].number}` : `Posted on ${ok.length} items`,
+      ok.length === 1 ? `Posted “${ok[0].action.body}” on #${ok[0].item.number}` : `Posted on ${ok.length} items`,
       { undo: () => undo(ok) }
     );
   }
   if (failed.length) toast(`Failed on ${failed.length}: ${failed[0].reason.message}`, { error: true });
 }
 
-async function undo(items) {
+async function undo(posts) {
   await Promise.allSettled(
-    items.map(async (item) => {
-      const id = postedThisSession.get(item.number);
-      if (!id) return;
-      await gh(`/repos/${data.repo}/issues/comments/${id}`, { method: 'DELETE' });
-      postedThisSession.delete(item.number);
+    posts.map(async ({ item, action }) => {
+      const key = postedKey(item.number, action);
+      const entry = postedThisSession.get(key);
+      if (!entry) return;
+      await gh(`/repos/${data.repo}/issues/comments/${entry.commentId}`, { method: 'DELETE' });
+      postedThisSession.delete(key);
     })
   );
   toast('Undone — comments deleted');
@@ -870,9 +877,10 @@ async function refresh(force = false) {
   const d = await res.json();
   data = d;
   // Keep optimistic bot state for anything we posted until the server catches up.
-  for (const item of data.items) {
-    if (!postedThisSession.has(item.number)) continue;
-    const posted = { command: ACTIONS[item.type].command, by: me?.login, at: new Date().toISOString() };
+  for (const { number, command } of postedThisSession.values()) {
+    const item = data.items.find((i) => i.number === number);
+    if (!item) continue;
+    const posted = { command, by: me?.login, at: new Date().toISOString() };
     if (!item.bot.lastCommand) item.bot.lastCommand = posted;
     if (posted.command === 'review' && !item.bot.lastReview) item.bot.lastReview = posted;
   }
@@ -1025,12 +1033,15 @@ function renderInbox() {
   syncRecs();
 }
 
+const taskCommand = (t) => (t.kind === 'bot-triage' ? TRIAGE : ACTIONS[t.item.type]);
+
 function taskActionButton(t) {
   const def = TASK_KINDS[t.kind];
   const i = t.item;
   if (def.action === 'command') {
-    const posted = postedThisSession.has(i.number);
-    return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}" ${posted ? 'disabled' : ''}>${posted ? '✓ Requested' : ACTIONS[i.type].label}</button>`;
+    const action = taskCommand(t);
+    const posted = isPosted(i.number, action);
+    return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}" ${posted ? 'disabled' : ''}>${posted ? '✓ Requested' : action.label}</button>`;
   }
   if (def.action === 'apply-severity') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">Apply ${esc(i.triage.assessment.severity.label)}</button>`;
   if (def.action === 'close') return `<button class="btn btn-sm btn-danger" data-task-do="${t.key}">Close…</button>`;
@@ -1083,8 +1094,9 @@ async function doTask(t) {
   const def = TASK_KINDS[t.kind];
   if (def.action === 'command') {
     if (!requireToken()) return;
-    await postCommand([t.item.number]);
-    if (postedThisSession.has(t.item.number)) markDone(t);
+    const action = taskCommand(t);
+    await postCommand([t.item.number], action);
+    if (isPosted(t.item.number, action)) markDone(t);
   } else if (def.action === 'apply-severity') {
     await applySeverity(t.item);
     if (!severityMismatch(t.item)) markDone(t);
@@ -1200,7 +1212,7 @@ function recHtml(t) {
   const label = recLabel(rec, t.item);
   if (!label) return '';
   const { kind } = applyPlan(rec, t.item);
-  const posted = kind === 'command' && postedThisSession.has(t.item.number);
+  const posted = kind === 'command' && isPosted(t.item.number, ACTIONS[t.item.type]);
   const actionTip = tipAttr(ACTION_TIPS[rec.action]);
   const apply =
     kind === 'none'
@@ -1221,7 +1233,7 @@ function recTaskButton(t) {
   const label = recLabel(entry.rec, t.item);
   const { kind } = applyPlan(entry.rec, t.item);
   if (!label || kind === 'none') return '';
-  const posted = kind === 'command' && postedThisSession.has(t.item.number);
+  const posted = kind === 'command' && isPosted(t.item.number, ACTIONS[t.item.type]);
   return `<button class="btn btn-sm btn-primary" data-rec-apply="${t.key}" ${tipAttr(ACTION_TIPS[entry.rec.action])}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
 }
 
@@ -1342,7 +1354,7 @@ document.addEventListener('click', (e) => {
   const actionBtn = t.closest('[data-action]');
   if (actionBtn) {
     const n = Number(actionBtn.dataset.action);
-    if (postedThisSession.has(n)) return;
+    if (isPosted(n, ACTIONS[filters.tab])) return;
     actionBtn.disabled = true;
     actionBtn.textContent = 'Posting…';
     return postCommand([n]).finally(() => render());
@@ -1363,11 +1375,12 @@ $('#select-all').addEventListener('change', (e) => {
   render();
 });
 
-$('#bulk-btn').addEventListener('click', () => {
-  const action = ACTIONS[filters.tab];
+function bulkPost(action) {
   if (!confirm(`Post “${action.body}” on ${selected.size} ${filters.tab === 'pr' ? 'pull requests' : 'issues'}?`)) return;
-  postCommand([...selected]);
-});
+  postCommand([...selected], action);
+}
+$('#bulk-btn').addEventListener('click', () => bulkPost(ACTIONS[filters.tab]));
+$('#bulk-triage-btn').addEventListener('click', () => bulkPost(TRIAGE));
 
 let searchTimer;
 $('#search').addEventListener('input', (e) => {

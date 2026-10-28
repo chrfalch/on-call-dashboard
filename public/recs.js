@@ -5,10 +5,14 @@ import { ACTIONS } from './actions.js';
 import { TASK_KINDS } from './inbox.js';
 
 const MAX_TASKS = 30;
+// The task posts one fixed bot command, so there is nothing for the agent to decide.
+const NO_REC_KINDS = new Set(['bot-triage']);
+
+const recTasks = (tasks) => tasks.filter((t) => !NO_REC_KINDS.has(t.kind)).slice(0, MAX_TASKS);
 
 export function recRequest(tasks) {
   return {
-    tasks: tasks.slice(0, MAX_TASKS).map(({ key, kind, reasons }) => ({
+    tasks: recTasks(tasks).map(({ key, kind, reasons }) => ({
       key,
       kind,
       reasons: reasons.map((r) => ({ text: r.text ?? r.label })).filter((r) => r.text),
@@ -27,11 +31,12 @@ export function itemVersion(item) {
 export const recKey = (task, item) => `${task.key}@${itemVersion(item)}`;
 
 // Includes the item version: a new version means a new rec, so that needs a new request.
-export const recSignature = (tasks) => tasks.slice(0, MAX_TASKS).map((t) => recKey(t, t.item)).join(' ');
+export const recSignature = (tasks) => recTasks(tasks).map((t) => recKey(t, t.item)).join(' ');
 
 export const hasPending = (response) => Object.values(response ?? {}).some((entry) => entry?.status === 'pending');
 
 export function recFor(response, task) {
+  if (NO_REC_KINDS.has(task.kind)) return undefined;
   const entry = response && Object.hasOwn(response, task.key) ? response[task.key] : undefined;
   if (entry?.status === 'done' && entry.recKey !== recKey(task, task.item)) return undefined;
   return entry;

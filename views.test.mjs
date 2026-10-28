@@ -51,6 +51,7 @@ test('views are listed in group display order', () => {
       'issue:accepted-unowned',
       'issue:unlabeled-unowned',
       'issue:awaiting-reporter',
+      'issue:needs-bot-triage',
       'issue:owner-followup',
       'pr:external-first-review',
       'pr:external-blocked-unreviewed',
@@ -59,10 +60,11 @@ test('views are listed in group display order', () => {
       'pr:ready-to-merge',
       'pr:approved-blocked',
       'pr:internal-review',
+      'pr:needs-bot-triage',
     ],
   );
   assert.deepEqual(GROUPS.issue.map((g) => g.id), ['oncall', 'team']);
-  assert.deepEqual(GROUPS.pr.map((g) => g.id), ['external', 'merge', 'internal']);
+  assert.deepEqual(GROUPS.pr.map((g) => g.id), ['external', 'merge', 'internal', 'routing']);
 });
 
 test('every view has the required fields and a group from its scope', () => {
@@ -290,5 +292,28 @@ test('viewCounts over a hand-built fixture', () => {
     'pr:ready-to-merge': 1,
     'pr:approved-blocked': 1,
     'pr:internal-review': 2,
+    // No item in the fixture has a platform or SDK label, so every non-draft item needs bot triage.
+    'issue:needs-bot-triage': 7,
+    'pr:needs-bot-triage': 8,
   });
+});
+
+test('needs bot triage: issues and ready PRs missing a platform or SDK label, newest first', () => {
+  const routed = labels('iOS', 'sdk-54');
+  for (const scope of ['issue', 'pr']) {
+    const make = scope === 'issue' ? issue : pr;
+    const id = `${scope}:needs-bot-triage`;
+    assert.equal(view(id).audience, 'on-call');
+    assert.equal(inView(id, make()), true);
+    assert.equal(inView(id, make({ labels: labels('iOS') })), true);
+    assert.equal(inView(id, make({ labels: labels('sdk-54') })), true);
+    assert.equal(inView(id, make({ labels: routed })), false);
+    assert.equal(inView(id, make({ triage: { assessment: { kind: 'bug' } } })), false);
+    assert.equal(inView(id, make({ bot: { lastCommand: { command: 'triage', at: daysAgo(1) }, botRepliedAfterCommand: false } })), false);
+    assert.deepEqual(order(id, [make({ number: 1, createdAt: daysAgo(9) }), make({ number: 2 }), make({ number: 3 })]), [3, 2, 1]);
+  }
+  assert.equal(inView('pr:needs-bot-triage', pr({ isDraft: true })), false);
+  assert.equal(inView('issue:needs-bot-triage', pr()), false);
+  assert.equal(view('issue:needs-bot-triage').group, 'oncall');
+  assert.equal(view('pr:needs-bot-triage').group, 'routing');
 });

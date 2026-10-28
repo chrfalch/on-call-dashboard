@@ -67,6 +67,7 @@ export const TASK_TIPS = {
   'close-candidate': { meaning: 'Issues with a merged pull request that GitHub links as a fix or that a team member named. Check that the fix shipped, then close the issue.', source: 'Linked PRs from the GitHub timeline and team comments' },
   close: { meaning: 'Issues with no open fix where the reporter is silent for 14 days, or where expo-bot could not reproduce the bug and nobody replied for 7 days, and pull requests with requested changes and no activity for 60 days. Close them if nothing changed.', source: `${REPLIES}, and the ${BOT_SANDBOX}` },
   'unsupported-sdk': { meaning: 'Issues and pull requests whose SDK labels are all marked unsupported in the Supported SDKs menu. Close them with a comment that asks to check a supported SDK.', source: 'GitHub sdk-* labels, and the unsupported SDKs you marked in this browser' },
+  'bot-triage': { meaning: 'Issues and pull requests without a platform or SDK label that expo-bot has not triaged. Post “@expo-bot triage” so the bot adds platform, SDK and severity labels.', source: `GitHub labels, and the ${BOT_TRIAGE}s` },
 };
 
 export const ACTION_TIPS = {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeComments, parseAssessment, parseVerification, summarize } from './triage.mjs';
+import { analyzeComments, botReview, ownerLastActivityAt, parseAssessment, parseVerification, summarize } from './triage.mjs';
 
 const c = (login, authorAssociation, createdAt, body, url = `https://x/${createdAt}`) => ({ author: { login }, authorAssociation, createdAt, body, url });
 const issue = { authorLogin: 'reporter1', authorAssociation: 'NONE', createdAt: '2026-01-01T00:00:00Z' };
@@ -147,4 +147,44 @@ test('summarize strips mentions, bold and links, and skips boilerplate', () => {
     'Reproduced on SDK 55. Removed in #49204. On SDK 58 it works.'
   );
   assert.equal(summarize('@brentvatne — I could not reproduce it.\n\n**Result: inconclusive.**'), 'I could not reproduce it.');
+});
+
+const assigned = (login, createdAt) => ({ createdAt, assignee: { login } });
+
+test('ownerLastActivityAt takes the newest of an assignee comment and their assignment', () => {
+  const owners = [{ login: 'alice' }];
+  assert.equal(ownerLastActivityAt([c('alice', 'MEMBER', '2026-01-03T00:00:00Z', 'on it')], owners, [assigned('alice', '2026-01-02T00:00:00Z')]), '2026-01-03T00:00:00Z');
+  assert.equal(ownerLastActivityAt([c('alice', 'MEMBER', '2026-01-01T00:00:00Z', 'on it')], owners, [assigned('alice', '2026-01-02T00:00:00Z')]), '2026-01-02T00:00:00Z');
+});
+
+test('ownerLastActivityAt ignores non-assignee comments and since-unassigned users', () => {
+  const comments = [c('alice', 'MEMBER', '2026-01-02T00:00:00Z', 'x'), c('bob', 'MEMBER', '2026-01-05T00:00:00Z', 'y')];
+  const events = [assigned('alice', '2026-01-01T00:00:00Z'), assigned('carol', '2026-01-06T00:00:00Z')];
+  assert.equal(ownerLastActivityAt(comments, [{ login: 'alice' }], events), '2026-01-02T00:00:00Z');
+  assert.equal(ownerLastActivityAt([c('bob', 'MEMBER', '2026-01-05T00:00:00Z', 'y')], [{ login: 'alice' }], []), null);
+});
+
+test('ownerLastActivityAt is null without assignees and tolerates missing authors', () => {
+  assert.equal(ownerLastActivityAt([c('alice', 'MEMBER', '2026-01-02T00:00:00Z', 'x')], [], [assigned('alice', '2026-01-01T00:00:00Z')]), null);
+  const ghost = { author: null, createdAt: '2026-01-09T00:00:00Z', body: 'x' };
+  const deletedAssignee = { createdAt: '2026-01-09T00:00:00Z', assignee: null };
+  assert.equal(ownerLastActivityAt([ghost], [{ login: 'alice' }], [deletedAssignee, assigned('alice', '2026-01-01T00:00:00Z')]), '2026-01-01T00:00:00Z');
+});
+
+const review = (login, state, submittedAt) => ({ state, submittedAt, author: login ? { login } : null });
+
+test('botReview picks the newest submitted expo-bot review', () => {
+  const reviews = [
+    review('expo-bot', 'COMMENTED', '2026-01-01T00:00:00Z'),
+    review('expo-bot', 'CHANGES_REQUESTED', '2026-01-03T00:00:00Z'),
+    review('alice', 'APPROVED', '2026-01-04T00:00:00Z'),
+    review('expo-bot', 'PENDING', null),
+    review(null, 'COMMENTED', '2026-01-05T00:00:00Z'),
+  ];
+  assert.deepEqual(botReview(reviews), { state: 'CHANGES_REQUESTED', at: '2026-01-03T00:00:00Z' });
+});
+
+test('botReview is null without a submitted expo-bot review', () => {
+  assert.equal(botReview([]), null);
+  assert.equal(botReview([review('alice', 'APPROVED', '2026-01-04T00:00:00Z'), review('expo-bot', 'PENDING', null)]), null);
 });

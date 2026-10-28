@@ -144,3 +144,21 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
     },
   };
 }
+
+// When an assignee last commented or was assigned; null without assignees or any such activity.
+export function ownerLastActivityAt(comments, assignees, assignedEvents) {
+  const owners = new Set(assignees.map((a) => a.login));
+  const times = [
+    ...comments.filter((c) => owners.has(c.author?.login)).map((c) => c.createdAt),
+    ...assignedEvents.filter((e) => owners.has(e.assignee?.login)).map((e) => e.createdAt),
+  ];
+  return times.sort().at(-1) ?? null;
+}
+
+export function botReview(reviews) {
+  const newest = reviews
+    .filter((r) => r.author?.login === 'expo-bot' && r.submittedAt)
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt))
+    .at(-1);
+  return newest ? { state: newest.state, at: newest.submittedAt } : null;
+}

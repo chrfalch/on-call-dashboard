@@ -36,9 +36,6 @@ export const CHIP_TIPS = {
   view: { meaning: 'Runbook view. Click to show only its items, in its order.', source: 'Fixed dashboard rule over the synced GitHub data, comment analysis and expo-bot comments' },
   activeFilter: { meaning: 'A filter that is on. Clear filters turns it off.', source: 'Your filters, kept in the page URL' },
   labelGroup: { meaning: 'Group of labels, and how many it shows. Click to collapse or expand it.', source: 'Dashboard grouping of GitHub label names' },
-  reason: { meaning: 'Why this task is in the inbox, or why it ranks higher.', source: `${RANKING}, over GitHub data, comment analysis and expo-bot comments` },
-  also: { meaning: 'Other tasks for this item. The inbox shows only the one with the highest priority.', source: RANKING },
-  taskScore: { meaning: 'Priority score: task base + severity, waiting time, 👍, assignment', source: RANKING },
   recTag: { meaning: 'Recommendation from an AI agent. Check it before you act on it.', source: AGENT },
   recError: { meaning: 'The agent could not make a recommendation for this task.', source: AGENT },
   recWho: { meaning: 'The person or team that the agent names for this action.', source: AGENT },
@@ -46,10 +43,12 @@ export const CHIP_TIPS = {
   recWhy: { meaning: 'The reason that the agent gives for this action.', source: AGENT },
   recDisagrees: { meaning: 'The agent recommends a different action than the task.', source: `${RANKING} and ${AGENT}` },
   recNext: { meaning: "The task's button applies the severity label. The agent counts that as done and recommends what comes after it.", source: `${RANKING} and ${AGENT}` },
-  inboxCount: { meaning: 'Open inbox tasks in the current mode, without the ones that are done or snoozed.', source: `${RANKING}, over the synced GitHub data` },
   issueCount: { meaning: 'All open issues. Filters do not change this number.', source: 'GitHub: open issues, synced by the dashboard server' },
   prCount: { meaning: 'All open pull requests. Filters do not change this number.', source: 'GitHub: open pull requests, synced by the dashboard server' },
-  inboxProgress: { meaning: 'Tasks you marked done or closed today, and the open tasks in the selected scope.', source: 'This browser (localStorage) and the inbox ranking rules' },
+  inboxProgress: {
+    meaning: 'Items you marked done or closed from the Inbox today, split into issues and PRs. The chart shows the items done each day since Monday.',
+    source: "This browser's own record (localStorage)",
+  },
   syncStatus: { meaning: 'When the dashboard server last synced with GitHub. It syncs changes every 2 minutes and everything every hour.', source: 'Dashboard server' },
   signedIn: { meaning: 'The GitHub account that the buttons post as. Click to change or remove the token.', source: 'GitHub: the user that your token belongs to' },
 };
@@ -70,6 +69,41 @@ export const TASK_TIPS = {
   close: { meaning: 'Issues with no open fix where the reporter is silent for 14 days, or where expo-bot could not reproduce the bug and nobody replied for 7 days, and pull requests with requested changes and no activity for 60 days. Close them if nothing changed.', source: `${REPLIES}, and the ${BOT_SANDBOX}` },
   'unsupported-sdk': { meaning: 'Issues and pull requests whose SDK labels are all marked unsupported in the Supported SDKs menu. Close them with a comment that asks to check a supported SDK.', source: 'GitHub sdk-* labels, and the unsupported SDKs you marked in this browser' },
   'bot-triage': { meaning: 'Issues and pull requests without a platform or SDK label that expo-bot has not triaged. Post “@expo-bot triage” so the bot adds platform, SDK and severity labels.', source: `GitHub labels, and the ${BOT_TRIAGE}s` },
+};
+
+export const STATE_TIPS = {
+  I1: { meaning: 'New issue that still needs expo-bot triage.', source: 'GitHub labels and expo-bot comments' },
+  I2: { meaning: 'Issue waiting for expo-bot to finish triage or verification.', source: '@expo-bot commands and replies' },
+  I3: { meaning: 'Issue that needs verification before it can move forward.', source: 'expo-bot triage and sandbox verification comments' },
+  I4: { meaning: 'Issue waiting for more information from the reporter.', source: REPLIES },
+  I5: { meaning: 'Issue that expo-bot could not reproduce.', source: BOT_SANDBOX },
+  I6: { meaning: 'Issue that expo-bot reproduced and that needs an owner.', source: `${BOT_SANDBOX} and GitHub assignees` },
+  I7: { meaning: 'Accepted or reproduced issue waiting for a fix pull request.', source: 'GitHub labels, assignees and linked pull requests' },
+  I8: { meaning: 'Issue with an open linked fix pull request.', source: 'GitHub linked pull requests' },
+  I9: { meaning: 'Issue whose linked fix pull request has merged.', source: 'GitHub linked pull requests' },
+  I10: { meaning: 'Closed issue.', source: 'GitHub issue state' },
+  P1: { meaning: 'Draft pull request that is not ready for review.', source: 'GitHub pull request draft flag' },
+  P2: { meaning: 'Pull request that has not yet asked expo-bot for a review.', source: '@expo-bot review commands' },
+  P3: { meaning: 'Pull request waiting for expo-bot to finish its review.', source: '@expo-bot review commands and replies' },
+  P4: { meaning: 'Pull request where a reviewer requested changes.', source: 'GitHub pull request review decision' },
+  P5: { meaning: 'Pull request whose author acted after changes were requested.', source: 'GitHub reviews, commits, requested reviewers and comments' },
+  P6: { meaning: 'Pull request ready for a human reviewer.', source: 'GitHub pull request reviews and expo-bot replies' },
+  P7: { meaning: 'Pull request with human review activity or a requested reviewer.', source: 'GitHub reviews and requested reviewers' },
+  P8: { meaning: 'Approved pull request ready to merge.', source: 'GitHub pull request review decision' },
+  P9: { meaning: 'Merged pull request.', source: 'GitHub pull request state' },
+  P10: { meaning: 'Pull request closed without merging.', source: 'GitHub pull request state' },
+};
+
+export const CLEANUP_TIPS = {
+  C1: { meaning: 'Issue where the team has owed a reply for at least seven days.', source: REPLIES },
+  C2: { meaning: 'Issue where the reporter has been silent for at least 14 days.', source: REPLIES },
+  C3: { meaning: 'Issue still open seven days after expo-bot could not reproduce it.', source: BOT_SANDBOX },
+  C4: { meaning: 'Item whose SDK labels are all marked unsupported.', source: 'GitHub sdk-* labels and your unsupported SDK settings' },
+  C5: { meaning: 'Unlabeled and unowned issue that fell through normal triage.', source: 'GitHub labels and assignees' },
+  C7: { meaning: 'Pull request left with requested changes for at least 21 days.', source: 'GitHub pull request reviews' },
+  C8: { meaning: 'Owned issue with no linked pull request and no owner activity for seven days.', source: 'GitHub assignees, comments and linked pull requests' },
+  C9: { meaning: 'Approved pull request blocked by conflicts, checks or its merge state.', source: 'GitHub review decision, checks and merge state' },
+  C10: { meaning: 'Item waiting at least one day for expo-bot to answer a command or review request.', source: '@expo-bot commands and replies' },
 };
 
 export const ACTION_TIPS = {

@@ -1,4 +1,5 @@
 // Items handled per local day for the Inbox done-today tile. Pure functions only (no DOM).
+import { weekStart } from './trends.js';
 
 export function localDay(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -28,6 +29,15 @@ export function addDone(log, items) {
     result.push({ number, type });
   }
   return result;
+}
+
+// readDay(date) returns that day's log, so the caller owns storage.
+export function weekDone(readDay, now) {
+  const days = [];
+  for (let date = weekStart(now); date <= now; date = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)) {
+    days.push({ date, done: doneCounts(readDay(date)).total });
+  }
+  return days;
 }
 
 export function doneCounts(log) {

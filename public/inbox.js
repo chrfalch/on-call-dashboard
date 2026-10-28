@@ -51,6 +51,11 @@ export function needsBotTriage(item) {
 
 export const conversationOf = (item) => item.conversation ?? { waitingOn: 'team', teamReplied: false, since: item.createdAt };
 
+export const needsSeverityFix = (item) => {
+  const severity = item.triage?.assessment?.severity;
+  return !!severity && !hasLabel(item, severity.label);
+};
+
 // Why a PR with requested changes is ready for another look; empty while the author has not acted.
 export function reReviewReasons(item) {
   if (item.reviewDecision !== 'CHANGES_REQUESTED') return [];
@@ -90,7 +95,7 @@ function candidates(item, now) {
     }
     if (!internal && !botCmd && !item.triage?.verification && age <= 30) out.push({ kind: 'verify', base: 58, reasons: [`opened ${age}d ago`] });
     const sev = item.triage?.assessment?.severity;
-    if (sev && !hasLabel(item, sev.label)) out.push({ kind: 'fix-severity', base: 40, reasons: [`bot says ${sev.label}`] });
+    if (needsSeverityFix(item)) out.push({ kind: 'fix-severity', base: 40, reasons: [`bot says ${sev.label}`] });
     const parked = PARKED.some((l) => hasLabel(item, l));
     const merged = (item.linkedPrs ?? []).filter((pr) => pr.state === 'MERGED' && pr.fix === true);
     if (!parked && merged.length) {

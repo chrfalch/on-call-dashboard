@@ -1,13 +1,12 @@
 // Expo triage dashboard client.
-import { computeTasks, isHidden, listedTasks, TASK_KINDS, MODES, PLATFORM_LABEL } from './inbox.js';
+import { MODES, PLATFORM_LABEL } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
-import { applyPlan, hasPending, recDisagrees, recFor, recIsNextStep, recLabel, recRequest, recSignature } from './recs.js';
-import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
+import { CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, STATE_TIPS, CLEANUP_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
-import { dayKey, parseLog, addDone, doneCounts } from './done-log.js';
+import { dayKey, parseLog, addDone, doneCounts, weekDone } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
-import { isOpen } from './states.js';
+import { isOpen, STATES, CLEANUP_FILTERS, stateAction, cleanupAction, inboxRows, inboxCounts } from './states.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -20,8 +19,8 @@ const TRIAGE = { command: 'triage', body: '@expo-bot triage', label: 'Triage', b
 const DEFAULT_FILTERS = {
   tab: 'inbox',
   inboxMode: 'oncall',
-  inboxScope: 'all',
-  inboxKind: '',
+  state: '',
+  cleanup: '',
   inboxOthers: false,
   inboxHidden: false,
   q: '',
@@ -282,7 +281,7 @@ function sortItems(items) {
 
 // Every list and count reads this. Lookups and write actions keep using the full data.items.
 function shownItems() {
-  return filters.hideUnsupportedSdks ? data.items.filter((i) => !isUnsupportedSdk(i, unsupportedSdks)) : data.items;
+  return data.items.filter((i) => isOpen(i) && (!filters.hideUnsupportedSdks || !isUnsupportedSdk(i, unsupportedSdks)));
 }
 
 function visibleItems() {
@@ -303,10 +302,10 @@ function render() {
   renderSdkFilter();
 
   const visible = visibleItems();
-  const tabCount = (type) => data.items.filter((i) => i.type === type).length;
+  const tabCount = (type) => data.items.filter((i) => i.type === type && isOpen(i)).length;
   $('#count-issue').textContent = tabCount('issue');
   $('#count-pr').textContent = tabCount('pr');
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab && t.dataset.mode === filters.inboxMode));
   if (inInbox) return;
   $('#pr-filters').hidden = filters.tab !== 'pr';
 
@@ -328,23 +327,41 @@ function render() {
   updateBulk(visible);
 }
 
+function checksHtml(i) {
+  if (i.checks === 'SUCCESS') return `<span class="status success" ${tipAttr(CHIP_TIPS.checks, 'Checks passing')}>${icons.check} checks</span>`;
+  if (i.checks === 'FAILURE' || i.checks === 'ERROR') return `<span class="status failure" ${tipAttr(CHIP_TIPS.checks, 'Checks failing')}>${icons.x} checks</span>`;
+  if (i.checks) return `<span class="status pending" ${tipAttr(CHIP_TIPS.checks, `Checks ${i.checks.toLowerCase()}`)}>${icons.dot} checks</span>`;
+  return '';
+}
+
+const conflictsHtml = (i) => (i.mergeable === 'CONFLICTING' ? `<span class="status conflict" ${tipAttr(CHIP_TIPS.conflicts)}>Conflicts</span>` : '');
+const diffstatHtml = (i) => `<span class="diffstat" ${tipAttr(CHIP_TIPS.diffstat)}><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`;
+const authorHtml = (i) => `<a href="https://github.com/${esc(i.author.login)}" target="_blank" rel="noreferrer">${esc(i.author.login)}</a>`;
+
+function reviewerAvatars(i) {
+  const seen = new Set();
+  return (i.latestReviews || [])
+    .filter((p) => p.login && !seen.has(p.login) && seen.add(p.login))
+    .slice(0, 4)
+    .map((p) => `<img class="avatar" src="${p.avatarUrl}&s=40" alt="${esc(p.login)}" title="Reviewed by ${esc(p.login)}" loading="lazy">`)
+    .join('');
+}
+
 function itemParts(i, triageOpts) {
   const icon = i.type === 'pr' ? (i.isDraft ? titled(icons.draft, CHIP_TIPS.draftState) : titled(icons.pr, CHIP_TIPS.prState)) : titled(icons.issue, CHIP_TIPS.issueState);
-  const meta = [`<a href="${i.url}" target="_blank" rel="noreferrer">#${i.number}</a> opened ${ago(i.createdAt)} by <a href="https://github.com/${esc(i.author.login)}" target="_blank" rel="noreferrer">${esc(i.author.login)}</a>`];
+  const meta = [`<a href="${i.url}" target="_blank" rel="noreferrer">#${i.number}</a> opened ${ago(i.createdAt)} by ${authorHtml(i)}`];
   meta.push(`<span class="sep">·</span> updated ${ago(i.updatedAt)}`);
   if (i.type === 'pr') {
     if (i.isDraft) meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.draft)}>Draft</span>`);
-    if (i.checks === 'SUCCESS') meta.push(`<span class="status success" ${tipAttr(CHIP_TIPS.checks, 'Checks passing')}>${icons.check} checks</span>`);
-    else if (i.checks === 'FAILURE' || i.checks === 'ERROR') meta.push(`<span class="status failure" ${tipAttr(CHIP_TIPS.checks, 'Checks failing')}>${icons.x} checks</span>`);
-    else if (i.checks) meta.push(`<span class="status pending" ${tipAttr(CHIP_TIPS.checks, `Checks ${i.checks.toLowerCase()}`)}>${icons.dot} checks</span>`);
+    meta.push(checksHtml(i));
     if (i.reviewDecision === 'APPROVED') meta.push(`<span class="status approved" ${tipAttr(CHIP_TIPS.approved)}>${icons.check} Approved</span>`);
     else if (i.reviewDecision === 'CHANGES_REQUESTED') meta.push(`<span class="status changes" ${tipAttr(CHIP_TIPS.changesRequested)}>Changes requested</span>`);
     else if (i.reviewDecision === 'REVIEW_REQUIRED') meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.reviewRequired)}>Review required</span>`);
-    if (i.mergeable === 'CONFLICTING') meta.push(`<span class="status conflict" ${tipAttr(CHIP_TIPS.conflicts)}>Conflicts</span>`);
+    meta.push(conflictsHtml(i));
     for (const li of i.linkedIssues || []) {
       meta.push(`<a class="status" href="${li.url}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.linkedIssue, `Linked issue: ${li.title}`)}>${icons.issueSmall} #${li.number}</a>`);
     }
-    meta.push(`<span class="diffstat" ${tipAttr(CHIP_TIPS.diffstat)}><span class="add">+${i.additions}</span> <span class="del">−${i.deletions}</span></span>`);
+    meta.push(diffstatHtml(i));
   }
   if (i.thumbsUp) meta.push(`<span ${tipAttr(CHIP_TIPS.thumbsUp)}>👍 ${i.thumbsUp}</span>`);
   meta.push(waitingHtml(i));
@@ -359,16 +376,10 @@ function itemParts(i, triageOpts) {
       )}>${icons.bot} ${esc(c.command)} ${ago(c.at)}${replied ? ' ✓' + outcome : ' …'}</span>`
     );
   }
-  const people = (i.latestReviews || []).filter((r) => r.login);
-  const seen = new Set();
-  const avatars = people
-    .filter((p) => !seen.has(p.login) && seen.add(p.login))
-    .slice(0, 4)
-    .map((p) => `<img class="avatar" src="${p.avatarUrl}&s=40" alt="${esc(p.login)}" title="Reviewed by ${esc(p.login)}" loading="lazy">`)
-    .join('');
+  const avatars = reviewerAvatars(i);
   const main = `<a class="row-title" href="${i.url}" target="_blank" rel="noreferrer">${esc(i.title)}</a>
       <span class="labels">${i.assignees.map(assigneeChipHtml).join('')}${i.labels.map((l) => labelHtml(l)).join('')}</span>
-      <div class="meta">${meta.join(' ')}</div>
+      <div class="meta">${meta.filter(Boolean).join(' ')}</div>
       ${triageHtml(i, triageOpts)}`;
   return { icon, main, avatars };
 }
@@ -413,7 +424,8 @@ function severityMismatch(item) {
 
 const expanded = new Set();
 
-function triageHtml(i, { fixPrs = true } = {}) {
+// brief: the Inbox row, where the state's button applies severity and the summary waits for recommendations.
+function triageHtml(i, { fixPrs = true, brief = false } = {}) {
   const t = i.triage;
   if (!t) return '';
   const a = t.assessment;
@@ -424,18 +436,18 @@ function triageHtml(i, { fixPrs = true } = {}) {
     if (a.severity) {
       const color = data.labels.find((l) => l.name === a.severity.label)?.color;
       sev = ` · suggests ${labelHtml({ name: a.severity.label, color }, { title: tooltip(CHIP_TIPS.suggestedSeverity) })}`;
-      if (severityMismatch(i)) sev += ` <button class="btn btn-xs" data-apply-severity="${i.number}" title="Replace the current severity label with ${esc(a.severity.label)}">Apply</button>`;
+      if (!brief && severityMismatch(i)) sev += ` <button class="btn btn-xs" data-apply-severity="${i.number}" title="Replace the current severity label with ${esc(a.severity.label)}">Apply</button>`;
     }
     parts.push(`<span ${tipAttr(CHIP_TIPS.assessment)}>${icons.bot} <a href="${a.url}" target="_blank" rel="noreferrer">${esc(a.kind ?? 'Assessed')}${a.confidence != null ? ` · ${a.confidence}%` : ''}</a>${sev}</span>`);
   }
   if (v) {
     parts.push(
       `<a href="${v.url}" target="_blank" rel="noreferrer" class="verdict ${esc(v.outcome)}" ${tipAttr(OUTCOME_TIPS[v.outcome] ?? CHIP_TIPS.verdict)}>Verified · ${esc(OUTCOME_TEXT[v.outcome] ?? v.outcome)}</a>` +
-        (v.headline ? `<span class="verdict-headline" ${tipAttr(CHIP_TIPS.verdictHeadline, v.headline)}>${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
+        (v.headline && !brief ? `<span class="verdict-headline" ${tipAttr(CHIP_TIPS.verdictHeadline, v.headline)}>${esc(v.headline[0].toUpperCase() + v.headline.slice(1))}</span>` : '')
     );
   }
   if (fixPrs) for (const n of t.fixPrs) parts.push(`<a href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.fixPr)}>🔧 fix PR #${n}</a>`);
-  const hasDetails = a?.impact || a?.scope || v?.maintainer || v?.reporter;
+  const hasDetails = !brief && (a?.impact || a?.scope || v?.maintainer || v?.reporter);
   if (!parts.length && !hasDetails) return '';
   if (hasDetails) parts.push(`<button class="details-toggle" data-details="${i.number}" ${tipAttr(CHIP_TIPS.details)}>${expanded.has(i.number) ? 'hide details ▴' : 'details ▾'}</button>`);
   const details =
@@ -575,9 +587,7 @@ function renderAssigneeOptions() {
 
 let sdkListHtml = '';
 function renderSdkFilter() {
-  const unsupportedCount = data.items.filter((i) => isUnsupportedSdk(i, unsupportedSdks)).length;
   $('#hide-unsupported-sdks').checked = filters.hideUnsupportedSdks;
-  $('#sdk-hidden').textContent = `${unsupportedCount} ${filters.hideUnsupportedSdks ? 'hidden' : 'unsupported'}`;
   const colorOf = Object.fromEntries(data.labels.map((l) => [l.name, l.color]));
   const names = sdkLabels(data.labels);
   const html = names.length
@@ -612,6 +622,8 @@ function updateBulk(visible) {
 const postedThisSession = new Map(); // `${number}:${command}` -> { number, command, commentId, at }
 const postedKey = (number, action) => `${number}:${action.command}`;
 const isPosted = (number, action) => postedThisSession.has(postedKey(number, action));
+const closedThisSession = new Map(); // item number -> closedAt, until the server sync sees the close
+const markClosed = (item, closedAt) => Object.assign(item, { state: 'CLOSED', closedAt });
 const busy = new Set(); // item numbers with a GitHub write in flight
 const SPINNER = '<span class="spinner" role="status" aria-label="Working"></span>';
 
@@ -822,8 +834,12 @@ async function closeItems(numbers, body, reason) {
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
   if (filters.tab === 'inbox' && ok.length) recordDone(ok.map((r) => r.item));
+  const closedAt = new Date().toISOString();
+  for (const { item } of ok) {
+    markClosed(item, closedAt);
+    closedThisSession.set(item.number, closedAt);
+  }
   const closed = new Set(ok.map((r) => r.item.number));
-  data.items = data.items.filter((i) => !closed.has(i.number));
   selected = new Set([...selected].filter((n) => !closed.has(n)));
   render();
   if (ok.length) {
@@ -832,8 +848,10 @@ async function closeItems(numbers, body, reason) {
         await Promise.allSettled(
           ok.map(async ({ item, commentId }) => {
             await gh(`/repos/${data.repo}/${item.type === 'pr' ? 'pulls' : 'issues'}/${item.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'open' }) });
+            closedThisSession.delete(item.number);
+            const current = data.items.find((i) => i.number === item.number);
+            if (current) Object.assign(current, { state: 'OPEN', closedAt: null });
             if (commentId) await gh(`/repos/${data.repo}/issues/comments/${commentId}`, { method: 'DELETE' });
-            data.items.push(item);
           })
         );
         render();
@@ -905,7 +923,11 @@ async function refresh(force = false) {
   const res = await fetch('/api/items');
   const d = await res.json();
   data = d;
-  data.items = data.items.filter(isOpen);
+  for (const [number, closedAt] of closedThisSession) {
+    const item = data.items.find((i) => i.number === number);
+    if (item && isOpen(item)) markClosed(item, closedAt);
+    else closedThisSession.delete(number);
+  }
   // Keep optimistic bot state for anything we posted until the server catches up.
   for (const { number, command, at } of postedThisSession.values()) {
     const item = data.items.find((i) => i.number === number);
@@ -971,13 +993,13 @@ function trendTile(title, week) {
     <div class="trend-net trend-${direction}"><span aria-hidden="true">${TREND_ARROWS[direction]}</span> ${signed}</div>
     <div class="trend-caption">this week</div>
     <div class="trend-caption"><span class="trend-swatch trend-opened" aria-hidden="true"></span>opened ${opened} · <span class="trend-swatch trend-closed" aria-hidden="true"></span>closed ${closed}</div>
-    ${trendChart(week)}
+    ${trendChart(week.days, ['opened', 'closed'], `Opened ${opened} and closed ${closed} since Monday`)}
   </div>`;
 }
 
-function trendChart({ days, opened, closed }) {
+function trendChart(days, keys, label) {
   const [width, height, pad] = [100, 50, 3];
-  const max = Math.max(opened, closed, 1);
+  const max = Math.max(1, ...days.flatMap((day) => keys.map((key) => day[key])));
   const x = (i) => (days.length > 1 ? pad + (i * (width - 2 * pad)) / (days.length - 1) : width / 2);
   const y = (count) => height - pad - (count * (height - 2 * pad)) / max;
   // Markers on every day keep a single-day week (Monday) visible, where a polyline draws nothing.
@@ -985,8 +1007,8 @@ function trendChart({ days, opened, closed }) {
     const points = days.map((day, i) => [+x(i).toFixed(1), +y(day[key]).toFixed(1)]);
     return `<g class="trend-${key}"><polyline points="${points.map((p) => p.join(',')).join(' ')}"/>${points.map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="1.6"/>`).join('')}</g>`;
   };
-  return `<svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Opened ${opened} and closed ${closed} since Monday">
-    <line class="trend-axis" x1="0" x2="${width}" y1="${height - pad}" y2="${height - pad}"/>${series('opened')}${series('closed')}
+  return `<svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(label)}">
+    <line class="trend-axis" x1="0" x2="${width}" y1="${height - pad}" y2="${height - pad}"/>${keys.map(series).join('')}
   </svg>`;
 }
 
@@ -997,6 +1019,7 @@ const inboxState = JSON.parse(localStorage.getItem('inboxState') || '{}');
 let inboxShown = 25;
 let inboxFocus = 0;
 let inboxVisible = [];
+const rowHidden = (row) => !!inboxState[row.key]?.doneAt;
 
 function saveInboxState() {
   // Forget entries older than 30 days so localStorage doesn't grow forever.
@@ -1018,49 +1041,39 @@ function markDone(task) {
   render();
 }
 
-function snooze(task, days = 3) {
-  inboxState[task.key] = { snoozedAt: Date.now(), snoozeUntil: Date.now() + days * 864e5 };
-  saveInboxState();
-  render();
-}
-
 function renderInbox() {
   const mode = filters.inboxMode;
-  // Hidden unsupported-SDK items still get a task here, so they can be closed from the Inbox.
-  const unsupported = filters.hideUnsupportedSdks ? unsupportedSdks : new Set();
-  const all = computeTasks(data.items, { me: me?.login, mode, includeAssigned: filters.inboxOthers, unsupported });
-  const inScope = all.filter((t) => filters.inboxScope === 'all' || t.item.type === filters.inboxScope);
-  const open = inScope.filter((t) => !isHidden(t, inboxState));
-  $('#count-inbox').textContent = listedTasks(all.filter((t) => !isHidden(t, inboxState))).length;
+  const now = Date.now();
+  const hidden = (key) => rowHidden({ key });
+  const options = { now, me: me?.login, mode, includeAssigned: filters.inboxOthers, unsupportedSdks, hideUnsupported: filters.hideUnsupportedSdks };
   if (filters.tab !== 'inbox') return;
 
-  document.querySelectorAll('#inbox-mode button').forEach((b) => b.classList.toggle('selected', b.dataset.mode === mode));
+  $('#inbox-title').textContent = mode === 'mine' ? 'My Work' : 'On-call inbox';
   $('#inbox-mode-desc').textContent = MODES[mode];
   $('#inbox-others-wrap').hidden = mode !== 'oncall';
 
-  const pool = filters.inboxHidden ? inScope : open;
-  const kinds = new Map();
-  for (const t of pool) kinds.set(t.kind, (kinds.get(t.kind) || 0) + 1);
-  $('#inbox-kinds').innerHTML = Object.entries(TASK_KINDS)
-    // The selected chip stays at 0 so its filter can still be turned off.
-    .filter(([k]) => kinds.has(k) || k === filters.inboxKind)
-    .map(
-      ([k, def]) =>
-        `<button class="kind-chip tone-${def.tone}${filters.inboxKind === k ? ' selected' : ''}" data-inbox-kind="${k}" ${tipAttr(TASK_TIPS[k], `${filters.inboxKind === k ? 'Click to show all tasks again.' : `Click to show only the ${kinds.get(k)} "${def.label}" tasks.`}\n\n${TASK_TIPS[k].meaning}`)}>${icons[def.icon] ?? ''} ${esc(def.label)} <span class="counter">${kinds.get(k) ?? 0}</span></button>`
-    )
-    .join('');
-  document.querySelectorAll('#inbox-scope button').forEach((b) => b.classList.toggle('selected', b.dataset.scope === filters.inboxScope));
+  const items = data.items;
+  const visibleOptions = { ...options, hidden: filters.inboxHidden ? undefined : hidden };
+  const counts = inboxCounts(items, visibleOptions);
+  const chips = (defs, key, tips) => defs.map((def) => {
+    const count = counts[key === 'state' ? 'states' : 'cleanup'][def.id] ?? 0;
+    return `<button class="kind-chip${def.tone ? ` tone-${esc(def.tone)}` : ''}${count ? '' : ' is-empty'}${filters[key] === def.id ? ' selected' : ''}" data-inbox-${key}="${def.id}" ${tipAttr(tips[def.id])}>${def.icon ? icons[def.icon] : ''}${esc(def.id)} ${esc(def.label)} <span class="counter">${count}</span></button>`;
+  }).join('');
+  $('#inbox-issue-states').innerHTML = chips(STATES.filter((state) => state.track === 'issue'), 'state', STATE_TIPS);
+  $('#inbox-pr-states').innerHTML = chips(STATES.filter((state) => state.track === 'pr'), 'state', STATE_TIPS);
+  $('#inbox-cleanup').innerHTML = `<h3 class="trend-title">Cleanup</h3><div class="inbox-kinds">${chips(CLEANUP_FILTERS, 'cleanup', CLEANUP_TIPS)}</div>`;
   $('#inbox-others').checked = filters.inboxOthers;
   $('#inbox-hidden').checked = filters.inboxHidden;
 
-  inboxVisible = listedTasks(pool, filters.inboxKind);
+  inboxVisible = inboxRows(items, { ...visibleOptions, stateId: filters.state, cleanupId: filters.cleanup });
   inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
   const done = doneCounts(parseLog(localStorage.getItem(dayKey(new Date()))));
+  const doneDays = weekDone((date) => parseLog(localStorage.getItem(dayKey(date))), new Date());
   $('#inbox-progress').innerHTML = `<div class="trend-title">Inbox</div>
     <div class="trend-net">${done.total}</div>
     <div class="trend-caption">done today</div>
     <div class="trend-caption">${done.issues} issues · ${done.prs} PRs</div>
-    <p>${listedTasks(open).length} open tasks</p>`;
+    ${trendChart(doneDays, ['done'], `Done per day since Monday: ${doneDays.map((d) => d.done).join(', ')}`)}`;
 
   $('#inbox-list').innerHTML = inboxVisible.length
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')
@@ -1069,63 +1082,60 @@ function renderInbox() {
       }</li>`;
   $('#inbox-more').innerHTML =
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
-  syncRecs();
 }
 
-const taskCommand = (t) => (t.kind === 'bot-triage' ? TRIAGE : ACTIONS[t.item.type]);
+const taskAction = (t) => filters.cleanup ? cleanupAction(t.item, filters.cleanup) : stateAction(t.item, t.stateId, { now: Date.now() });
+const taskCommand = (action) => ({ ...action, command: action.body.match(/@expo-bot\s+(\S+)/)?.[1] });
 
 function taskActionButton(t) {
-  const def = TASK_KINDS[t.kind];
-  const i = t.item;
-  if (def.action === 'command') {
-    const action = taskCommand(t);
-    const posted = isPosted(i.number, action);
-    return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}" ${posted ? 'disabled' : ''}>${posted ? '✓ Requested' : action.label}</button>`;
-  }
-  if (def.action === 'apply-severity') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">Apply ${esc(i.triage.assessment.severity.label)}</button>`;
-  if (def.action === 'close') return `<button class="btn btn-sm btn-danger" data-task-do="${t.key}">Close…</button>`;
-  const verb = { merge: 'Open to merge', review: 'Open to review', 're-review': 'Open to review', reply: 'Open to reply', 'first-response': 'Open to respond', 'assign-repro': 'Open to assign', nudge: 'Open to nudge' }[t.kind] ?? 'Open';
-  return `<a class="btn btn-sm btn-primary" href="${i.url}" target="_blank" rel="noreferrer" data-task-open="${t.key}">${verb} ↗</a>`;
+  const action = taskAction(t);
+  if (!action) return '';
+  if (action.kind === 'open') return `<a class="btn btn-sm btn-main" href="${esc(action.url ?? t.item.url)}" target="_blank" rel="noreferrer">${esc(action.label)} ↗</a>`;
+  const posted = action.kind === 'command' && isPosted(t.item.number, taskCommand(action));
+  return `<button class="btn btn-sm ${action.kind === 'close' ? 'btn-danger' : 'btn-main'}" data-task-do="${esc(t.key)}"${posted ? ' disabled' : ''}>${posted ? '✓ Requested' : esc(action.label)}</button>`;
+}
+
+function inboxMeta(i) {
+  const meta = [`opened ${ago(i.createdAt)} by ${authorHtml(i)}`, `<span class="sep">·</span> updated ${ago(i.updatedAt)}`];
+  if (i.type === 'pr') meta.push(checksHtml(i), conflictsHtml(i), diffstatHtml(i), `<span class="avatars">${reviewerAvatars(i)}</span>`);
+  else if (i.thumbsUp) meta.push(`<span ${tipAttr(CHIP_TIPS.thumbsUp)}>👍 ${i.thumbsUp}</span>`);
+  meta.push(waitingHtml(i));
+  return meta;
 }
 
 function taskHtml(t, idx) {
-  const def = TASK_KINDS[t.kind];
-  const { icon, main } = itemParts(t.item, { fixPrs: false });
-  const fixPrs = (t.item.triage?.fixPrs ?? [])
-    .map((n) => `<a class="fix-pr" href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.fixPr)}>🔧 #${n}</a>`)
-    .join('');
-  const hidden = isHidden(t, inboxState);
-  const reasonLabel = (name) => {
-    const l = data.labels.find((x) => x.name === name);
-    return labelHtml({ name, color: l?.color }, { title: tooltip(CHIP_TIPS.label, l?.description || 'GitHub label.') });
-  };
-  const reasons = t.reasons
-    .map((r) => (r.label ? reasonLabel(r.label) : `<span class="reason" ${tipAttr(CHIP_TIPS.reason)}>${esc(r.text)}</span>`))
-    .join('');
-  const also = t.also.length ? `<span class="muted" ${tipAttr(CHIP_TIPS.also)}>also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
-  const isBusy = busy.has(t.item.number);
-  return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}${isBusy ? ' busy' : ''}" data-task="${t.key}">
-    <div class="task-rank">${idx + 1}</div>
+  const item = t.item;
+  const def = STATES.find((state) => state.id === t.stateId);
+  const icon = item.type === 'pr' ? icons.pr : icons.issue;
+  const links = item.type === 'issue' ? (item.linkedPrs ?? []).filter((pr) => pr.fix === true) : item.fixedIssues ?? [];
+  const fixes = links.map((link) => `<a class="fix-pr" href="${esc(link.url ?? `https://github.com/${data.repo}/${item.type === 'issue' ? 'pull' : 'issues'}/${link.number}`)}" target="_blank" rel="noreferrer">#${esc(link.number)}</a>`).join(' ');
+  const cleanup = t.cleanup.map((id) => `<span class="reason" ${tipAttr(CLEANUP_TIPS[id])}>${esc(CLEANUP_FILTERS.find((filter) => filter.id === id).label)}</span>`).join('');
+  const hidden = rowHidden(t);
+  const isBusy = busy.has(item.number);
+  return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}${isBusy ? ' busy' : ''}" data-task="${esc(t.key)}">
+    <div class="task-rank">${icon}</div>
     <div class="task-body">
       <div class="task-head">
-        <span class="type-chip" ${tipAttr(t.item.type === 'pr' ? CHIP_TIPS.prState : CHIP_TIPS.issueState)}>${icon}${t.item.type === 'pr' ? 'PR' : 'Issue'}</span>
-        <span class="kind-badge tone-${def.tone}" ${tipAttr(TASK_TIPS[t.kind])}>${icons[def.icon] ?? ''} ${esc(def.label)}</span>
-        ${fixPrs}
-        ${reasons}
-        ${also}
-        <span class="header-spacer"></span>
-        <span class="task-score" ${tipAttr(CHIP_TIPS.taskScore)}>${t.score}</span>
+        <span class="kind-badge tone-${esc(def.tone)}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(def.label)}</span>
+        <a class="row-title" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
+        ${cleanup}
+        ${fixes ? `<span class="muted">${item.type === 'issue' ? 'Fix PRs' : 'Fixes'}</span> ${fixes}` : ''}
       </div>
-      <div class="task-item">${icon}<div class="row-main">${main}</div></div>
-      ${recHtml(t)}
+      <div class="row-main">
+        <div class="meta">${inboxMeta(item).filter(Boolean).join(' ')}</div>
+        <div class="task-labels">${item.assignees.map(assigneeChipHtml).join('')}${item.labels.map((l) => labelHtml(l)).join('')}</div>
+        ${item.type === 'issue' ? triageHtml(item, { fixPrs: false, brief: true }) : ''}
+      </div>
     </div>
     <div class="task-actions">
       ${isBusy ? SPINNER : ''}
-      ${taskActionButton(t)}
-      ${recTaskButton(t)}
       <div class="task-secondary">
-        <button class="btn btn-sm" data-task-done="${t.key}" title="Hide until this item changes on GitHub (d)">✓ Done</button>
-        <button class="btn btn-sm" data-task-later="${t.key}" title="Snooze for 3 days (l)">Later</button>
+        ${taskActionButton(t)}
+        ${isOpen(item) && taskAction(t)?.kind !== 'close' ? `<button class="btn btn-sm btn-danger" data-task-close="${esc(t.key)}">Close…</button>` : ''}
+      </div>
+      <div class="task-secondary">
+        ${isOpen(item) ? `<button class="btn btn-sm" data-task-bot="${esc(t.key)}" title="Write a comment to expo-bot">${icons.bot}Message expo-bot</button>` : ''}
+        <button class="btn btn-sm" data-task-done="${esc(t.key)}" title="I did what this row asks; hide it until its state changes">✓ Done</button>
       </div>
     </div>
   </li>`;
@@ -1136,148 +1146,55 @@ function findTask(key) {
 }
 
 async function doTask(t) {
-  if (busy.has(t.item.number)) return;
-  const def = TASK_KINDS[t.kind];
-  if (def.action === 'command') {
+  if (!t || busy.has(t.item.number)) return;
+  const action = taskAction(t);
+  if (!action) return;
+  if (action.kind === 'command') {
     if (!requireToken()) return;
-    const action = taskCommand(t);
-    await postCommand([t.item.number], action);
-    if (isPosted(t.item.number, action)) markDone(t);
-  } else if (def.action === 'apply-severity') {
+    const command = taskCommand(action);
+    await postCommand([t.item.number], command);
+    if (isPosted(t.item.number, command)) markDone(t);
+  } else if (action.kind === 'apply-severity') {
     await applySeverity(t.item);
     if (!severityMismatch(t.item)) markDone(t);
-  } else if (def.action === 'close') {
+  } else if (action.kind === 'close') {
     selected = new Set([t.item.number]);
-    openCloseDialog(t.item.type, undefined, t.kind === 'unsupported-sdk' ? 'Unsupported SDK' : undefined);
+    openCloseDialog(t.item.type, undefined, filters.cleanup === 'C4' ? 'Unsupported SDK' : undefined);
+  } else if (action.kind === 'nudge') {
+    openCommentDialog(t.item, `Hi @${t.item.author.login}, would you be able to address the requested changes? Thanks!`);
   } else {
-    window.open(t.item.url, '_blank', 'noopener');
+    window.open(action.url ?? t.item.url, '_blank', 'noopener');
   }
 }
 
 function inboxClick(e) {
   const t = e.target;
-  const modeBtn = t.closest('[data-mode]');
-  if (modeBtn) { filters.inboxMode = modeBtn.dataset.mode; filters.inboxKind = ''; inboxShown = 25; inboxFocus = 0; return render(); }
-  const scope = t.closest('[data-scope]');
-  if (scope) { filters.inboxScope = scope.dataset.scope; filters.inboxKind = ''; inboxShown = 25; return render(); }
-  const kind = t.closest('[data-inbox-kind]');
-  if (kind) { filters.inboxKind = filters.inboxKind === kind.dataset.inboxKind ? '' : kind.dataset.inboxKind; inboxShown = 25; return render(); }
+  const state = t.closest('[data-inbox-state]');
+  if (state) { filters.state = filters.state === state.dataset.inboxState ? '' : state.dataset.inboxState; filters.cleanup = ''; inboxShown = 25; return render(); }
+  const cleanup = t.closest('[data-inbox-cleanup]');
+  if (cleanup) { filters.cleanup = filters.cleanup === cleanup.dataset.inboxCleanup ? '' : cleanup.dataset.inboxCleanup; filters.state = ''; inboxShown = 25; return render(); }
   if (t.id === 'inbox-more-btn') { inboxShown += 25; return render(); }
   const done = t.closest('[data-task-done]');
   if (done) return markDone(findTask(done.dataset.taskDone));
-  const later = t.closest('[data-task-later]');
-  if (later) return snooze(findTask(later.dataset.taskLater));
+  const close = t.closest('[data-task-close]');
+  if (close) {
+    const task = findTask(close.dataset.taskClose);
+    if (!task || !isOpen(task.item) || busy.has(task.item.number)) return;
+    selected = new Set([task.item.number]);
+    return openCloseDialog(task.item.type);
+  }
+  const bot = t.closest('[data-task-bot]');
+  if (bot) {
+    const task = findTask(bot.dataset.taskBot);
+    return task && openCommentDialog(task.item, '@expo-bot ');
+  }
   const go = t.closest('[data-task-do]');
   if (go) return doTask(findTask(go.dataset.taskDo));
-  const rec = t.closest('[data-rec-apply]');
-  if (rec) return applyRec(findTask(rec.dataset.recApply));
   const row = t.closest('[data-task]');
   if (row && !t.closest('a, button')) {
     inboxFocus = inboxVisible.findIndex((x) => x.key === row.dataset.task);
     document.querySelectorAll('.task').forEach((el, idx) => el.classList.toggle('focused', idx === inboxFocus));
   }
-}
-
-// ---------- agent recommendations ----------
-// Rec text is model output derived from untrusted issue text: render it only through esc(),
-// and take URLs, command bodies and close reasons from applyPlan, never from the rec.
-
-const REC_POLL_MS = 10000;
-let recResponse = {}; // task key -> { status, rec, recKey, error } from the latest response
-let recSentSignature = '';
-let recPoll = null;
-let recFailed = false;
-
-function syncRecs() {
-  const tasks = inboxVisible.slice(0, inboxShown);
-  const signature = recSignature(tasks);
-  if (signature !== recSentSignature) {
-    recSentSignature = signature;
-    fetchRecs(tasks, signature);
-  } else if (!recPoll && (recFailed || hasPending(recResponse))) {
-    recPoll = setTimeout(pollRecs, REC_POLL_MS);
-  }
-}
-
-function pollRecs() {
-  recPoll = null;
-  if (filters.tab === 'inbox') fetchRecs(inboxVisible.slice(0, inboxShown), recSentSignature);
-}
-
-async function fetchRecs(tasks, signature) {
-  clearTimeout(recPoll);
-  recPoll = null;
-  let response;
-  try {
-    const res = await fetch('/api/recommendations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(recRequest(tasks)) });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`);
-    response = await res.json();
-  } catch (e) {
-    if (signature !== recSentSignature) return;
-    if (!recFailed) toast(`Agent recommendations are unavailable: ${e.message}`);
-    recFailed = true;
-    // A render during the request may already have scheduled a retry.
-    clearTimeout(recPoll);
-    recPoll = setTimeout(pollRecs, REC_POLL_MS);
-    return;
-  }
-  recFailed = false;
-  if (signature !== recSentSignature) return;
-  recResponse = response;
-  if (filters.tab === 'inbox') renderInbox();
-}
-
-const REC_SUFFIX = { comment: '…', close: '…', github: ' ↗' };
-
-function recHtml(t) {
-  const entry = recFor(recResponse, t);
-  if (!entry) return '';
-  const tag = `<span class="rec-tag" ${tipAttr(CHIP_TIPS.recTag)}>Agent</span>`;
-  if (entry.status === 'pending') return `<div class="rec">${tag}Thinking…</div>`;
-  if (entry.status !== 'done') return `<div class="rec" ${tipAttr(CHIP_TIPS.recError, entry.error)}>${tag}No recommendation</div>`;
-  const { rec } = entry;
-  const label = recLabel(rec, t.item);
-  if (!label) return '';
-  const { kind } = applyPlan(rec, t.item);
-  const posted = kind === 'command' && isPosted(t.item.number, ACTIONS[t.item.type]);
-  const actionTip = tipAttr(ACTION_TIPS[rec.action]);
-  const apply =
-    kind === 'none'
-      ? `<span class="rec-action" ${actionTip}>${esc(label.button)}</span>`
-      : `<button class="btn btn-xs" data-rec-apply="${t.key}" ${actionTip}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
-  const who = label.who ? `<span class="rec-who" ${tipAttr(CHIP_TIPS.recWho)}>${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
-  const conflict = recDisagrees(t, rec);
-  const disagrees = conflict
-    ? `<span class="rec-disagrees" ${tipAttr(CHIP_TIPS.recDisagrees, `The task says "${conflict.task}". The agent recommends "${conflict.agent}". Check the thread before you act.`)}>agent disagrees</span>`
-    : '';
-  const nextStep = recIsNextStep(t) ? `<span class="rec-next" ${tipAttr(CHIP_TIPS.recNext)}>next step after the label</span>` : '';
-  return `<div class="rec">${tag}${nextStep}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
-}
-
-// Only a disagreeing rec gets a button next to the task's own, so the operator can pick either.
-function recTaskButton(t) {
-  const entry = recFor(recResponse, t);
-  if (entry?.status !== 'done' || !recDisagrees(t, entry.rec)) return '';
-  const label = recLabel(entry.rec, t.item);
-  const { kind } = applyPlan(entry.rec, t.item);
-  if (!label || kind === 'none') return '';
-  const posted = kind === 'command' && isPosted(t.item.number, ACTIONS[t.item.type]);
-  return `<button class="btn btn-sm btn-primary" data-rec-apply="${t.key}" ${tipAttr(ACTION_TIPS[entry.rec.action])}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
-}
-
-function applyRec(t) {
-  const entry = recFor(recResponse, t);
-  if (entry?.status !== 'done' || busy.has(t.item.number)) return;
-  const plan = applyPlan(entry.rec, t.item);
-  if (plan.kind === 'command') {
-    // postCommand posts the dashboard's own command for the item type, so refuse a recommendation for any other body.
-    if (plan.body === ACTIONS[t.item.type].body) postCommand([t.item.number]);
-    else toast(`Unknown command “${plan.body}”`, { error: true });
-  } else if (plan.kind === 'comment') openCommentDialog(t.item, plan.body);
-  else if (plan.kind === 'close') {
-    selected = new Set([t.item.number]);
-    openCloseDialog(t.item.type, { body: plan.body, reason: plan.reason });
-  } else if (plan.kind === 'github') window.open(plan.url, '_blank', 'noopener');
 }
 
 let commentItem = null;
@@ -1345,9 +1262,11 @@ document.addEventListener('click', (e) => {
   const tab = t.closest('.tab');
   if (tab) {
     e.preventDefault();
-    filters = { ...filters, tab: 'inbox', view: '', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', staleDays: 0, newerThanDays: 0 };
+    filters = { ...filters, tab: 'inbox', inboxMode: tab.dataset.mode, state: '', cleanup: '', view: '', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', staleDays: 0, newerThanDays: 0 };
     selected.clear();
     shown = PAGE;
+    inboxShown = 25;
+    inboxFocus = 0;
     return render();
   }
   if (t.closest('#cmd-toggle')) {
@@ -1441,6 +1360,7 @@ $('#sdk-list').addEventListener('change', (e) => {
 });
 $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
+$('#inbox-cleanup').addEventListener('click', inboxClick);
 $('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
 $('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });
 
@@ -1492,7 +1412,6 @@ window.addEventListener('hashchange', () => { filters = readHash(); render(); })
 darkMode.addEventListener('change', render);
 
 const STATIC_TIPS = {
-  '#count-inbox': CHIP_TIPS.inboxCount,
   '#count-issue': CHIP_TIPS.issueCount,
   '#count-pr': CHIP_TIPS.prCount,
   '#inbox-progress': CHIP_TIPS.inboxProgress,

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeTasks, isHidden, listedTasks, TASK_KINDS } from './public/inbox.js';
+import { computeTasks, isHidden, listedTasks, needsBotTriage, PLATFORM_LABEL, TASK_KINDS } from './public/inbox.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -29,7 +29,8 @@ const pr = (over = {}) => ({
   linkedIssues: [],
   ...over,
 });
-const one = (item, opts) => computeTasks([item], { now: NOW, ...opts })[0];
+// The item's best task. The fixtures have no routing labels, so most items also get a bot-triage task.
+const one = (item, opts) => computeTasks([item], { now: NOW, ...opts }).find((t) => t.kind !== 'bot-triage');
 const reviewCmd = { command: 'review', at: daysAgo(2) };
 const botReview = (replied) => ({ bot: { lastCommand: reviewCmd, botRepliedAfterCommand: replied, lastReview: reviewCmd, botRepliedAfterReview: replied } });
 
@@ -272,4 +273,86 @@ test('listed tasks: chip-only kinds show only when their chip is selected', () =
   assert.deepEqual(listedTasks(tasks).map((t) => t.item.number), [1]);
   assert.deepEqual(listedTasks(tasks, 'unsupported-sdk').map((t) => t.item.number), [2]);
   assert.deepEqual(listedTasks(tasks, 'verify').map((t) => t.item.number), [1]);
+});
+
+const routed = sdks('Android', 'sdk-54');
+const kindsOf = (tasks) => tasks.map((t) => t.kind);
+
+test('PLATFORM_LABEL matches platform and OS labels only', () => {
+  for (const name of ['Android', 'iOS', 'iOS 18', 'iPadOS', 'macOS', 'tvOS', 'Platform: web', 'OS: Windows']) assert.ok(PLATFORM_LABEL.test(name), name);
+  for (const name of ['iOS-only', 'web', 'Android TV', 'sdk-54']) assert.ok(!PLATFORM_LABEL.test(name), name);
+});
+
+test('needsBotTriage: missing platform or SDK label', () => {
+  assert.equal(needsBotTriage(issue()), true);
+  assert.equal(needsBotTriage(issue({ labels: sdks('iOS') })), true);
+  assert.equal(needsBotTriage(issue({ labels: sdks('sdk-54') })), true);
+  assert.equal(needsBotTriage(issue({ labels: routed })), false);
+  assert.equal(needsBotTriage(issue({ labels: sdks('Platform: web', 'sdk-53') })), false);
+});
+
+test('needsBotTriage: not when the bot already posted its triage', () => {
+  assert.equal(needsBotTriage(issue({ triage: { assessment: { kind: 'bug' } } })), false);
+  assert.equal(needsBotTriage(issue({ triage: { verification: { outcome: 'pass' } } })), true);
+});
+
+test('needsBotTriage: not while a triage command waits for the bot', () => {
+  const cmd = (command, replied) => ({ bot: { lastCommand: { command, at: daysAgo(1) }, botRepliedAfterCommand: replied } });
+  assert.equal(needsBotTriage(issue(cmd('triage', false))), false);
+  assert.equal(needsBotTriage(issue(cmd('triage', true))), true);
+  assert.equal(needsBotTriage(issue(cmd('verify', false))), true);
+});
+
+test('needsBotTriage: draft PRs wait until they are ready', () => {
+  assert.equal(needsBotTriage(pr({ isDraft: true })), false);
+  assert.equal(needsBotTriage(pr()), true);
+  assert.equal(needsBotTriage(pr({ labels: routed })), false);
+});
+
+test('bot-triage is a chip-only on-call command task', () => {
+  assert.deepEqual(TASK_KINDS['bot-triage'], { label: 'Ask bot to triage', icon: 'bot', tone: 'attention', action: 'command', oncall: true, chipOnly: true });
+});
+
+test('bot-triage is an extra task next to the best task, with the same bonus', () => {
+  const tasks = computeTasks([issue({ severity: 4, thumbsUp: 2 })], { now: NOW });
+  assert.deepEqual(kindsOf(tasks), ['verify', 'bot-triage']);
+  const [best, triage] = tasks;
+  assert.deepEqual(best.also, ['first-response']);
+  assert.equal(triage.key, '1:bot-triage');
+  assert.equal(triage.score - 10, best.score - 58);
+  assert.deepEqual(triage.also, []);
+  assert.deepEqual(triage.reasons.slice(0, 2), [{ text: 'no platform label' }, { text: 'no SDK label' }]);
+  assert.deepEqual(triage.reasons.slice(2), best.reasons.slice(1));
+});
+
+test('bot-triage reasons name only the missing label', () => {
+  const reasons = (labels) => computeTasks([issue({ labels: sdks(...labels) })], { now: NOW }).find((t) => t.kind === 'bot-triage').reasons;
+  assert.deepEqual(reasons(['iOS']), [{ text: 'no SDK label' }]);
+  assert.deepEqual(reasons(['sdk-54']), [{ text: 'no platform label' }]);
+});
+
+test('bot-triage task even when the item has no other task', () => {
+  const quiet = issue({ createdAt: daysAgo(200), conversation: { waitingOn: 'internal', teamReplied: true, since: daysAgo(100) } });
+  assert.deepEqual(kindsOf(computeTasks([quiet], { now: NOW })), ['bot-triage']);
+  assert.deepEqual(kindsOf(computeTasks([{ ...quiet, labels: routed }], { now: NOW })), []);
+});
+
+test('no bot-triage task for routed, unsupported-SDK or owned items', () => {
+  assert.deepEqual(kindsOf(computeTasks([issue({ labels: routed })], { now: NOW })), ['verify']);
+  assert.deepEqual(kindsOf(computeTasks([issue({ labels: sdks('sdk-52') })], { now: NOW, unsupported: UNSUPPORTED })), ['unsupported-sdk']);
+  assert.deepEqual(kindsOf(computeTasks([issue({ assignees: [{ login: 'someone' }] })], { now: NOW })), []);
+});
+
+test('a triage command does not remove the verify task', () => {
+  for (const replied of [false, true]) {
+    const bot = { lastCommand: { command: 'triage', at: daysAgo(1) }, botRepliedAfterCommand: replied };
+    assert.equal(one(issue({ bot })).kind, 'verify', `replied: ${replied}`);
+  }
+  assert.equal(one(issue({ bot: { lastCommand: { command: 'verify', at: daysAgo(1) }, botRepliedAfterCommand: false } })).kind, 'first-response');
+});
+
+test('bot-triage tasks show only under their chip', () => {
+  const tasks = computeTasks([issue({ number: 1 }), issue({ number: 2, labels: routed })], { now: NOW });
+  assert.deepEqual(listedTasks(tasks).map((t) => t.key), ['1:verify', '2:verify']);
+  assert.deepEqual(listedTasks(tasks, 'bot-triage').map((t) => t.key), ['1:bot-triage']);
 });

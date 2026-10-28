@@ -18,6 +18,7 @@ export const TASK_KINDS = {
   'close-candidate': { label: 'Close candidate', icon: 'merge', tone: 'success', action: 'close', oncall: true },
   close: { label: 'Close stale', icon: 'trash', tone: 'muted', action: 'close', oncall: true },
   'unsupported-sdk': { label: 'Unsupported SDK', icon: 'x', tone: 'muted', action: 'close', oncall: true, chipOnly: true },
+  'bot-triage': { label: 'Ask bot to triage', icon: 'bot', tone: 'attention', action: 'command', oncall: true, chipOnly: true },
 };
 
 export const MODES = {
@@ -30,6 +31,22 @@ const DAY = 864e5;
 export const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
 export const hasLabel = (item, name) => item.labels.some((l) => l.name === name);
 export const PARKED = ['Issue accepted', '✋ on hold'];
+export const PLATFORM_LABEL = /^(Android|iOS|iOS \d+|iPadOS|macOS|tvOS|Platform: web|OS: .*)$/;
+
+function missingRoutingLabels(item) {
+  const missing = [];
+  if (!item.labels.some((l) => PLATFORM_LABEL.test(l.name))) missing.push('no platform label');
+  if (!sdkLabels(item.labels).length) missing.push('no SDK label');
+  return missing;
+}
+
+// Items opened before expo-bot triaged automatically lack the labels its triage adds.
+export function needsBotTriage(item) {
+  if (item.type === 'pr' && item.isDraft) return false;
+  if (item.triage?.assessment) return false;
+  if (item.bot?.lastCommand?.command === 'triage' && !item.bot.botRepliedAfterCommand) return false;
+  return missingRoutingLabels(item).length > 0;
+}
 
 // Candidate tasks for one item: [{ kind, base, reasons: [] }]. The best one wins.
 function candidates(item, now) {
@@ -38,7 +55,8 @@ function candidates(item, now) {
   const waited = days(conv.since, now);
   const age = days(item.createdAt, now);
   const verdict = item.triage?.verification?.outcome;
-  const botCmd = item.bot?.lastCommand;
+  // A triage command only adds labels; it must not stand in for a verify.
+  const botCmd = item.bot?.lastCommand?.command === 'triage' ? null : item.bot?.lastCommand;
   const internal = conv.waitingOn === 'internal';
 
   if (item.type === 'issue') {
@@ -134,7 +152,21 @@ export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncal
     const mod = modifiers(item, now, me, mode);
     if (mode === 'mine' && !mod.mine) continue;
     if (mode === 'oncall' && mod.assigned && !includeAssigned) continue;
-    const all = isUnsupportedSdk(item, unsupported)
+    const unsupportedSdk = isUnsupportedSdk(item, unsupported);
+    // Routing labels help whoever takes the best task, so this sits next to it instead of competing.
+    if (!unsupportedSdk && needsBotTriage(item)) {
+      tasks.push({
+        key: `${item.number}:bot-triage`,
+        kind: 'bot-triage',
+        item,
+        score: 10 + mod.bonus,
+        reasons: [...missingRoutingLabels(item).map((text) => ({ text })), ...mod.reasons],
+        also: [],
+        mine: mod.mine,
+        assigned: mod.assigned,
+      });
+    }
+    const all = unsupportedSdk
       ? [{ kind: 'unsupported-sdk', base: 10, reasons: [sdkLabels(item.labels).join(', ')] }]
       : candidates(item, now);
     const cands = all.filter((c) => mode !== 'oncall' || (c.oncall ?? TASK_KINDS[c.kind].oncall));

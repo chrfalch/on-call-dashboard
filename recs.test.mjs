@@ -25,6 +25,21 @@ test('recRequest sends unsupported-SDK tasks, so the agent can check the close',
   assert.deepEqual(keys, ['1:unsupported-sdk', '2:reply']);
 });
 
+test('recRequest, recSignature and recFor leave out bot-triage tasks, which have nothing to decide', () => {
+  const triage = task({ ...issue, number: 1 }, 'bot-triage');
+  const reply = task({ ...issue, number: 2 });
+  assert.deepEqual(recRequest([triage, reply]).tasks.map((t) => t.key), ['2:reply']);
+  assert.equal(recSignature([triage, reply]), recSignature([reply]));
+  const done = { status: 'done', rec: rec('wait'), recKey: recKey(triage, triage.item) };
+  assert.equal(recFor({ [triage.key]: done }, triage), undefined);
+});
+
+test('bot-triage tasks do not take one of the 30 requested slots', () => {
+  const tasks = [task({ ...issue, number: 100 }, 'bot-triage'), ...Array.from({ length: 30 }, (_, i) => task({ ...issue, number: i + 1 }))];
+  assert.equal(recRequest(tasks).tasks.length, 30);
+  assert.ok(recSignature(tasks).includes('30:reply@'));
+});
+
 test('recRequest keeps the first 30 tasks in order', () => {
   const tasks = Array.from({ length: 35 }, (_, i) => task({ ...issue, number: i + 1 }));
   const keys = recRequest(tasks).tasks.map((t) => t.key);

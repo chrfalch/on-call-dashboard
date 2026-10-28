@@ -2,7 +2,7 @@
 // Pure functions only (no DOM), so it can be unit-tested with node.
 // An item leaves a view only when its GitHub state changes.
 
-import { days, hasLabel as has, PARKED } from './inbox.js';
+import { days, hasLabel as has, needsBotTriage, PARKED } from './inbox.js';
 
 export const WAITING_INFO = ['needs more info', '✋ on hold'];
 
@@ -15,6 +15,7 @@ export const GROUPS = {
     { id: 'external', title: 'External PRs' },
     { id: 'merge', title: 'Approved' },
     { id: 'internal', title: 'Internal PRs' },
+    { id: 'routing', title: 'Routing' },
   ],
 };
 
@@ -39,6 +40,15 @@ const externalFirst = (a, b) => asc(!external(a), !external(b)) || leastRecently
 
 // 0: bot review done, 1: no bot command yet, 2: bot review still pending.
 const botTier = (item) => (!item.bot?.lastCommand ? 1 : item.bot.botRepliedAfterCommand ? 0 : 2);
+
+const needsBotTriageView = {
+  name: 'Needs bot triage',
+  audience: 'on-call',
+  step: 'Bot triage: missing platform or SDK label',
+  hint: 'Newest first. Leaves when the bot posts its triage comment.',
+  match: needsBotTriage,
+  compare: newestFirst,
+};
 
 export const VIEWS = [
   {
@@ -103,6 +113,12 @@ export const VIEWS = [
     match: (item, { now }) =>
       waitingOn(item) === 'reporter' && silentDays(item, now) >= 14 && !PARKED.some((l) => has(item, l)),
     compare: longestSilent,
+  },
+  {
+    id: 'issue:needs-bot-triage',
+    scope: 'issue',
+    group: 'oncall',
+    ...needsBotTriageView,
   },
   {
     id: 'issue:owner-followup',
@@ -199,6 +215,12 @@ export const VIEWS = [
     hint: 'Oldest first.',
     match: (item) => needsReview(item) && has(item, 'contributor: internal'),
     compare: oldestFirst,
+  },
+  {
+    id: 'pr:needs-bot-triage',
+    scope: 'pr',
+    group: 'routing',
+    ...needsBotTriageView,
   },
 ];
 

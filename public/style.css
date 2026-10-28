@@ -82,13 +82,14 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 /* Tabs */
 .repo-tabs { border-bottom: 1px solid var(--border); background: var(--header-bg); }
 .repo-tabs .container { display: flex; gap: 8px; }
-.tab {
+.tab, .tab-total {
   display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 10px; color: var(--fg);
   border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .tab:hover { text-decoration: none; border-bottom-color: var(--border); }
 .tab.selected { border-bottom-color: #fd8c73; font-weight: 600; }
-.tab .octicon { color: var(--fg-muted); }
+.tab .octicon, .tab-total .octicon { color: var(--fg-muted); }
+.tab-total { cursor: default; }
 .counter {
   display: inline-block; min-width: 20px; padding: 0 6px; font-size: 12px; font-weight: 500; line-height: 18px;
   text-align: center; background: rgba(129, 139, 152, 0.2); border-radius: 2em;
@@ -348,6 +349,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .fix-pr { padding: 0 7px; border-radius: 2em; border: 1px solid var(--border); line-height: 18px; color: var(--fg); }
 .fix-pr:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .task-head .IssueLabel { margin: 0; }
+.task .IssueLabel, .task .AssigneeChip { cursor: default; }
 .task-score { font-weight: 600; color: var(--fg-muted); font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; cursor: help; }
 .task-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
 .rec { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 6px; font-size: 12px; color: var(--fg-muted); }

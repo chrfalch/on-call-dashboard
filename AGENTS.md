@@ -49,10 +49,10 @@ dependencies, no build step.
   platform or SDK label that expo-bot has not triaged (`needsBotTriage`) also
   get a `bot-triage` task that posts `@expo-bot triage`, listed only under its
   chip. Shared by browser and Node; tested by `inbox.test.mjs`.
-- `public/views.js` — pure runbook views for the Issues and PRs tabs (`VIEWS`,
-  `GROUPS`, `applyView`, `viewCounts`). Each view has a fixed rule, a fixed
-  sort and an audience. "Needs bot triage" lists issues and PRs with the
-  `needsBotTriage` rule. Shared by browser and Node; tested by `views.test.mjs`.
+- `public/views.js` — pure runbook views for the Issues and PRs list pages,
+  which the UI no longer shows (`VIEWS`, `GROUPS`, `applyView`,
+  `viewCounts`). Each view has a fixed rule, a fixed sort and an audience.
+  "Needs bot triage" lists issues and PRs with the `needsBotTriage` rule. Shared by browser and Node; tested by `views.test.mjs`.
 - `public/trends.js` — pure math for the trend tiles (`weekStart`,
   `weekTrend`): cumulative opened and closed counts per local day since
   Monday 00:00, and the week's net change. Tested by `trends.test.mjs`.
@@ -61,11 +61,13 @@ dependencies, no build step.
   first, and whether an item has only SDK labels the team no longer supports.
   Shared by browser and Node; tested by `sdk.test.mjs`.
 - `public/quick-open.js` — pure helpers for the `g` quick-open box
-  (`parseItemNumber`, `findItem`, `quickOpenFilters`): read a typed issue or
-  PR number and build the filters that show only that item. Shared by
+  (`parseItemNumber`, `findItem`): read a typed issue or PR number and find
+  the item. The box opens the item on GitHub in a new tab. Shared by
   browser and Node; tested by `quick-open.test.mjs`.
-- `public/app.js` — all UI: rendering, Runbook view cards, filters (URL hash),
-  GitHub write actions.
+- `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
+  actions. The Inbox is the only page; the header shows the total open issues
+  and PRs without filters. The list-page code (`renderViews` and the Runbook
+  view cards) stays but is not reachable.
 - `public/index.html`, `public/style.css` — markup and GitHub-like styles.
 
 ## Rules

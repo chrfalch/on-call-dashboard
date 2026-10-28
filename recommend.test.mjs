@@ -669,3 +669,37 @@ test('loadRecs ignores recommendations saved before the fix-severity rule', () =
   assert.equal(loadRecs(data, items).size, 0);
   assert.equal(loadRecs({ ...data, version: 4 }, items).size, 1);
 });
+
+test('validateTasks rejects a closed item', () => {
+  for (const state of ['CLOSED', 'MERGED']) {
+    const closed = new Map([[123, { ...item, state }]]);
+    assert.deepEqual(validateTasks({ tasks: [task] }, closed), [invalid(task.key)]);
+  }
+});
+
+test('pruneRecs drops a rec whose item is closed', () => {
+  const key = recKey(task, item);
+  const recs = new Map([[key, { rec: rec(), at: 1 }]]);
+  for (const state of ['CLOSED', 'MERGED']) {
+    const closed = new Map([[123, { ...item, state }]]);
+    assert.deepEqual(pruneRecs(recs, closed), new Map());
+    assert.equal(isCurrentRecKey(key, closed), false);
+  }
+});
+
+for (const state of ['CLOSED', 'MERGED']) {
+  test(`validateTasks rejects a ${state} PR`, () => {
+    const pr = { ...items.get(7), state, closedAt: '2026-02-02T00:00:00Z', mergedAt: state === 'MERGED' ? '2026-02-02T00:00:00Z' : null };
+    const task = { key: '7:merge', kind: 'merge' };
+    assert.deepEqual(validateTasks({ tasks: [task] }, new Map([[7, pr]])), [invalid(task.key)]);
+  });
+
+  test(`pruneRecs drops a rec for a ${state} PR`, () => {
+    const pr = { ...items.get(7), state, closedAt: '2026-02-02T00:00:00Z', mergedAt: state === 'MERGED' ? '2026-02-02T00:00:00Z' : null };
+    const key = recKey({ key: '7:merge' }, pr);
+    const recs = new Map([[key, { rec: rec(), at: 1 }]]);
+    const closed = new Map([[7, pr]]);
+    assert.deepEqual(pruneRecs(recs, closed), new Map());
+    assert.equal(isCurrentRecKey(key, closed), false);
+  });
+}

@@ -6,8 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { dropOldClosed, KEEP_CLOSED_DAYS } from './closed-items.mjs';
+import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
-import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks } from './linked-prs.mjs';
+import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,7 +34,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 14;
+const CACHE_VERSION = 15;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -78,7 +80,7 @@ async function gql(query, variables = {}, { allowNotFound = false } = {}, attemp
 }
 
 const COMMON = `
-  __typename number title url createdAt updatedAt state
+  __typename number title url createdAt updatedAt state closedAt
   author { login avatarUrl url }
   authorAssociation
   labels(first: 40) { nodes { name color description } }
@@ -110,13 +112,14 @@ const ISSUE_FIELDS = `
     }
   }`;
 
-const LIST_QUERY = (kind) => `
+const ITEM_FIELDS = (kind) => kind === 'pullRequests' ? PR_FIELDS : ISSUE_FIELDS;
+const LIST_QUERY = (kind, states = 'OPEN') => `
 query($cursor: String, $owner: String!, $name: String!, $first: Int!) {
   repository(owner: $owner, name: $name) {
-    ${kind}(states: OPEN, first: $first, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    ${kind}(states: ${states}, first: $first, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
       totalCount
       pageInfo { hasNextPage endCursor }
-      nodes { ${kind === 'pullRequests' ? PR_FIELDS : ISSUE_FIELDS} }
+      nodes { ${ITEM_FIELDS(kind)} }
     }
   }
 }`;
@@ -127,7 +130,7 @@ query($cursor: String, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     ${kind}(first: 20, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
-      nodes { ${kind === 'pullRequests' ? PR_FIELDS : ISSUE_FIELDS} }
+      nodes { ${ITEM_FIELDS(kind)} }
     }
   }
 }`;
@@ -185,6 +188,8 @@ function normalize(n) {
     url: n.url,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
+    state: n.state,
+    closedAt: n.closedAt,
     author: n.author ? { login: n.author.login, avatarUrl: n.author.avatarUrl } : { login: 'ghost', avatarUrl: '' },
     authorAssociation: n.authorAssociation,
     labels,
@@ -205,6 +210,7 @@ function normalize(n) {
       additions: n.additions,
       deletions: n.deletions,
       changedFiles: n.changedFiles,
+      mergedAt: n.mergedAt,
       baseRefName: n.baseRefName,
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
       // Committer date, not push time (GitHub deprecated pushedDate): a commit made before the review and pushed after it is missed.
@@ -255,15 +261,17 @@ async function fetchAllLabels() {
   return out;
 }
 
-async function fetchAllOpen(kind) {
+async function fetchAll(kind, states = 'OPEN', updatedSince = null) {
   const out = [];
   let cursor = null;
   do {
     // PR pages are heavy (reviews, checks, comments); smaller pages avoid 502 timeouts.
-    const d = await gql(LIST_QUERY(kind), { cursor, owner: OWNER, name: NAME, first: kind === 'pullRequests' ? 30 : 50 });
+    const d = await gql(LIST_QUERY(kind, states), { cursor, owner: OWNER, name: NAME, first: kind === 'pullRequests' ? 30 : 50 });
     const conn = d.repository[kind];
-    out.push(...conn.nodes.map(normalize));
-    cursor = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
+    const nodes = updatedSince ? conn.nodes.filter((node) => node.updatedAt >= updatedSince) : conn.nodes;
+    out.push(...nodes.map(normalize));
+    const reachedCutoff = updatedSince && conn.nodes.some((node) => node.updatedAt < updatedSince);
+    cursor = !reachedCutoff && conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
     log(`  ${kind}: ${out.length}/${conn.totalCount}`);
   } while (cursor);
   return out;
@@ -271,12 +279,17 @@ async function fetchAllOpen(kind) {
 
 async function fullSync() {
   const started = new Date().toISOString();
+  const closedCutoff = new Date(Date.now() - KEEP_CLOSED_DAYS * 86_400_000).toISOString();
   log('full sync start');
-  const [labels, prs, issues] = await Promise.all([
+  const [labels, openPrs, closedPrs, openIssues, closedIssues] = await Promise.all([
     fetchAllLabels(),
-    fetchAllOpen('pullRequests'),
-    fetchAllOpen('issues'),
+    fetchAll('pullRequests'),
+    fetchAll('pullRequests', '[CLOSED, MERGED]', closedCutoff),
+    fetchAll('issues'),
+    fetchAll('issues', 'CLOSED', closedCutoff),
   ]);
+  const prs = [...openPrs, ...closedPrs.filter((item) => item.closedAt >= closedCutoff)];
+  const issues = [...openIssues, ...closedIssues.filter((item) => item.closedAt >= closedCutoff)];
   const items = new Map([...prs, ...issues].map((i) => [i.number, i]));
   await linkCommentPrs(items, issues);
   state.labels = labels;
@@ -286,16 +299,16 @@ async function fullSync() {
   log(`full sync done: ${prs.length} PRs, ${issues.length} issues`);
 }
 
-// Walks issues and PRs (any state) by most recently updated until it reaches
-// the previous sync; closed / merged items get dropped from the cache.
+// Walks issues and PRs (any state) by most recently updated until it reaches the previous sync.
 async function incrementalSync() {
   const since = state.lastIncrementalSync;
   if (!since) return fullSync();
   const started = new Date().toISOString();
   // Overlap by a minute to be safe against clock skew.
   const cutoff = new Date(new Date(since).getTime() - 60_000).toISOString();
+  const closedCutoff = Date.now() - KEEP_CLOSED_DAYS * 86_400_000;
   let n = 0;
-  const openIssues = [];
+  const issues = [];
   for (const kind of ['issues', 'pullRequests']) {
     let cursor = null;
     while (true) {
@@ -308,25 +321,21 @@ async function incrementalSync() {
           break;
         }
         n++;
-        if (node.state === 'OPEN') {
-          const item = normalize(node);
+        const item = normalize(node);
+        if (kind === 'issues') {
           // Keeps the earlier comment links until linkCommentPrs rebuilds them, so a failed lookup loses none.
-          if (kind === 'issues') {
-            item.linkedPrs = mergeCommentLinks(item.linkedPrs, state.items.get(node.number)?.linkedPrs ?? []);
-            openIssues.push(node.number);
-          }
-          state.items.set(node.number, item);
-        } else {
-          if (kind === 'pullRequests') state.items = updateLinkedPrs(state.items, node);
-          state.items.delete(node.number);
+          item.linkedPrs = mergeCommentLinks(item.linkedPrs, state.items.get(node.number)?.linkedPrs ?? []);
+          if (isOpen(item) || Date.parse(item.closedAt) >= closedCutoff) issues.push(node.number);
         }
+        if (kind === 'pullRequests' && node.state !== 'OPEN') state.items = updateLinkedPrs(state.items, node);
+        state.items.set(node.number, item);
       }
       if (reachedCutoff || !conn.pageInfo.hasNextPage) break;
       cursor = conn.pageInfo.endCursor;
     }
   }
   // After the PR pass, so PRs opened since the last sync are already in state.items.
-  await linkCommentPrs(state.items, openIssues.map((number) => state.items.get(number)).filter(Boolean));
+  await linkCommentPrs(state.items, issues.map((number) => state.items.get(number)).filter(Boolean));
   state.lastIncrementalSync = started;
   if (n) log(`incremental sync: ${n} updated`);
 }
@@ -377,6 +386,7 @@ async function runSync(kind) {
   try {
     if (kind === 'full') await fullSync();
     else await incrementalSync();
+    state.items = withFixedIssues(dropOldClosed(state.items, Date.now()));
     state.syncError = null;
     persist();
     refreshTrends();

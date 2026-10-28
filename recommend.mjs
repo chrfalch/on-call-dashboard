@@ -3,6 +3,7 @@
 import { ACTIONS } from './public/actions.js';
 import { TASK_KINDS } from './public/inbox.js';
 import { itemVersion, recKey } from './public/recs.js';
+import { isOpen } from './public/states.js';
 
 export { ACTIONS, recKey };
 
@@ -225,7 +226,7 @@ export function validateTasks(body, items) {
     .map(({ key, kind, reasons }) => {
       const [, number, keyKind] = key.match(TASK_KEY) ?? [];
       const item = items.get(Number(number));
-      if (!item || kind !== keyKind || !Object.hasOwn(TASK_KINDS, kind)) return { key, error: 'invalid task' };
+      if (!item || !isOpen(item) || kind !== keyKind || !Object.hasOwn(TASK_KINDS, kind)) return { key, error: 'invalid task' };
       const texts = Array.isArray(reasons) ? reasons.filter((r) => typeof r?.text === 'string') : [];
       return { key, task: { key, kind, reasons: texts.slice(0, MAX_REASONS).map((r) => ({ text: r.text.slice(0, REASON_LIMIT) })) }, item };
     });
@@ -234,7 +235,7 @@ export function validateTasks(body, items) {
 function currentItem(key, items) {
   const [, number, version] = key.match(REC_KEY) ?? [];
   const item = number == null ? undefined : items.get(Number(number));
-  return item && itemVersion(item) === version ? item : undefined;
+  return item && isOpen(item) && itemVersion(item) === version ? item : undefined;
 }
 
 export const isCurrentRecKey = (key, items) => currentItem(key, items) !== undefined;

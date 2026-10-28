@@ -10,6 +10,7 @@ import { dropOldClosed, KEEP_CLOSED_DAYS } from './closed-items.mjs';
 import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
 import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
+import { createSyncRunner } from './sync-runner.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -380,8 +381,7 @@ async function refreshTrends() {
   }
 }
 
-async function runSync(kind) {
-  if (state.syncing) return;
+const syncs = createSyncRunner(async (kind) => {
   state.syncing = kind;
   try {
     if (kind === 'full') await fullSync();
@@ -393,10 +393,11 @@ async function runSync(kind) {
   } catch (e) {
     state.syncError = String(e.message || e);
     log(`sync error: ${state.syncError}`);
+    throw e;
   } finally {
     state.syncing = false;
   }
-}
+});
 
 function persist() {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
@@ -677,7 +678,12 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify(trends));
   }
   if (url.pathname === '/api/refresh' && req.method === 'POST') {
-    runSync('incremental');
+    if (url.searchParams.get('wait') === '1') {
+      const { ok } = await syncs.runAndWait('incremental');
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ ok, syncError: state.syncError }));
+    }
+    syncs.run('incremental');
     res.writeHead(202, { 'content-type': 'application/json' });
     return res.end('{"ok":true}');
   }
@@ -725,6 +731,6 @@ const hadCache = restore();
 restoreRecs();
 restoreTrends();
 fs.mkdirSync(CLAUDE_CWD, { recursive: true });
-await runSync(hadCache ? 'incremental' : 'full');
-setInterval(() => runSync('incremental'), INCREMENTAL_MS);
-setInterval(() => runSync('full'), FULL_MS);
+await syncs.run(hadCache ? 'incremental' : 'full');
+setInterval(() => syncs.run('incremental'), INCREMENTAL_MS);
+setInterval(() => syncs.run('full'), FULL_MS);

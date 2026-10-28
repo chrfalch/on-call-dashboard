@@ -1172,25 +1172,6 @@ function inboxClick(e) {
   }
 }
 
-function inboxKey(e) {
-  if (filters.tab !== 'inbox' || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) || e.metaKey || e.ctrlKey) return;
-  if (document.querySelector('dialog[open]')) return;
-  const t = inboxVisible[inboxFocus];
-  const move = (d) => {
-    inboxFocus = Math.max(0, Math.min(inboxVisible.length - 1, inboxFocus + d));
-    if (inboxFocus >= inboxShown) inboxShown += 25;
-    render();
-    document.querySelector('.task.focused')?.scrollIntoView({ block: 'nearest' });
-  };
-  if (e.key === 'j') move(1);
-  else if (e.key === 'k') move(-1);
-  else if (!t) return;
-  else if (e.key === 'o') window.open(t.item.url, '_blank', 'noopener');
-  else if (e.key === 'x') doTask(t);
-  else if (e.key === 'd') markDone(t);
-  else if (e.key === 'l') snooze(t);
-}
-
 // ---------- agent recommendations ----------
 // Rec text is model output derived from untrusted issue text: render it only through esc(),
 // and take URLs, command bodies and close reasons from applyPlan, never from the rec.
@@ -1454,7 +1435,6 @@ $('#sdk-list').addEventListener('change', (e) => {
 });
 $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
-document.addEventListener('keydown', inboxKey);
 $('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
 $('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });
 

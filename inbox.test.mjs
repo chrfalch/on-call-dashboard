@@ -343,6 +343,14 @@ test('no bot-triage task for routed, unsupported-SDK or owned items', () => {
   assert.deepEqual(kindsOf(computeTasks([issue({ assignees: [{ login: 'someone' }] })], { now: NOW })), []);
 });
 
+test('a triage command does not remove the verify task', () => {
+  for (const replied of [false, true]) {
+    const bot = { lastCommand: { command: 'triage', at: daysAgo(1) }, botRepliedAfterCommand: replied };
+    assert.equal(one(issue({ bot })).kind, 'verify', `replied: ${replied}`);
+  }
+  assert.equal(one(issue({ bot: { lastCommand: { command: 'verify', at: daysAgo(1) }, botRepliedAfterCommand: false } })).kind, 'first-response');
+});
+
 test('bot-triage tasks show only under their chip', () => {
   const tasks = computeTasks([issue({ number: 1 }), issue({ number: 2, labels: routed })], { now: NOW });
   assert.deepEqual(listedTasks(tasks).map((t) => t.key), ['1:verify', '2:verify']);

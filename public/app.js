@@ -369,8 +369,11 @@ function itemParts(i, triageOpts) {
   return { icon, main, avatars };
 }
 
+const TRIAGE_VIEWS = new Set(['issue:needs-bot-triage', 'pr:needs-bot-triage']);
+const rowAction = (item) => (TRIAGE_VIEWS.has(filters.view) ? TRIAGE : ACTIONS[item.type]);
+
 function rowHtml(i) {
-  const action = ACTIONS[i.type];
+  const action = rowAction(i);
   const { icon, main, avatars } = itemParts(i);
   const posted = isPosted(i.number, action);
   return `<li class="row${selected.has(i.number) ? ' selected' : ''}" data-number="${i.number}">
@@ -600,7 +603,7 @@ function updateBulk(visible) {
 // ---------- GitHub actions (run in the browser with the user's own token) ----------
 
 // One entry per item and command, so posting triage does not mark the item's verify or review as requested.
-const postedThisSession = new Map(); // `${number}:${command}` -> { number, command, commentId }
+const postedThisSession = new Map(); // `${number}:${command}` -> { number, command, commentId, at }
 const postedKey = (number, action) => `${number}:${action.command}`;
 const isPosted = (number, action) => postedThisSession.has(postedKey(number, action));
 
@@ -631,7 +634,10 @@ async function postCommand(numbers, action = null) {
     openTokenDialog();
     return;
   }
-  const items = numbers.map((n) => data.items.find((i) => i.number === n)).filter(Boolean);
+  const found = numbers.map((n) => data.items.find((i) => i.number === n)).filter(Boolean);
+  // The comments are public, so a second click or bulk post must not repeat one.
+  const items = found.filter((item) => !isPosted(item.number, action ?? ACTIONS[item.type]));
+  if (items.length < found.length) toast(`Already posted on ${found.length - items.length} of the selected items this session, skipped`);
   const results = await Promise.allSettled(
     items.map(async (item) => {
       const posted = action ?? ACTIONS[item.type];
@@ -639,8 +645,10 @@ async function postCommand(numbers, action = null) {
         method: 'POST',
         body: JSON.stringify({ body: posted.body }),
       });
-      postedThisSession.set(postedKey(item.number, posted), { number: item.number, command: posted.command, commentId: comment.id });
-      const lastCommand = { command: posted.command, by: me?.login, at: new Date().toISOString() };
+      // GitHub's own timestamp, so refresh() can compare it with the synced lastCommand.at.
+      const at = comment.created_at;
+      postedThisSession.set(postedKey(item.number, posted), { number: item.number, command: posted.command, commentId: comment.id, at });
+      const lastCommand = { command: posted.command, by: me?.login, at };
       item.bot = {
         ...item.bot,
         lastCommand,
@@ -877,12 +885,18 @@ async function refresh(force = false) {
   const d = await res.json();
   data = d;
   // Keep optimistic bot state for anything we posted until the server catches up.
-  for (const { number, command } of postedThisSession.values()) {
+  for (const { number, command, at } of postedThisSession.values()) {
     const item = data.items.find((i) => i.number === number);
     if (!item) continue;
-    const posted = { command, by: me?.login, at: new Date().toISOString() };
-    if (!item.bot.lastCommand) item.bot.lastCommand = posted;
-    if (posted.command === 'review' && !item.bot.lastReview) item.bot.lastReview = posted;
+    const posted = { command, by: me?.login, at };
+    if (!item.bot.lastCommand || item.bot.lastCommand.at < at) {
+      item.bot.lastCommand = posted;
+      item.bot.botRepliedAfterCommand = false;
+    }
+    if (command === 'review' && (!item.bot.lastReview || item.bot.lastReview.at < at)) {
+      item.bot.lastReview = posted;
+      item.bot.botRepliedAfterReview = false;
+    }
   }
   $('#repo-link').href = `https://github.com/${d.repo}`;
   const st = $('#sync-status');
@@ -1353,11 +1367,13 @@ document.addEventListener('click', (e) => {
   }
   const actionBtn = t.closest('[data-action]');
   if (actionBtn) {
-    const n = Number(actionBtn.dataset.action);
-    if (isPosted(n, ACTIONS[filters.tab])) return;
+    const item = data.items.find((i) => i.number === Number(actionBtn.dataset.action));
+    if (!item) return;
+    const action = rowAction(item);
+    if (isPosted(item.number, action)) return;
     actionBtn.disabled = true;
     actionBtn.textContent = 'Posting…';
-    return postCommand([n]).finally(() => render());
+    return postCommand([item.number], action).finally(() => render());
   }
 });
 

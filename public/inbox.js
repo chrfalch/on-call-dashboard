@@ -55,7 +55,8 @@ function candidates(item, now) {
   const waited = days(conv.since, now);
   const age = days(item.createdAt, now);
   const verdict = item.triage?.verification?.outcome;
-  const botCmd = item.bot?.lastCommand;
+  // A triage command only adds labels; it must not stand in for a verify.
+  const botCmd = item.bot?.lastCommand?.command === 'triage' ? null : item.bot?.lastCommand;
   const internal = conv.waitingOn === 'internal';
 
   if (item.type === 'issue') {

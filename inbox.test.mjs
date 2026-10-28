@@ -356,3 +356,105 @@ test('bot-triage tasks show only under their chip', () => {
   assert.deepEqual(listedTasks(tasks).map((t) => t.key), ['1:verify', '2:verify']);
   assert.deepEqual(listedTasks(tasks, 'bot-triage').map((t) => t.key), ['1:bot-triage']);
 });
+
+const reviewedAt = daysAgo(2);
+// Changes requested two days ago; the team spoke last and the author has not acted since.
+const changesRequested = (over = {}) => pr({
+  reviewDecision: 'CHANGES_REQUESTED',
+  changesRequestedAt: reviewedAt,
+  changesRequestedBy: ['me'],
+  lastCommitAt: daysAgo(3),
+  reviewRequests: [],
+  conversation: { waitingOn: 'reporter', teamReplied: true, lastHuman: { role: 'team', at: reviewedAt }, since: reviewedAt },
+  ...over,
+});
+const authorReplied = { conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(1) }, since: daysAgo(1) } };
+const authorPushed = { lastCommitAt: daysAgo(1) };
+const mine = { me: 'me', mode: 'mine' };
+const texts = (t) => t.reasons.map((r) => r.text);
+
+test('re-review: author replied after changes were requested', () => {
+  const t = one(changesRequested(authorReplied));
+  assert.equal(t.kind, 're-review');
+  assert.equal(texts(t)[0], 'author replied');
+});
+
+test('re-review: author pushed after changes were requested', () => {
+  const t = one(changesRequested(authorPushed));
+  assert.equal(t.kind, 're-review');
+  assert.equal(texts(t)[0], 'author pushed');
+});
+
+test('re-review: review re-requested', () => {
+  const t = one(changesRequested({ reviewRequests: [{ login: 'me' }] }), mine);
+  assert.equal(t.kind, 're-review');
+  assert.equal(texts(t)[0], 'review re-requested');
+});
+
+test('no re-review for drafts, other review decisions, or an author who did nothing', () => {
+  const owned = { assignees: [{ login: 'me' }] };
+  const acted = { ...owned, ...authorReplied, ...authorPushed };
+  assert.ok(!kinds(one(changesRequested({ ...acted, isDraft: true }), mine)).includes('re-review'));
+  for (const reviewDecision of ['APPROVED', 'REVIEW_REQUIRED', null])
+    assert.ok(!kinds(one(changesRequested({ ...acted, reviewDecision }), mine)).includes('re-review'));
+  assert.ok(!kinds(one(changesRequested(owned), mine)).includes('re-review'));
+});
+
+test('no re-review for a pending request to someone who did not request the changes', () => {
+  const owned = { assignees: [{ login: 'me' }] };
+  const teamRequest = changesRequested({ ...owned, changesRequestedBy: ['kudo'], reviewRequests: [{ name: 'expo-cli' }] });
+  assert.ok(!kinds(one(teamRequest, mine)).includes('re-review'));
+  const otherUser = changesRequested({ ...owned, changesRequestedBy: ['kudo'], reviewRequests: [{ login: 'me' }] });
+  assert.ok(!kinds(one(otherUser, mine)).includes('re-review'));
+});
+
+test('re-review: the reviewer who requested changes is requested again', () => {
+  const t = one(changesRequested({ changesRequestedBy: ['kudo'], reviewRequests: [{ login: 'kudo' }], assignees: [{ login: 'me' }] }), mine);
+  assert.equal(t.kind, 're-review');
+  assert.deepEqual(texts(t).slice(0, 1), ['review re-requested']);
+});
+
+test('no re-review without changesRequestedAt, even when waiting on the team', () => {
+  const unknown = { changesRequestedAt: null, changesRequestedBy: [], assignees: [{ login: 'me' }] };
+  assert.ok(!kinds(one(changesRequested({ ...unknown, ...authorReplied, ...authorPushed }), mine)).includes('re-review'));
+});
+
+test('re-review: on-call only when nobody owns the PR; mine for an assignee or requested reviewer', () => {
+  assert.equal(TASK_KINDS['re-review'].oncall, false);
+  assert.equal(one(changesRequested(authorReplied)).kind, 're-review');
+  assert.equal(one(changesRequested(authorPushed)).kind, 're-review');
+  assert.equal(one(changesRequested({ ...authorPushed, reviewRequests: [{ login: 'kudo' }] })), undefined);
+  assert.equal(one(changesRequested({ ...authorPushed, assignees: [{ login: 'kudo' }] }), { includeAssigned: true }), undefined);
+  assert.equal(one(changesRequested({ ...authorPushed, assignees: [{ login: 'me' }] }), mine).kind, 're-review');
+  assert.equal(one(changesRequested({ ...authorPushed, reviewRequests: [{ login: 'me' }] }), mine).kind, 're-review');
+  assert.equal(one(changesRequested({ ...authorPushed, reviewRequests: [{ login: 'kudo' }] }), mine), undefined);
+});
+
+test('re-review ranks above review, and higher when my review is requested', () => {
+  const owned = { ...authorReplied, assignees: [{ login: 'me' }] };
+  const review = one(pr({ ...botReview(true), ...owned }), mine);
+  const reReview = one(changesRequested(owned), mine);
+  assert.equal(reReview.score, review.score + 1);
+  const requested = one(changesRequested({ ...owned, reviewRequests: [{ login: 'me' }] }), mine);
+  assert.equal(requested.score, reReview.score + 10);
+  const requestedOnly = one(changesRequested({ ...authorReplied, reviewRequests: [{ login: 'me' }] }), mine);
+  assert.equal(requestedOnly.score, requested.score);
+  assert.equal(texts(requestedOnly).filter((text) => text === 'your review requested').length, 1);
+});
+
+test('author replied, pushed and re-requested my review -> re-review, as on #45029', () => {
+  const t = one(pr({
+    number: 45029,
+    createdAt: '2026-10-20T10:00:00Z',
+    reviewDecision: 'CHANGES_REQUESTED',
+    changesRequestedAt: '2026-10-27T13:58:00Z',
+    lastCommitAt: '2026-10-28T09:01:00Z',
+    conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: '2026-10-27T22:51:38Z' }, since: '2026-10-27T22:51:38Z' },
+    changesRequestedBy: ['chrfalch'],
+    reviewRequests: [{ login: 'chrfalch' }],
+    assignees: [{ login: 'chrfalch' }],
+    latestReviews: [],
+  }), { me: 'chrfalch', mode: 'mine', now: new Date('2026-10-28T12:00:00Z').getTime() });
+  assert.equal(t.kind, 're-review');
+  assert.deepEqual(texts(t).slice(0, 3), ['author replied', 'author pushed', 'review re-requested']);
+});

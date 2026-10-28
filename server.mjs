@@ -32,7 +32,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 12;
+const CACHE_VERSION = 13;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -93,7 +93,8 @@ const PR_FIELDS = `
     closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
-    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+    latestOpinionatedReviews(first: 10) { nodes { state submittedAt author { login } } }
+    commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
   }`;
 const LINKED_PR = '__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } }';
 const LINKED_PRS = `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], last: 100) {
@@ -192,6 +193,7 @@ function normalize(n) {
     ...analyzeComments(comments, { authorLogin: n.author?.login, authorAssociation: n.authorAssociation, createdAt: n.createdAt }),
   };
   if (isPR) {
+    const changesRequested = n.latestOpinionatedReviews.nodes.filter((r) => r.state === 'CHANGES_REQUESTED' && r.submittedAt);
     Object.assign(item, {
       isDraft: n.isDraft,
       reviewDecision: n.reviewDecision,
@@ -201,6 +203,11 @@ function normalize(n) {
       changedFiles: n.changedFiles,
       baseRefName: n.baseRefName,
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
+      // Committer date, not push time (GitHub deprecated pushedDate): a commit made before the review and pushed after it is missed.
+      lastCommitAt: n.commits.nodes[0]?.commit.committedDate ?? null,
+      // latestReviews drops a reviewer's review once their review is re-requested; this keeps it.
+      changesRequestedAt: changesRequested.map((r) => r.submittedAt).sort().at(-1) ?? null,
+      changesRequestedBy: changesRequested.map((r) => r.author?.login).filter(Boolean),
       // Issues linked via closing keywords ("Fixes #123") or the Development sidebar.
       linkedIssues: n.closingIssuesReferences.nodes,
       reviewRequests: n.reviewRequests.nodes.map((r) => r.requestedReviewer).filter(Boolean),

@@ -1076,7 +1076,7 @@ function taskActionButton(t) {
   }
   if (def.action === 'apply-severity') return `<button class="btn btn-sm btn-primary" data-task-do="${t.key}">Apply ${esc(i.triage.assessment.severity.label)}</button>`;
   if (def.action === 'close') return `<button class="btn btn-sm btn-danger" data-task-do="${t.key}">Close…</button>`;
-  const verb = { merge: 'Open to merge', review: 'Open to review', reply: 'Open to reply', 'first-response': 'Open to respond', 'assign-repro': 'Open to assign', nudge: 'Open to nudge' }[t.kind] ?? 'Open';
+  const verb = { merge: 'Open to merge', review: 'Open to review', 're-review': 'Open to review', reply: 'Open to reply', 'first-response': 'Open to respond', 'assign-repro': 'Open to assign', nudge: 'Open to nudge' }[t.kind] ?? 'Open';
   return `<a class="btn btn-sm btn-primary" href="${i.url}" target="_blank" rel="noreferrer" data-task-open="${t.key}">${verb} ↗</a>`;
 }
 

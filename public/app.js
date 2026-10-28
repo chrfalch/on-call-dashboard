@@ -376,14 +376,16 @@ function rowHtml(i) {
   const action = rowAction(i);
   const { icon, main, avatars } = itemParts(i);
   const posted = isPosted(i.number, action);
-  return `<li class="row${selected.has(i.number) ? ' selected' : ''}" data-number="${i.number}">
+  const isBusy = busy.has(i.number);
+  return `<li class="row${selected.has(i.number) ? ' selected' : ''}${isBusy ? ' busy' : ''}" data-number="${i.number}">
     <input type="checkbox" class="row-check" ${selected.has(i.number) ? 'checked' : ''} />
     ${icon}
     <div class="row-main">${main}</div>
     <div class="row-side">
       <span class="avatars">${avatars}</span>
       <span class="comments-count" ${i.commentCount ? tipAttr(CHIP_TIPS.comments) : ''}>${i.commentCount ? `${icons.comment} ${i.commentCount}` : ''}</span>
-      <button class="btn btn-action${posted ? ' done' : ''}" data-action="${i.number}" title="Comment “${action.body}” on #${i.number}">${posted ? '✓ Requested' : action.label}</button>
+      ${isBusy ? SPINNER : ''}
+      <button class="btn btn-action${posted ? ' done' : ''}" data-action="${i.number}" title="Comment “${action.body}” on #${i.number}"${isBusy ? ' disabled' : ''}>${posted ? '✓ Requested' : action.label}</button>
     </div>
   </li>`;
 }
@@ -606,6 +608,19 @@ function updateBulk(visible) {
 const postedThisSession = new Map(); // `${number}:${command}` -> { number, command, commentId, at }
 const postedKey = (number, action) => `${number}:${action.command}`;
 const isPosted = (number, action) => postedThisSession.has(postedKey(number, action));
+const busy = new Set(); // item numbers with a GitHub write in flight
+const SPINNER = '<span class="spinner" role="status" aria-label="Working"></span>';
+
+async function whileBusy(numbers, fn) {
+  numbers.forEach((n) => busy.add(n));
+  render();
+  try {
+    return await fn();
+  } finally {
+    numbers.forEach((n) => busy.delete(n));
+    render();
+  }
+}
 
 function getToken() {
   return localStorage.getItem('ghToken');
@@ -638,7 +653,7 @@ async function postCommand(numbers, action = null) {
   // The comments are public, so a second click or bulk post must not repeat one.
   const items = found.filter((item) => !isPosted(item.number, action ?? ACTIONS[item.type]));
   if (items.length < found.length) toast(`Already posted on ${found.length - items.length} of the selected items this session, skipped`);
-  const results = await Promise.allSettled(
+  const results = await whileBusy(items.map((i) => i.number), () => Promise.allSettled(
     items.map(async (item) => {
       const posted = action ?? ACTIONS[item.type];
       const comment = await gh(`/repos/${data.repo}/issues/${item.number}/comments`, {
@@ -657,7 +672,7 @@ async function postCommand(numbers, action = null) {
       };
       return { item, action: posted };
     })
-  );
+  ));
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
   selected = new Set([...selected].filter((n) => !ok.some((p) => p.item.number === n)));
@@ -697,8 +712,10 @@ async function applySeverity(item) {
   const removed = item.labels.filter((l) => l.name.startsWith('severity:') && l.name !== target);
   const enc = (n) => encodeURIComponent(n);
   try {
-    await gh(`/repos/${data.repo}/issues/${item.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [target] }) });
-    for (const l of removed) await gh(`/repos/${data.repo}/issues/${item.number}/labels/${enc(l.name)}`, { method: 'DELETE' });
+    await whileBusy([item.number], async () => {
+      await gh(`/repos/${data.repo}/issues/${item.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [target] }) });
+      for (const l of removed) await gh(`/repos/${data.repo}/issues/${item.number}/labels/${enc(l.name)}`, { method: 'DELETE' });
+    });
   } catch (e) {
     return toast(`Couldn't change labels on #${item.number}: ${e.message}`, { error: true });
   }
@@ -788,7 +805,7 @@ $('#close-dialog').addEventListener('close', () => {
 
 async function closeItems(numbers, body, reason) {
   const items = numbers.map((n) => data.items.find((i) => i.number === n)).filter(Boolean);
-  const results = await Promise.allSettled(
+  const results = await whileBusy(numbers, () => Promise.allSettled(
     items.map(async (item) => {
       const comment = body
         ? await gh(`/repos/${data.repo}/issues/${item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) })
@@ -797,7 +814,7 @@ async function closeItems(numbers, body, reason) {
       await gh(`/repos/${data.repo}/${item.type === 'pr' ? 'pulls' : 'issues'}/${item.number}`, { method: 'PATCH', body: JSON.stringify(patch) });
       return { item, commentId: comment?.id };
     })
-  );
+  ));
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
   if (filters.tab === 'inbox' && ok.length) localStorage.setItem(todayKey(), String(Number(localStorage.getItem(todayKey()) || 0) + ok.length));
@@ -1074,7 +1091,8 @@ function taskHtml(t, idx) {
     .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason" ${tipAttr(CHIP_TIPS.reason)}>${esc(r.text)}</span>`))
     .join('');
   const also = t.also.length ? `<span class="muted" ${tipAttr(CHIP_TIPS.also)}>also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
-  return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}" data-task="${t.key}">
+  const isBusy = busy.has(t.item.number);
+  return `<li class="task${idx === inboxFocus ? ' focused' : ''}${hidden ? ' is-hidden' : ''}${isBusy ? ' busy' : ''}" data-task="${t.key}">
     <div class="task-rank">${idx + 1}</div>
     <div class="task-body">
       <div class="task-head">
@@ -1090,6 +1108,7 @@ function taskHtml(t, idx) {
       ${recHtml(t)}
     </div>
     <div class="task-actions">
+      ${isBusy ? SPINNER : ''}
       ${taskActionButton(t)}
       ${recTaskButton(t)}
       <div class="task-secondary">
@@ -1105,6 +1124,7 @@ function findTask(key) {
 }
 
 async function doTask(t) {
+  if (busy.has(t.item.number)) return;
   const def = TASK_KINDS[t.kind];
   if (def.action === 'command') {
     if (!requireToken()) return;
@@ -1253,7 +1273,7 @@ function recTaskButton(t) {
 
 function applyRec(t) {
   const entry = recFor(recResponse, t);
-  if (entry?.status !== 'done') return;
+  if (entry?.status !== 'done' || busy.has(t.item.number)) return;
   const plan = applyPlan(entry.rec, t.item);
   if (plan.kind === 'command') {
     // postCommand posts the dashboard's own command for the item type, so refuse a recommendation for any other body.
@@ -1286,7 +1306,7 @@ async function postComment(item, body) {
   if (!body) return;
   let comment;
   try {
-    comment = await gh(`/repos/${data.repo}/issues/${item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+    comment = await whileBusy([item.number], () => gh(`/repos/${data.repo}/issues/${item.number}/comments`, { method: 'POST', body: JSON.stringify({ body }) }));
   } catch (e) {
     return toast(`Couldn't comment on #${item.number}: ${e.message}`, { error: true });
   }
@@ -1370,10 +1390,8 @@ document.addEventListener('click', (e) => {
     const item = data.items.find((i) => i.number === Number(actionBtn.dataset.action));
     if (!item) return;
     const action = rowAction(item);
-    if (isPosted(item.number, action)) return;
-    actionBtn.disabled = true;
-    actionBtn.textContent = 'Posting…';
-    return postCommand([item.number], action).finally(() => render());
+    if (isPosted(item.number, action) || busy.has(item.number)) return;
+    return postCommand([item.number], action);
   }
 });
 

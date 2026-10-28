@@ -4,6 +4,8 @@ import { conversationOf, days, hasLabel, needsBotTriage, PARKED, reReviewReasons
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
 
+export const isOpen = (item) => !item.state || item.state === 'OPEN';
+
 const hasFixPr = (item, state) => (item.linkedPrs ?? []).some((pr) => pr.state === state && pr.fix === true);
 const unlabeledUnowned = VIEWS.find((view) => view.id === 'issue:unlabeled-unowned');
 

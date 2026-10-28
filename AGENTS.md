@@ -16,6 +16,7 @@ dependencies, no build step.
 - `server.mjs` — GraphQL sync (full hourly, incremental every 2 min), cache in
   `.cache/<owner>-<name>.json`, routes `GET /api/items`, `GET /api/trends`,
   `POST /api/refresh`, `POST /api/recommendations`, static files from `public/`.
+  Keeps closed issues and PRs for 7 days after they close.
   After each sync it fetches the issues and PRs created or closed in the last
   9 days (raw timestamps for the trend tiles) into
   `.cache/trends-<owner>-<name>.json`. Recommendations run
@@ -39,10 +40,14 @@ dependencies, no build step.
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
+- `closed-items.mjs` — pure retention helper (`dropOldClosed`): keeps closed
+  items for 7 days after `closedAt`. Tested by `closed-items.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the
   GraphQL timeline mapping, the PR numbers that team comments name and the
   helpers that look them up and merge them in, and the state update when a PR
-  closes or merges. Tested by `linked-prs.test.mjs`.
+  closes or merges. `withFixedIssues` recomputes `fixedIssues`, the reverse link
+  from a PR to the cached issues it fixes, not yet shown in the UI. Tested by
+  `linked-prs.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
   `isHidden`, `listedTasks`). Items with only unsupported SDK labels get one
   `unsupported-sdk` close task, listed only under its chip. Items without a

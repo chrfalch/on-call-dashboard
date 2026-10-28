@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks } from './linked-prs.mjs';
+import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
 
 const REPO = 'expo/expo';
 const prNode = (number, over = {}) => ({
@@ -240,4 +240,71 @@ test('updateLinkedPrs updates comment links and keeps who mentioned them', () =>
   const items = new Map([[10, { number: 10, type: 'issue', linkedPrs: [entry(1, { state: 'OPEN', mergedAt: null, via: 'comment', by: by() })] }]]);
   const out = updateLinkedPrs(items, { number: 1, state: 'MERGED', mergedAt: '2026-10-25T00:00:00Z' });
   assert.deepEqual(out.get(10).linkedPrs, [entry(1, { mergedAt: '2026-10-25T00:00:00Z', via: 'comment', by: by() })]);
+});
+
+test('withCommentLinks reports a cached MERGED PR with its mergedAt', () => {
+  const pr = { ...openPr, state: 'MERGED', mergedAt: '2026-10-25T00:00:00Z' };
+  const issue = { ...openIssue, commentRefs: [ref(100)] };
+  assert.deepEqual(withCommentLinks(issue, new Map([[100, pr]]), new Map()).linkedPrs, [
+    { ...facts(100, { baseRefName: 'feature', mergedAt: pr.mergedAt }), via: 'comment', by: by(), fix: true },
+  ]);
+});
+
+test('withCommentLinks reports a cached CLOSED PR with mergedAt null', () => {
+  const pr = { ...openPr, state: 'CLOSED', mergedAt: null };
+  const issue = { ...openIssue, commentRefs: [ref(100)] };
+  assert.deepEqual(withCommentLinks(issue, new Map([[100, pr]]), new Map()).linkedPrs, [
+    { ...facts(100, { state: 'CLOSED', baseRefName: 'feature', mergedAt: null }), via: 'comment', by: by(), fix: true },
+  ]);
+});
+
+const fixingIssue = (number, fix = true) => ({ number, type: 'issue', state: 'OPEN', title: `Issue ${number}`, url: `https://github.com/expo/expo/issues/${number}`, linkedPrs: [entry(100, { fix })] });
+const issueLink = ({ number, title, url, state }) => ({ number, title, url, state });
+
+test('withFixedIssues adds fix:true issues in number order without mutating items', () => {
+  const pr = { ...openPr, linkedIssues: [issueLink(fixingIssue(50))] };
+  const a = { ...fixingIssue(20), state: 'CLOSED' };
+  const b = fixingIssue(3);
+  const items = new Map([[100, pr], [20, a], [3, b]]);
+  const before = structuredClone(items);
+  const out = withFixedIssues(items);
+  assert.notEqual(out, items);
+  assert.deepEqual(out.get(100).fixedIssues, [issueLink(b), issueLink(a)]);
+  assert.deepEqual(items, before);
+});
+
+test('withFixedIssues ignores fix:false links', () => {
+  const items = new Map([[100, openPr], [1, fixingIssue(1, false)]]);
+  assert.deepEqual(withFixedIssues(items).get(100).fixedIssues, []);
+});
+
+test('withFixedIssues leaves linkedIssues untouched', () => {
+  const existing = { number: 1, title: 'Existing title', url: 'existing-url' };
+  const items = new Map([[100, { ...openPr, linkedIssues: [existing, existing] }], [1, fixingIssue(1)]]);
+  assert.equal(withFixedIssues(items).get(100).linkedIssues, items.get(100).linkedIssues);
+});
+
+test('withFixedIssues is idempotent', () => {
+  const once = withFixedIssues(new Map([[100, openPr], [1, fixingIssue(1)]]));
+  assert.deepEqual(withFixedIssues(once), once);
+});
+
+test('withFixedIssues leaves issues unchanged', () => {
+  const issue = fixingIssue(1);
+  const items = new Map([[1, issue], [101, openIssue]]);
+  const out = withFixedIssues(items);
+  assert.equal(out.get(1), issue);
+  assert.equal(out.get(101), openIssue);
+});
+
+test('withFixedIssues removes an issue that no longer links the PR', () => {
+  const issue = fixingIssue(1);
+  const pr = { ...openPr, fixedIssues: [issueLink(issue)] };
+  const items = new Map([[100, pr], [1, { ...issue, linkedPrs: [] }]]);
+  assert.deepEqual(withFixedIssues(items).get(100).fixedIssues, []);
+});
+
+test('withFixedIssues removes an issue no longer in the cache', () => {
+  const pr = { ...openPr, fixedIssues: [issueLink(fixingIssue(1))] };
+  assert.deepEqual(withFixedIssues(new Map([[100, pr]])).get(100).fixedIssues, []);
 });

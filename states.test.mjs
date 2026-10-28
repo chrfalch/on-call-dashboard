@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { needsBotTriage } from './public/inbox.js';
-import { cleanupFilters, stateOf } from './public/states.js';
+import { cleanupFilters, isOpen, stateOf } from './public/states.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -413,3 +413,14 @@ test('C10: not under a day', () => {
 test('C10: not once the bot replied', () => {
   assert.ok(!filters(pr(botReview(true, daysAgo(5)))).includes('C10'));
 });
+
+for (const [name, item, expected] of [
+  ['open', { state: 'OPEN' }, true],
+  ['state-less', {}, true],
+  ['CLOSED', { state: 'CLOSED' }, false],
+  ['MERGED', { state: 'MERGED' }, false],
+]) {
+  test(`isOpen handles a ${name} item`, () => {
+    assert.equal(isOpen(item), expected);
+  });
+}

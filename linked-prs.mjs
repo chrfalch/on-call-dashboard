@@ -22,7 +22,7 @@ export function linkedPrs(node, repo) {
   return [...byNumber.values()];
 }
 
-// A PR that is no longer open leaves the cache, so the issues that link it keep its final state.
+// Issues keep a linked PR's final state even after it leaves the cache.
 export function updateLinkedPrs(items, { number, state, mergedAt }) {
   const update = (item) =>
     item.linkedPrs?.some((pr) => pr.number === number)
@@ -74,11 +74,11 @@ export function commentRefs(comments, { repo, number }) {
 }
 
 // The PR's facts, null when the number is an issue, undefined when not known yet.
-// `items` holds open items only; `resolved` maps numbers looked up earlier.
+// `resolved` maps numbers looked up earlier.
 function known(number, items, resolved) {
   const item = items.get(number);
   if (!item) return resolved.get(number);
-  return item.type === 'pr' ? { number, title: item.title, state: 'OPEN', mergedAt: null, baseRefName: item.baseRefName } : null;
+  return item.type === 'pr' ? { number, title: item.title, state: item.state ?? 'OPEN', mergedAt: item.mergedAt ?? null, baseRefName: item.baseRefName } : null;
 }
 
 export function refsToResolve(issues, items, resolved) {
@@ -125,4 +125,20 @@ export function withCommentLinks(issue, items, resolved) {
     return pr ? [{ ...pr, via: 'comment', by, fix: isTeam(by.association) && !isBot(by.login) }] : [];
   });
   return { ...issue, linkedPrs: mergeCommentLinks(issue.linkedPrs.filter((pr) => !pr.via), links) };
+}
+
+export function withFixedIssues(items) {
+  const fixes = new Map();
+  const issues = [...items.values()].filter((item) => item.type === 'issue').sort((a, b) => a.number - b.number);
+  for (const { number, title, url, state, linkedPrs } of issues) {
+    const numbers = new Set((linkedPrs ?? []).filter((pr) => pr.fix === true).map((pr) => pr.number));
+    for (const prNumber of numbers) {
+      if (!fixes.has(prNumber)) fixes.set(prNumber, []);
+      fixes.get(prNumber).push({ number, title, url, state });
+    }
+  }
+  return new Map([...items].map(([key, item]) => {
+    if (item.type !== 'pr') return [key, item];
+    return [key, { ...item, fixedIssues: fixes.get(item.number) ?? [] }];
+  }));
 }

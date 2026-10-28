@@ -6,6 +6,7 @@ import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip 
 import { weekTrend } from './trends.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
+import { isOpen } from './states.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -903,6 +904,7 @@ async function refresh(force = false) {
   const res = await fetch('/api/items');
   const d = await res.json();
   data = d;
+  data.items = data.items.filter(isOpen);
   // Keep optimistic bot state for anything we posted until the server catches up.
   for (const { number, command, at } of postedThisSession.values()) {
     const item = data.items.find((i) => i.number === number);

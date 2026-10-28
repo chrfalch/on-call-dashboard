@@ -654,3 +654,18 @@ test('loadRecs ignores recommendations saved before who and why changed meaning'
   const data = { version: 1, recs: { '123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 5 } } };
   assert.equal(loadRecs(data, items).size, 0);
 });
+
+test('issue system text tells the agent the fix-severity label is applied apart from its recommendation', () => {
+  const severityTask = { key: '123:fix-severity', kind: 'fix-severity', reasons: [{ text: 'bot says severity: 2' }] };
+  const line = buildPrompt(severityTask, item, null).system.split('\n').find((l) => l.includes('Task "fix-severity"'));
+  assert.ok(line, 'issue runbook has a fix-severity rule');
+  assert.match(line, /Treat the label as already applied and recommend the next step for the issue\./);
+  const prItem = { ...item, type: 'pr' };
+  assert.doesNotMatch(buildPrompt({ ...task, item: prItem }, prItem, null).system, /fix-severity/);
+});
+
+test('loadRecs ignores recommendations saved before the fix-severity rule', () => {
+  const data = { version: 3, recs: { '123:verify@2026-01-05T00:00:00Z': { rec: rec(), at: 5 } } };
+  assert.equal(loadRecs(data, items).size, 0);
+  assert.equal(loadRecs({ ...data, version: 4 }, items).size, 1);
+});

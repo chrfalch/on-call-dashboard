@@ -34,7 +34,9 @@ dependencies, no build step.
   body for the visible tasks, freshness checks, `applyPlan`, which maps a
   recommendation to what the apply button does, and `recDisagrees`, which
   tells when a recommendation does not do what a close or bot-command task
-  asks. Tested by `recs.test.mjs`.
+  asks. `recIsNextStep` tells when the task's button applies a severity
+  label, so the recommendation is the step after it. Tested by
+  `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the

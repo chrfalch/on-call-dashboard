@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
 import { TASK_KINDS } from './public/inbox.js';
-import { applyPlan, hasPending, recAction, recDisagrees, recFor, recLabel, recRequest, recSignature } from './public/recs.js';
+import { applyPlan, hasPending, recAction, recDisagrees, recFor, recIsNextStep, recLabel, recRequest, recSignature } from './public/recs.js';
 import { recKey } from './recommend.mjs';
 
 const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
@@ -190,6 +190,13 @@ test('recDisagrees: a bot-command task agrees only with that command', () => {
 test('recDisagrees: tasks that only open the item never disagree', () => {
   for (const kind of ['reply', 'first-response', 'review', 'merge', 'nudge', 'assign-repro', 'fix-severity']) {
     assert.equal(recDisagrees(task(pr, kind), rec('wait')), null, kind);
+  }
+});
+
+test('recIsNextStep: only tasks whose button applies the severity label', () => {
+  assert.equal(recIsNextStep(task(issue, 'fix-severity')), true);
+  for (const kind of ['reply', 'close-candidate', 'no-such-kind', 'toString']) {
+    assert.equal(recIsNextStep(task(issue, kind)), false, kind);
   }
 });
 

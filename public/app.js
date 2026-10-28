@@ -1,7 +1,7 @@
 // Expo triage dashboard client.
 import { computeTasks, isHidden, listedTasks, TASK_KINDS, MODES, PLATFORM_LABEL } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
-import { applyPlan, hasPending, recDisagrees, recFor, recLabel, recRequest, recSignature } from './recs.js';
+import { applyPlan, hasPending, recDisagrees, recFor, recIsNextStep, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
@@ -1257,7 +1257,8 @@ function recHtml(t) {
   const disagrees = conflict
     ? `<span class="rec-disagrees" ${tipAttr(CHIP_TIPS.recDisagrees, `The task says "${conflict.task}". The agent recommends "${conflict.agent}". Check the thread before you act.`)}>agent disagrees</span>`
     : '';
-  return `<div class="rec">${tag}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
+  const nextStep = recIsNextStep(t) ? `<span class="rec-next" ${tipAttr(CHIP_TIPS.recNext)}>next step after the label</span>` : '';
+  return `<div class="rec">${tag}${nextStep}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span></div>`;
 }
 
 // Only a disagreeing rec gets a button next to the task's own, so the operator can pick either.

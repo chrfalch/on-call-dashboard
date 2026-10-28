@@ -357,6 +357,10 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
   font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em; white-space: nowrap; cursor: help;
   color: var(--attention); border: 1px solid var(--attention);
 }
+.rec-next {
+  font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em; white-space: nowrap; cursor: help;
+  color: var(--fg-muted); border: 1px solid var(--border);
+}
 .rec-action { font-weight: 600; color: var(--fg); white-space: nowrap; }
 .rec-who { overflow-wrap: anywhere; }
 .rec-who b { font-weight: 600; color: var(--fg); }

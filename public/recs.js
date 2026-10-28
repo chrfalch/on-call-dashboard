@@ -66,6 +66,8 @@ export function recDisagrees(task, rec) {
   return agrees ? null : { task: kind.label, agent: action.label };
 }
 
+export const recIsNextStep = (task) => Object.hasOwn(TASK_KINDS, task.kind) && TASK_KINDS[task.kind].action === 'apply-severity';
+
 export function applyPlan(rec, item) {
   const action = recAction(rec, item);
   const draft = typeof rec?.draft === 'string' ? rec.draft : '';

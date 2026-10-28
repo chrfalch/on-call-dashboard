@@ -45,6 +45,7 @@ export const CHIP_TIPS = {
   recConfidence: { meaning: 'Agent confidence', source: AGENT },
   recWhy: { meaning: 'The reason that the agent gives for this action.', source: AGENT },
   recDisagrees: { meaning: 'The agent recommends a different action than the task.', source: `${RANKING} and ${AGENT}` },
+  recNext: { meaning: "The task's button applies the severity label. The agent counts that as done and recommends what comes after it.", source: `${RANKING} and ${AGENT}` },
   inboxCount: { meaning: 'Open inbox tasks in the current mode, without the ones that are done or snoozed.', source: `${RANKING}, over the synced GitHub data` },
   issueCount: { meaning: 'Open issues that match the current filters.', source: 'GitHub: open issues, synced by the dashboard server' },
   prCount: { meaning: 'Open pull requests that match the current filters.', source: 'GitHub: open pull requests, synced by the dashboard server' },

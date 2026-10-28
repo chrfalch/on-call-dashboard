@@ -138,13 +138,13 @@ function labelStyle(color) {
 function labelHtml(l, opts = {}) {
   const active = filters.include.includes(l.name) ? ' active' : '';
   const excl = filters.exclude.includes(l.name) ? ' excluded' : '';
-  const title = opts.title ?? tooltip(CHIP_TIPS.label, l.description || CHIP_TIPS.label.meaning);
+  const title = opts.title ?? tooltip(CHIP_TIPS.label, l.description || (opts.filterable === false ? 'GitHub label.' : CHIP_TIPS.label.meaning));
   return `<a class="IssueLabel${active}${excl}" style="${labelStyle(l.color)}" data-label="${esc(l.name)}" title="${esc(title)}">${esc(l.name)}${opts.removable ? ' <span class="chip-remove" data-remove="1">×</span>' : ''}</a>`;
 }
 
-function assigneeChipHtml(a) {
+function assigneeChipHtml(a, { filterable = true } = {}) {
   const active = filters.assignee === `user:${a.login}` ? ' active' : '';
-  return `<a class="AssigneeChip${active}" data-assignee="${esc(a.login)}" ${tipAttr(CHIP_TIPS.assignee, `Assigned to ${a.login} — click to filter`)}><img src="${a.avatarUrl}&s=32" alt="" loading="lazy">assigned: ${esc(a.login)}</a>`;
+  return `<a class="AssigneeChip${active}" data-assignee="${esc(a.login)}" ${tipAttr(CHIP_TIPS.assignee, `Assigned to ${a.login}${filterable ? ' — click to filter' : ''}`)}><img src="${a.avatarUrl}&s=32" alt="" loading="lazy">assigned: ${esc(a.login)}</a>`;
 }
 
 // ---------- helpers ----------
@@ -1135,7 +1135,7 @@ function taskHtml(t, idx) {
       </div>
       <div class="row-main">
         <div class="meta">${inboxMeta(item).filter(Boolean).join(' ')}</div>
-        <div class="task-labels">${item.assignees.map(assigneeChipHtml).join('')}${item.labels.map((l) => labelHtml(l)).join('')}</div>
+        <div class="task-labels">${item.assignees.map((a) => assigneeChipHtml(a, { filterable: false })).join('')}${item.labels.map((l) => labelHtml(l, { filterable: false })).join('')}</div>
         ${item.type === 'issue' ? triageHtml(item, { fixPrs: false, brief: true }) : ''}
       </div>
     </div>
@@ -1146,7 +1146,7 @@ function taskHtml(t, idx) {
         ${isOpen(item) && taskAction(t)?.kind !== 'close' ? `<button class="btn btn-sm btn-danger" data-task-close="${esc(t.key)}">Close…</button>` : ''}
       </div>
       <div class="task-secondary">
-        ${isOpen(item) ? `<button class="btn btn-sm" data-task-bot="${esc(t.key)}" title="Write a comment to expo-bot">${icons.bot}Message expo-bot</button>` : ''}
+        ${isOpen(item) ? `<button class="btn btn-sm" data-task-bot="${esc(t.key)}" title="Write a comment; it starts with @expo-bot">${icons.bot}Comment</button>` : ''}
         <button class="btn btn-sm" data-task-done="${esc(t.key)}" title="I did what this row asks; hide it until its state changes">✓ Done</button>
       </div>
     </div>

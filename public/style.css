@@ -326,6 +326,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .segmented button + button { border-left: 1px solid var(--border); }
 .segmented button.selected { background: var(--accent); color: #fff; }
 .inbox-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.flow-arrow { align-self: center; color: var(--fg-muted); }
 .kind-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 2em;
   background: var(--bg); color: var(--fg); font: inherit; font-size: 12px; cursor: pointer;

@@ -1066,12 +1066,13 @@ function renderInbox() {
   const items = data.items;
   const visibleOptions = { ...options, hidden: filters.inboxHidden ? undefined : hidden };
   const counts = inboxCounts(items, visibleOptions);
-  const chips = (defs, key, tips) => defs.map((def) => {
+  const chips = (defs, key, tips, separator = '') => defs.map((def) => {
     const count = counts[key === 'state' ? 'states' : 'cleanup'][def.id] ?? 0;
     return `<button class="kind-chip${def.tone ? ` tone-${esc(def.tone)}` : ''}${count ? '' : ' is-empty'}${filters[key] === def.id ? ' selected' : ''}" data-inbox-${key}="${def.id}" ${tipAttr(tips[def.id])}>${def.icon ? icons[def.icon] : ''}${esc(def.id)} ${esc(def.label)} <span class="counter">${count}</span></button>`;
-  }).join('');
-  $('#inbox-issue-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'issue'), 'state', STATE_TIPS);
-  $('#inbox-pr-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'pr'), 'state', STATE_TIPS);
+  }).join(separator);
+  const flowArrow = '<span class="flow-arrow" aria-hidden="true">→</span>';
+  $('#inbox-issue-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'issue'), 'state', STATE_TIPS, flowArrow);
+  $('#inbox-pr-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'pr'), 'state', STATE_TIPS, flowArrow);
   $('#inbox-cleanup').innerHTML = `<h3 class="trend-title">Cleanup</h3><div class="inbox-kinds">${chips(CLEANUP_FILTERS, 'cleanup', CLEANUP_TIPS)}</div>`;
   $('#inbox-others').checked = filters.inboxOthers;
   $('#inbox-hidden').checked = filters.inboxHidden;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { needsBotTriage } from './public/inbox.js';
-import { CLEANUP_FILTERS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateOf } from './public/states.js';
+import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateOf } from './public/states.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -449,6 +449,13 @@ test('STATES lists the issue track, then the PR track, with labels', () => {
     ['P10', 'Abandoned', 'pr'],
   ]);
   assert.ok(STATES.every((s) => s.icon));
+});
+
+test('STATE_CHIPS: every state except Closed, Merged and Abandoned, in order', () => {
+  const ended = ['I10', 'P9', 'P10'];
+  const ids = STATE_CHIPS.map((s) => s.id);
+  assert.deepEqual(ids, STATES.map((s) => s.id).filter((id) => !ended.includes(id)));
+  assert.ok(ended.every((id) => !ids.includes(id)));
 });
 
 test('STATES: on-call states and tones', () => {

@@ -29,6 +29,9 @@ export const STATES = [
   { id: 'P10', label: 'Abandoned', track: 'pr', oncall: false, icon: 'x', tone: 'muted' },
 ];
 
+const ENDED = ['I10', 'P9', 'P10'];
+export const STATE_CHIPS = STATES.filter((state) => !ENDED.includes(state.id));
+
 export const CLEANUP_FILTERS = [
   { id: 'C1', label: 'Team owes a reply' },
   { id: 'C2', label: 'Reporter silent 14d' },
@@ -80,7 +83,7 @@ export const stateOf = (item) => (item.type === 'pr' ? prState(item) : issueStat
 const openAction = { kind: 'open', label: 'Open' };
 
 export function stateAction(item, stateId, { now = Date.now() } = {}) {
-  if (['I10', 'P9', 'P10'].includes(stateId)) return null;
+  if (ENDED.includes(stateId)) return null;
   if (stateId === 'I1') return { kind: 'command', label: 'Ask bot to triage', body: '@expo-bot triage' };
   if (stateId === 'I3') return { kind: 'command', label: 'Ask bot to verify', body: '@expo-bot verify' };
   if (stateId === 'I5' || stateId === 'I9') return { kind: 'close', label: 'Close…' };

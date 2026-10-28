@@ -4,6 +4,7 @@ import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { applyPlan, hasPending, recDisagrees, recFor, recIsNextStep, recLabel, recRequest, recSignature } from './recs.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
+import { dayKey, parseLog, addDone, doneCounts } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
 
@@ -819,7 +820,7 @@ async function closeItems(numbers, body, reason) {
   ));
   const ok = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected');
-  if (filters.tab === 'inbox' && ok.length) localStorage.setItem(todayKey(), String(Number(localStorage.getItem(todayKey()) || 0) + ok.length));
+  if (filters.tab === 'inbox' && ok.length) recordDone(ok.map((r) => r.item));
   const closed = new Set(ok.map((r) => r.item.number));
   data.items = data.items.filter((i) => !closed.has(i.number));
   selected = new Set([...selected].filter((n) => !closed.has(n)));
@@ -1002,13 +1003,15 @@ function saveInboxState() {
   localStorage.setItem('inboxState', JSON.stringify(inboxState));
 }
 
-function todayKey() {
-  return `inboxDone:${new Date().toISOString().slice(0, 10)}`;
+function recordDone(items) {
+  const key = dayKey(new Date());
+  const log = parseLog(localStorage.getItem(key));
+  localStorage.setItem(key, JSON.stringify(addDone(log, items)));
 }
 
 function markDone(task) {
   inboxState[task.key] = { doneAt: Date.now(), updatedAt: task.item.updatedAt };
-  localStorage.setItem(todayKey(), String(Number(localStorage.getItem(todayKey()) || 0) + 1));
+  recordDone([task.item]);
   saveInboxState();
   render();
 }
@@ -1050,10 +1053,11 @@ function renderInbox() {
 
   inboxVisible = listedTasks(pool, filters.inboxKind);
   inboxFocus = Math.min(inboxFocus, Math.max(0, inboxVisible.length - 1));
-  const doneToday = Number(localStorage.getItem(todayKey()) || 0);
+  const done = doneCounts(parseLog(localStorage.getItem(dayKey(new Date()))));
   $('#inbox-progress').innerHTML = `<div class="trend-title">Inbox</div>
-    <div class="trend-net">${doneToday}</div>
+    <div class="trend-net">${done.total}</div>
     <div class="trend-caption">done today</div>
+    <div class="trend-caption">${done.issues} issues · ${done.prs} PRs</div>
     <p>${listedTasks(open).length} open tasks</p>`;
 
   $('#inbox-list').innerHTML = inboxVisible.length

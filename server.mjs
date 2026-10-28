@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { analyzeComments } from './triage.mjs';
+import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
 import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks } from './linked-prs.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
@@ -32,7 +32,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 13;
+const CACHE_VERSION = 14;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -89,7 +89,7 @@ const COMMON = `
 const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
-    isDraft reviewDecision mergeable additions deletions changedFiles mergedAt baseRefName
+    isDraft reviewDecision mergeable mergeStateStatus additions deletions changedFiles mergedAt baseRefName
     closingIssuesReferences(first: 10) { nodes { number title url } }
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
@@ -105,6 +105,9 @@ const ISSUE_FIELDS = `
     ${COMMON}
     issueType { name color }
     ${LINKED_PRS}
+    assignedEvents: timelineItems(itemTypes: [ASSIGNED_EVENT], last: 10) {
+      nodes { ... on AssignedEvent { createdAt assignee { ... on User { login } } } }
+    }
   }`;
 
 const LIST_QUERY = (kind) => `
@@ -198,6 +201,7 @@ function normalize(n) {
       isDraft: n.isDraft,
       reviewDecision: n.reviewDecision,
       mergeable: n.mergeable,
+      mergeStateStatus: n.mergeStateStatus ?? null,
       additions: n.additions,
       deletions: n.deletions,
       changedFiles: n.changedFiles,
@@ -212,11 +216,13 @@ function normalize(n) {
       linkedIssues: n.closingIssuesReferences.nodes,
       reviewRequests: n.reviewRequests.nodes.map((r) => r.requestedReviewer).filter(Boolean),
       latestReviews: n.latestReviews.nodes.map((r) => ({ state: r.state, login: r.author?.login, avatarUrl: r.author?.avatarUrl })),
+      botReview: botReview(n.latestReviews.nodes),
     });
   } else {
     item.issueType = n.issueType ?? null;
     item.linkedPrs = linkedPrs(n, REPO);
     item.commentRefs = commentRefs(n.comments.nodes, { repo: REPO, number: n.number });
+    item.ownerLastActivityAt = ownerLastActivityAt(n.comments.nodes, n.assignees.nodes, n.assignedEvents.nodes);
   }
   return item;
 }

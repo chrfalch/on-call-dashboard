@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { needsBotTriage } from './public/inbox.js';
+import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
 import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateOf } from './public/states.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
@@ -412,6 +412,50 @@ test('C10: not under a day', () => {
 
 test('C10: not once the bot replied', () => {
   assert.ok(!filters(pr(botReview(true, daysAgo(5)))).includes('C10'));
+});
+
+test('C11: an open external non-draft PR without a linked issue', () => {
+  assert.ok(filters(pr({ state: 'OPEN', linkedIssues: [] })).includes('C11'));
+});
+
+test('C11: not with a linked issue', () => {
+  assert.ok(!filters(pr({ state: 'OPEN', linkedIssues: [{ number: 123 }] })).includes('C11'));
+});
+
+test('C11: not when linked issues are unknown', () => {
+  assert.ok(!filters(pr({ state: 'OPEN', linkedIssues: undefined })).includes('C11'));
+});
+
+test('C11: not for a draft', () => {
+  assert.ok(!filters(pr({ state: 'OPEN', isDraft: true })).includes('C11'));
+});
+
+test('C11: not for a merged or closed PR', () => {
+  for (const state of ['MERGED', 'CLOSED'])
+    assert.ok(!filters(pr({ state })).includes('C11'));
+});
+
+test('C11: not with the internal contributor label', () => {
+  assert.ok(!filters(pr({ state: 'OPEN', labels: labels('contributor: internal') })).includes('C11'));
+});
+
+test('C11: not for an internal author', () => {
+  assert.ok(!filters(pr({ state: 'OPEN', ...waiting('internal', 3) })).includes('C11'));
+});
+
+test('C11: not for an issue', () => {
+  assert.ok(!filters(issue({ state: 'OPEN', linkedIssues: [] })).includes('C11'));
+});
+
+test('C11: a bot author without a linked issue', () => {
+  assert.ok(filters(pr({ state: 'OPEN', author: { login: 'dependabot[bot]' }, authorAssociation: 'NONE', linkedIssues: [] })).includes('C11'));
+});
+
+test('ASK_FOR_ISSUE gives a linking example and asks to open an issue', () => {
+  assert.equal(
+    ASK_FOR_ISSUE,
+    'Thanks for the PR! We track every change against an issue. Can you link the issue this PR fixes (for example, add "Fixes #123" to the description)? If there is no issue yet, please open one that describes the problem, then link it here.',
+  );
 });
 
 for (const [name, item, expected] of [

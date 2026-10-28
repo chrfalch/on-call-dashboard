@@ -125,6 +125,10 @@ const CLEANUP = {
     (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE' || ['BLOCKED', 'BEHIND'].includes(item.mergeStateStatus)),
   C10: ({ bot }, { now }) =>
     !!bot && (unanswered(bot.lastCommand, bot.botRepliedAfterCommand, now) || unanswered(bot.lastReview, bot.botRepliedAfterReview, now)),
+  C11: (item) =>
+    item.type === 'pr' && item.state === 'OPEN' && !item.isDraft &&
+    Array.isArray(item.linkedIssues) && item.linkedIssues.length === 0 &&
+    conversationOf(item).waitingOn !== 'internal' && !hasLabel(item, 'contributor: internal'),
 };
 
 // Ids in ascending order. C6 has no rule yet, so it never matches.

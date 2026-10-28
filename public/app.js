@@ -844,6 +844,7 @@ async function closeItems(numbers, body, reason) {
   selected = new Set([...selected].filter((n) => !closed.has(n)));
   render();
   if (ok.length) {
+    refreshAfterSync();
     toast(`Closed ${ok.length === 1 ? `#${ok[0].item.number}` : `${ok.length} items`}`, {
       undo: async () => {
         await Promise.allSettled(
@@ -917,6 +918,14 @@ $('#token-dialog').addEventListener('close', async () => {
 });
 
 // ---------- data ----------
+
+// For after a write to GitHub: the server re-syncs first, so the list includes the change.
+async function refreshAfterSync() {
+  try {
+    await fetch('/api/refresh?wait=1', { method: 'POST' });
+  } catch {}
+  await refresh().catch(() => {});
+}
 
 async function refresh(force = false) {
   if (force) await fetch('/api/refresh', { method: 'POST' });
@@ -1040,6 +1049,7 @@ function markDone(task) {
   recordDone([task.item]);
   saveInboxState();
   render();
+  refreshAfterSync();
 }
 
 function renderInbox() {
@@ -1224,6 +1234,7 @@ async function postComment(item, body) {
   } catch (e) {
     return toast(`Couldn't comment on #${item.number}: ${e.message}`, { error: true });
   }
+  refreshAfterSync();
   toast(`Commented on #${item.number}`, {
     undo: () =>
       gh(`/repos/${data.repo}/issues/comments/${comment.id}`, { method: 'DELETE' }).then(

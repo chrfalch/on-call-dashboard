@@ -49,10 +49,26 @@ export function needsBotTriage(item) {
   return missingRoutingLabels(item).length > 0;
 }
 
+export const conversationOf = (item) => item.conversation ?? { waitingOn: 'team', teamReplied: false, since: item.createdAt };
+
+// Why a PR with requested changes is ready for another look; empty while the author has not acted.
+export function reReviewReasons(item) {
+  if (item.reviewDecision !== 'CHANGES_REQUESTED') return [];
+  const since = item.changesRequestedAt;
+  const lastHuman = conversationOf(item).lastHuman;
+  // GitHub drops a reviewer from reviewRequests when they review, so finding them there again means a re-request.
+  const reRequested = (item.reviewRequests ?? []).some((r) => item.changesRequestedBy?.includes(r.login));
+  return [
+    since && lastHuman?.role === 'reporter' && lastHuman.at > since && 'author replied',
+    since && item.lastCommitAt > since && 'author pushed',
+    reRequested && 'review re-requested',
+  ].filter(Boolean);
+}
+
 // Candidate tasks for one item: [{ kind, base, reasons: [] }]. The best one wins.
 function candidates(item, now) {
   const out = [];
-  const conv = item.conversation ?? { waitingOn: 'team', teamReplied: false, since: item.createdAt };
+  const conv = conversationOf(item);
   const waited = days(conv.since, now);
   const age = days(item.createdAt, now);
   const verdict = item.triage?.verification?.outcome;
@@ -104,18 +120,8 @@ function candidates(item, now) {
       if (waited >= 60) out.push({ kind: 'nudge', base: 25, oncall: true, reasons: [...reasons, `idle ${waited}d`] });
       else out.push({ kind: 'nudge', base: 25, reasons });
     }
-    if (item.reviewDecision === 'CHANGES_REQUESTED') {
-      const since = item.changesRequestedAt;
-      const requests = item.reviewRequests ?? [];
-      // GitHub drops a reviewer from reviewRequests when they review, so finding them there again means a re-request.
-      const reRequested = requests.some((r) => item.changesRequestedBy?.includes(r.login));
-      const reasons = [
-        since && conv.lastHuman?.role === 'reporter' && conv.lastHuman.at > since && 'author replied',
-        since && item.lastCommitAt > since && 'author pushed',
-        reRequested && 'review re-requested',
-      ].filter(Boolean);
-      if (reasons.length) out.push({ kind: 're-review', base: 56, reasons, oncall: !item.assignees.length && !requests.length });
-    }
+    const reReview = reReviewReasons(item);
+    if (reReview.length) out.push({ kind: 're-review', base: 56, reasons: reReview, oncall: !item.assignees.length && !(item.reviewRequests ?? []).length });
     if (item.reviewDecision === 'CHANGES_REQUESTED' && conv.waitingOn === 'reporter' && waited >= 60)
       out.push({ kind: 'close', base: 15, reasons: [`no activity ${waited}d`] });
   }

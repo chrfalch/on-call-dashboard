@@ -5,7 +5,7 @@ import { applyPlan, hasPending, recDisagrees, recFor, recIsNextStep, recLabel, r
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, TASK_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
-import { findItem, parseItemNumber, quickOpenFilters } from './quick-open.js';
+import { findItem, parseItemNumber } from './quick-open.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -83,6 +83,8 @@ function readHash() {
     else if (typeof def === 'boolean') f[k] = v === '1';
     else f[k] = v;
   }
+  // The Issues and PRs list pages are gone; old links with tab=issue|pr open the Inbox.
+  f.tab = 'inbox';
   if (!activeView(f)) f.view = '';
   return f;
 }
@@ -299,7 +301,7 @@ function render() {
   renderSdkFilter();
 
   const visible = visibleItems();
-  const tabCount = (tab) => shownItems().filter((i) => matches(i, { ...filters, tab })).length;
+  const tabCount = (type) => data.items.filter((i) => i.type === type).length;
   $('#count-issue').textContent = tabCount('issue');
   $('#count-pr').textContent = tabCount('pr');
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab));
@@ -1087,8 +1089,12 @@ function taskHtml(t, idx) {
     .map((n) => `<a class="fix-pr" href="https://github.com/${data.repo}/pull/${n}" target="_blank" rel="noreferrer" ${tipAttr(CHIP_TIPS.fixPr)}>🔧 #${n}</a>`)
     .join('');
   const hidden = isHidden(t, inboxState);
+  const reasonLabel = (name) => {
+    const l = data.labels.find((x) => x.name === name);
+    return labelHtml({ name, color: l?.color }, { title: tooltip(CHIP_TIPS.label, l?.description || 'GitHub label.') });
+  };
   const reasons = t.reasons
-    .map((r) => (r.label ? labelHtml({ name: r.label, color: data.labels.find((l) => l.name === r.label)?.color }) : `<span class="reason" ${tipAttr(CHIP_TIPS.reason)}>${esc(r.text)}</span>`))
+    .map((r) => (r.label ? reasonLabel(r.label) : `<span class="reason" ${tipAttr(CHIP_TIPS.reason)}>${esc(r.text)}</span>`))
     .join('');
   const also = t.also.length ? `<span class="muted" ${tipAttr(CHIP_TIPS.also)}>also: ${t.also.map((k) => esc(TASK_KINDS[k].label.toLowerCase())).join(', ')}</span>` : '';
   const isBusy = busy.has(t.item.number);
@@ -1327,12 +1333,7 @@ document.addEventListener('click', (e) => {
   if (!t.closest('#sdk-menu')) $('#sdk-menu').open = false;
   const viewButton = t.closest('[data-view]');
   if (viewButton) return selectView(viewButton.dataset.view);
-  // Labels/assignees clicked inside the inbox jump to the matching list view.
-  const taskRow = t.closest('[data-task]');
-  if (taskRow && t.closest('.AssigneeChip, .IssueLabel')) {
-    const item = data.items.find((i) => i.number === Number(taskRow.dataset.task.split(':')[0]));
-    filters = { ...DEFAULT_FILTERS, tab: item.type, hideUnsupportedSdks: filters.hideUnsupportedSdks };
-  }
+  if (t.closest('[data-task] .AssigneeChip, [data-task] .IssueLabel')) return e.preventDefault();
   const chip = t.closest('.AssigneeChip');
   if (chip) {
     e.preventDefault();
@@ -1357,7 +1358,7 @@ document.addEventListener('click', (e) => {
   const tab = t.closest('.tab');
   if (tab) {
     e.preventDefault();
-    filters = { ...filters, tab: tab.dataset.tab, view: '', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', staleDays: 0, newerThanDays: 0 };
+    filters = { ...filters, tab: 'inbox', view: '', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', staleDays: 0, newerThanDays: 0 };
     selected.clear();
     shown = PAGE;
     return render();
@@ -1498,10 +1499,7 @@ $('#quick-open-dialog form').addEventListener('submit', (e) => {
   const item = findItem(data.items, n);
   if (!item) return quickOpenMessage(`#${n} is not open in the dashboard. <a href="https://github.com/${data.repo}/issues/${n}" target="_blank" rel="noreferrer">Open it on GitHub</a>`);
   $('#quick-open-dialog').close();
-  filters = quickOpenFilters(filters, DEFAULT_FILTERS, item);
-  selected.clear();
-  shown = PAGE;
-  render();
+  window.open(item.url, '_blank', 'noopener');
 });
 $('#quick-open-cancel').addEventListener('click', () => $('#quick-open-dialog').close());
 window.addEventListener('hashchange', () => { filters = readHash(); render(); });

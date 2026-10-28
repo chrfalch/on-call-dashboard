@@ -21,7 +21,7 @@ const DEFAULT_FILTERS = {
   inboxMode: 'oncall',
   state: '',
   cleanup: '',
-  inboxOthers: false,
+  inboxOthers: true,
   inboxHidden: false,
   q: '',
   minSeverity: 0,

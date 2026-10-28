@@ -11,6 +11,7 @@ export const TASK_KINDS = {
   'first-response': { label: 'First response', icon: 'alert', tone: 'danger', action: 'open', oncall: true },
   verify: { label: 'Verify new issue', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
   review: { label: 'Review PR', icon: 'eye', tone: 'attention', action: 'open', oncall: false },
+  're-review': { label: 'Re-review', icon: 'eye', tone: 'attention', action: 'open', oncall: false },
   'bot-review': { label: 'Request bot review', icon: 'bot', tone: 'attention', action: 'command', oncall: true },
   'human-review': { label: 'Ready for human review', icon: 'eye', tone: 'attention', action: 'open', oncall: true },
   'fix-severity': { label: 'Fix severity', icon: 'tag', tone: 'attention', action: 'apply-severity', oncall: true },
@@ -103,6 +104,18 @@ function candidates(item, now) {
       if (waited >= 60) out.push({ kind: 'nudge', base: 25, oncall: true, reasons: [...reasons, `idle ${waited}d`] });
       else out.push({ kind: 'nudge', base: 25, reasons });
     }
+    if (item.reviewDecision === 'CHANGES_REQUESTED') {
+      const since = item.changesRequestedAt;
+      const requests = item.reviewRequests ?? [];
+      // GitHub drops a reviewer from reviewRequests when they review, so finding them there again means a re-request.
+      const reRequested = requests.some((r) => item.changesRequestedBy?.includes(r.login));
+      const reasons = [
+        since && conv.lastHuman?.role === 'reporter' && conv.lastHuman.at > since && 'author replied',
+        since && item.lastCommitAt > since && 'author pushed',
+        reRequested && 'review re-requested',
+      ].filter(Boolean);
+      if (reasons.length) out.push({ kind: 're-review', base: 56, reasons, oncall: !item.assignees.length && !requests.length });
+    }
     if (item.reviewDecision === 'CHANGES_REQUESTED' && conv.waitingOn === 'reporter' && waited >= 60)
       out.push({ kind: 'close', base: 15, reasons: [`no activity ${waited}d`] });
   }
@@ -139,7 +152,7 @@ function modifiers(item, now, me, mode) {
     if (assignedToMe) reasons.unshift({ text: 'assigned to you' });
     else if (reviewRequested) reasons.unshift({ text: 'your review requested' });
   }
-  return { bonus, reasons, mine: assignedToMe || reviewRequested, assigned: item.assignees.length > 0 };
+  return { bonus, reasons, mine: assignedToMe || reviewRequested, reviewRequested, assigned: item.assignees.length > 0 };
 }
 
 // mode 'oncall': only on-call task kinds; `includeAssigned` keeps items that
@@ -177,7 +190,7 @@ export function computeTasks(items, { me = null, now = Date.now(), mode = 'oncal
       key: `${item.number}:${best.kind}`,
       kind: best.kind,
       item,
-      score: best.base + mod.bonus,
+      score: best.base + mod.bonus + (best.kind === 're-review' && mod.reviewRequested ? 10 : 0),
       reasons: [...(best.reasons ?? []).map((text) => ({ text })), ...mod.reasons],
       also: ranked.slice(1).map((c) => c.kind),
       mine: mod.mine,

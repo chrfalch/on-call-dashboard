@@ -1163,6 +1163,8 @@ async function doTask(t) {
     openCloseDialog(t.item.type, undefined, filters.cleanup === 'C4' ? 'Unsupported SDK' : undefined);
   } else if (action.kind === 'nudge') {
     openCommentDialog(t.item, `Hi @${t.item.author.login}, would you be able to address the requested changes? Thanks!`);
+  } else if (action.kind === 'comment') {
+    openCommentDialog(t.item, action.body);
   } else {
     window.open(action.url ?? t.item.url, '_blank', 'noopener');
   }

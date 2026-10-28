@@ -1,6 +1,6 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
-import { conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, PARKED, reReviewReasons } from './inbox.js';
+import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, PARKED, reReviewReasons } from './inbox.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
 
@@ -42,6 +42,7 @@ export const CLEANUP_FILTERS = [
   { id: 'C8', label: 'Owner silent' },
   { id: 'C9', label: 'Approved but cannot land' },
   { id: 'C10', label: 'Stuck waiting for the bot' },
+  { id: 'C11', label: 'PR without an issue' },
 ];
 
 const STATE_BY_ID = Object.fromEntries(STATES.map((state) => [state.id, state]));
@@ -137,6 +138,7 @@ export const cleanupFilters = (item, ctx) => Object.keys(CLEANUP).filter((id) =>
 export function cleanupAction(item, id) {
   if (id === 'C1') return { kind: 'open', label: 'Reply' };
   if (['C2', 'C3', 'C4', 'C7'].includes(id)) return { kind: 'close', label: 'Close…' };
+  if (id === 'C11') return { kind: 'comment', label: 'Ask for an issue', body: ASK_FOR_ISSUE };
   if (id !== 'C10') return openAction;
   const { bot = {} } = item;
   const command = !bot.botRepliedAfterCommand && bot.lastCommand;

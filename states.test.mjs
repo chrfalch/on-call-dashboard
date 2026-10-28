@@ -522,6 +522,7 @@ test('CLEANUP_FILTERS skips C6', () => {
     ['C8', 'Owner silent'],
     ['C9', 'Approved but cannot land'],
     ['C10', 'Stuck waiting for the bot'],
+    ['C11', 'PR without an issue'],
   ]);
 });
 
@@ -586,6 +587,10 @@ test('cleanupAction: C10 re-posts the unanswered bot command', () => {
 test('cleanupAction: C10 re-posts the review when that is what the bot owes', () => {
   const bot = { lastCommand: command('verify', daysAgo(1)), botRepliedAfterCommand: true, lastReview: command('review', daysAgo(3)), botRepliedAfterReview: false };
   assert.equal(cleanupAction(pr({ bot }), 'C10').body, '@expo-bot review');
+});
+
+test('cleanupAction: C11 asks the author to link an issue', () => {
+  assert.deepEqual(cleanupAction(pr(), 'C11'), { kind: 'comment', label: 'Ask for an issue', body: ASK_FOR_ISSUE });
 });
 
 const rowOpts = { now: NOW, me: 'me', mode: 'oncall', unsupportedSdks: new Set(['sdk-50']) };

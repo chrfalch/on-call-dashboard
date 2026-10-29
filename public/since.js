@@ -67,7 +67,8 @@ export const skipKey = (item) => `${item.type}#${item.number}`;
 
 // Groups "mine", "issues" and "prs", always in that order; a group can be empty.
 // `skipped` maps skipKey to the skip time in ms; a row returns when its activity is newer.
-export function sinceGroups(items, { now = Date.now(), me = null, skipped = {} } = {}) {
+// New issues and PRs leave out items opened by the team unless `includeInternal`; my items keep them.
+export function sinceGroups(items, { now = Date.now(), me = null, skipped = {}, includeInternal = false } = {}) {
   const start = sinceStart(now).getTime();
   const row = (item, event) => {
     const stateId = stateOf(item);
@@ -84,7 +85,7 @@ export function sinceGroups(items, { now = Date.now(), me = null, skipped = {} }
   const inMine = new Set(mine.map((r) => r.item));
   const created = (type, what) =>
     open
-      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && !isMine(item, me) && !inMine.has(item))
+      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && (includeInternal || !isTeam(item.authorAssociation)) && !isMine(item, me) && !inMine.has(item))
       .map((item) => row(item, { at: item.createdAt, what }))
       .sort((a, b) => Number(a.open) - Number(b.open) || Number(!!b.action) - Number(!!a.action) || newestFirst(a, b));
 

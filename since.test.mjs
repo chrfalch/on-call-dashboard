@@ -252,11 +252,36 @@ test('new items: comments from the community or bots do not exclude', () => {
 
 test('new items: a comment from the team author excludes the item', () => {
   const item = pr({ author: { login: 'colleague' }, authorAssociation: 'MEMBER', comments: [comment('colleague', hoursAgo(2), { association: 'MEMBER' })] });
-  assert.deepEqual(groups([item]).prs, []);
+  assert.deepEqual(groups([item], { includeInternal: true }).prs, []);
 });
 
-test('new items: a team author alone does not exclude', () => {
-  assert.equal(groups([pr({ author: { login: 'colleague' }, authorAssociation: 'MEMBER' })]).prs.length, 1);
+test('new items: a team author alone does not exclude when internal authors are included', () => {
+  assert.equal(groups([pr({ author: { login: 'colleague' }, authorAssociation: 'MEMBER' })], { includeInternal: true }).prs.length, 1);
+});
+
+test('new items: internal authors are hidden by default', () => {
+  const items = ['MEMBER', 'OWNER', 'COLLABORATOR'].map((authorAssociation, i) => issue({ number: i + 1, author: { login: 'colleague' }, authorAssociation }));
+  assert.deepEqual(groups([...items, pr({ number: 4, author: { login: 'colleague' }, authorAssociation: 'MEMBER' })]), { mine: [], issues: [], prs: [] });
+});
+
+test('new items: internal authors show when included', () => {
+  const items = ['MEMBER', 'OWNER', 'COLLABORATOR'].map((authorAssociation, i) => issue({ number: i + 1, author: { login: 'colleague' }, authorAssociation }));
+  const { issues, prs } = groups([...items, pr({ number: 4, author: { login: 'colleague' }, authorAssociation: 'MEMBER' })], { includeInternal: true });
+  assert.deepEqual(numbers(issues), [1, 2, 3]);
+  assert.deepEqual(numbers(prs), [4]);
+});
+
+test('new items: outside authors show by default', () => {
+  const associations = ['CONTRIBUTOR', 'NONE', 'FIRST_TIME_CONTRIBUTOR'];
+  const items = associations.flatMap((authorAssociation, i) => [issue({ number: i + 1, authorAssociation }), pr({ number: i + 11, authorAssociation })]);
+  const { issues, prs } = groups(items);
+  assert.deepEqual(numbers(issues).sort(), [1, 2, 3]);
+  assert.deepEqual(numbers(prs).sort(), [11, 12, 13]);
+});
+
+test('my items: an internal author does not hide the item', () => {
+  const item = issue({ ...assignedToMe, author: { login: 'colleague' }, authorAssociation: 'MEMBER', comments: [comment('someone', hoursAgo(2))] });
+  assert.deepEqual(numbers(groups([item]).mine), [1]);
 });
 
 test('new items: assigned to someone else stays, after the unassigned rows, with Open', () => {

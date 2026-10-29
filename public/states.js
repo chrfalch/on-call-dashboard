@@ -1,6 +1,6 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
-import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, PARKED, reReviewReasons } from './inbox.js';
+import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
 
@@ -57,7 +57,7 @@ function issueState(item) {
   if (hasFixPr(item, 'OPEN')) return 'I8';
   const { assessment, verification } = item.triage ?? {};
   if (verification?.outcome === 'problem' || hasLabel(item, 'Issue accepted')) return item.assignees.length ? 'I7' : 'I6';
-  if (verification?.outcome === 'pass') return 'I5';
+  if (notReproduced(item)) return 'I5';
   if (item.conversation?.waitingOn === 'reporter' || hasLabel(item, 'needs more info')) return 'I4';
   if (assessment && (!verification || verification.outcome === 'blocked')) return 'I3';
   const command = item.bot?.lastCommand?.command;
@@ -129,7 +129,7 @@ const CLEANUP = {
     const parked = PARKED.some((l) => hasLabel(item, l));
     return item.type === 'issue' && conv.waitingOn === 'reporter' && atLeast(conv.since, 14, now) && !hasFixPr(item, 'OPEN') && !parked;
   },
-  C3: (item, { now }) => item.triage?.verification?.outcome === 'pass' && atLeast(item.triage.verification.at, 7, now),
+  C3: (item, { now }) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, now),
   C4: (item, { unsupportedSdks }) => isUnsupportedSdk(item, unsupportedSdks),
   C5: (item, ctx) => item.type === unlabeledUnowned.scope && unlabeledUnowned.match(item, ctx),
   C7: (item, { now }) => stateOf(item) === 'P4' && atLeast(item.changesRequestedAt, 21, now),

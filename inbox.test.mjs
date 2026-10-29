@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeTasks, isHidden, listedTasks, needsBotTriage, PLATFORM_LABEL, TASK_KINDS } from './public/inbox.js';
+import { computeTasks, isHidden, listedTasks, needsBotTriage, notReproduced, PLATFORM_LABEL, TASK_KINDS } from './public/inbox.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -164,7 +164,7 @@ test('close candidate ranks above stale close', () => {
 
 test('open fix PR blocks stale close; closed or non-fix PRs do not', () => {
   const stale = { createdAt: daysAgo(200), conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(30) } };
-  const passed = { createdAt: daysAgo(200), triage: { verification: { outcome: 'pass' } }, conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(30) } };
+  const passed = { createdAt: daysAgo(200), triage: { verification: { outcome: 'pass', headline: 'not reproduced.' } }, conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(30) } };
   const open = linkedPr(10, { state: 'OPEN', mergedAt: null });
   for (const base of [stale, passed]) {
     assert.ok(!kinds(one(issue({ ...base, linkedPrs: [open] }))).includes('close'));
@@ -210,6 +210,23 @@ test('PRs: merge, bot review first, then human review', () => {
   assert.equal(one(pr({ ...mine, ...botReview(false) }), all), undefined);
   assert.equal(one(pr({ ...mine, ...botReview(true) }), all).kind, 'review');
   assert.equal(one(pr({ ...mine, isDraft: true, reviewDecision: 'APPROVED' }), all), undefined);
+});
+
+test('a bot pass closes only when the write-up says "not reproduced"', () => {
+  const passed = (headline) => issue({ createdAt: daysAgo(200), triage: { verification: { outcome: 'pass', headline } }, conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(30) } });
+  assert.ok(kinds(one(passed('Crash not reproduced.'))).includes('close'));
+  assert.ok(!kinds(one(passed('cannot verify in this environment.'))).includes('close'));
+  assert.ok(!kinds(one(passed(null))).includes('close'));
+});
+
+test('notReproduced: a pass whose write-up says the bug did not reproduce', () => {
+  const v = (outcome, headline) => ({ triage: { verification: { outcome, headline } } });
+  assert.equal(notReproduced(v('pass', 'not reproduced.')), true);
+  assert.equal(notReproduced(v('pass', 'The crash did not reproduce.')), true);
+  assert.equal(notReproduced(v('pass', 'Reproduced and fixed.')), false);
+  assert.equal(notReproduced(v('pass', 'cannot verify in this environment.')), false);
+  assert.equal(notReproduced(v('problem', 'not reproduced.')), false);
+  assert.equal(notReproduced({}), false);
 });
 
 test('close-candidate scores 45 before bonuses', () => {

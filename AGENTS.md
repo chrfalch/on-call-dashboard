@@ -18,6 +18,11 @@ dependencies, no build step.
   `POST /api/refresh` (`?wait=1` answers after a sync that started after the
   request), `POST /api/recommendations`, static files from `public/`.
   Keeps closed issues and PRs for 7 days after they close.
+  Each item keeps `comments` ({login, association, at}, and `review` with the
+  review state for a PR review) from the last 30 comments and the PR's latest
+  reviews, and `assignedEvents` ({login, at}, the last 10 assignments). A PR
+  also keeps `lastCommitBy`, the login of the last commit's author (null
+  when GitHub does not know the user).
   After each sync it fetches the issues and PRs created or closed in the last
   9 days (raw timestamps for the trend tiles) into
   `.cache/trends-<owner>-<name>.json`. Recommendations run
@@ -42,6 +47,8 @@ dependencies, no build step.
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
+- `public/people.js` — `isBot` and `isTeam`, which tell who wrote a comment.
+  `triage.mjs` re-exports them, so the server and the browser share one copy.
 - `sync-runner.mjs` — runs one sync at a time; `runAndWait` waits for a
   follow-up sync when one is already running. Tested by `sync-runner.test.mjs`.
 - `closed-items.mjs` — pure retention helper (`dropOldClosed`): keeps closed
@@ -84,11 +91,24 @@ dependencies, no build step.
   (`parseItemNumber`, `findItem`): read a typed issue or PR number and find
   the item. The box opens the item on GitHub in a new tab. Shared by
   browser and Node; tested by `quick-open.test.mjs`.
+- `public/since.js` — pure helpers for the Inbox "Since last time" section
+  (`sinceStart`, `sinceGroups`, `sinceButtons`, `skipKey`, `withSkip`,
+  `parseSkipped`). The window starts at local midnight yesterday, or on
+  Friday on a Monday. "My items" are open items assigned to the viewer with
+  a comment, review or commit from someone else after the viewer's last
+  comment, review or assignment. A commit counts only when `lastCommitBy` is
+  known and is not the viewer or a bot. "New issues" and "New PRs" are open
+  items created in the window with no comment or review from a team member
+  (the author too) and not assigned to the viewer. Items assigned to someone
+  else stay, sorted after the unassigned ones, with an Open button.
+  Activity never comes from `updatedAt`.
+  Shared by browser and Node; tested by `since.test.mjs`.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
   actions. The Inbox is the only page; the header shows the total open issues
   and PRs without filters. The Inbox has two tabs, "On-call inbox" and "My
   Work". Workflow state chips, in an Issues group and a PRs group, and
-  Cleanup chips sit beside the trend tiles. The agent runs only when the user
+  Cleanup chips sit beside the trend tiles. The "Since last time" section
+  sits below the tiles. The agent runs only when the user
   clicks "Ask agent…" on an open row, with the standard prompt or their own
   question; the answer shows on that row. The list-page code (`renderViews` and the Runbook
   view cards) stays but is not reachable.
@@ -109,6 +129,10 @@ dependencies, no build step.
 - Per-browser state lives in localStorage keys `ghToken`, `inboxState`,
   `collapsedGroups`, `commandsCollapsed` (the Runbook cards),
   `unsupportedSdks` (a JSON array of the SDK labels marked unsupported),
-  `inboxDoneLog:<YYYY-MM-DD>` (a JSON array of {number, type} for that local day).
-  Filter state, including the active view (`view=<id>`) and
-  `hideUnsupportedSdks=0`, lives in the URL hash.
+  `inboxDoneLog:<YYYY-MM-DD>` (a JSON array of {number, type} for that local day),
+  `sinceSkipped` (a JSON map from `<type>#<number>` to the skip time in ms;
+  entries older than 30 days are dropped).
+  Filter state, including the active view (`view=<id>`),
+  `hideUnsupportedSdks=0` and the "Since last time" tab
+  (`sinceTab=<mine|issues|prs>`, default `issues`) and list visibility
+  (`sinceOpen=1`, default hidden), lives in the URL hash.

@@ -1,0 +1,96 @@
+// "Since last time": what changed on open issues and PRs since the on-call person last looked.
+// Pure functions only (no DOM). Activity never comes from the item's update time: one bulk edit moves it on many items.
+import { isBot, isTeam } from './people.js';
+import { isOpen, rowKey, stateAction, stateOf } from './states.js';
+
+const SKIP_DAYS = 30;
+const time = (iso) => new Date(iso).getTime();
+const newestFirst = (a, b) => time(b.at) - time(a.at);
+
+// Local midnight at the start of yesterday; on a Monday, at the start of the previous Friday.
+export function sinceStart(now) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (start.getDay() === 1 ? 3 : 1));
+  return start;
+}
+
+const REVIEW_TEXT = { APPROVED: 'approved', CHANGES_REQUESTED: 'requested changes' };
+const commentEvent = (c) => ({ at: c.at, what: `@${c.login} ${c.review ? REVIEW_TEXT[c.review] ?? 'reviewed' : 'replied'}` });
+
+const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
+
+// The newest comment, review or commit by someone else after my last comment, review or assignment.
+function myItemEvent(item, me, start) {
+  const comments = item.comments ?? [];
+  const touches = [
+    ...comments.filter((c) => c.login === me).map((c) => time(c.at)),
+    ...(item.assignedEvents ?? []).filter((e) => e.login === me).map((e) => time(e.at)),
+  ];
+  const lastTouch = touches.length ? Math.max(...touches) : start;
+  const byOthers = (login) => login !== me && !isBot(login);
+  const events = [
+    ...comments.filter((c) => byOthers(c.login)).map(commentEvent),
+    ...(item.lastCommitAt && byOthers(item.lastCommitBy) ? [{ at: item.lastCommitAt, what: 'new commit' }] : []),
+  ];
+  return events.filter((e) => time(e.at) > lastTouch).sort(newestFirst)[0] ?? null;
+}
+
+const teamActed = (item) => (item.comments ?? []).some((c) => isTeam(c.association) && !isBot(c.login));
+
+// `action` is the state's one-click action; Assign when nobody owns the item, Open when someone else does.
+export function sinceButtons(item, { me = null, now = Date.now(), stateId = stateOf(item) } = {}) {
+  const action = stateAction(item, stateId, { now });
+  const assigned = item.assignees.length > 0;
+  return {
+    action: action?.kind === 'open' ? null : action,
+    assign: !!me && !assigned,
+    open: assigned && !isMine(item, me),
+  };
+}
+
+export const skipKey = (item) => `${item.type}#${item.number}`;
+
+// Groups "mine", "issues" and "prs", always in that order; a group can be empty.
+// `skipped` maps skipKey to the skip time in ms; a row returns when its activity is newer.
+export function sinceGroups(items, { now = Date.now(), me = null, skipped = {} } = {}) {
+  const start = sinceStart(now).getTime();
+  const row = (item, event) => {
+    const stateId = stateOf(item);
+    return { key: rowKey(item, stateId), item, ...event, ...sinceButtons(item, { me, now, stateId }) };
+  };
+  const shown = (rows) => rows.filter((r) => !(skipped[skipKey(r.item)] >= time(r.at)));
+  const open = items.filter(isOpen);
+
+  const mine = open.flatMap((item) => {
+    const event = isMine(item, me) && myItemEvent(item, me, start);
+    return event ? [row(item, event)] : [];
+  });
+  const created = (type, what) =>
+    open
+      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && !isMine(item, me))
+      .map((item) => row(item, { at: item.createdAt, what }))
+      .sort((a, b) => Number(a.open) - Number(b.open) || Number(!!b.action) - Number(!!a.action) || newestFirst(a, b));
+
+  return [
+    { id: 'mine', label: 'My items', rows: shown(mine.sort(newestFirst)) },
+    { id: 'issues', label: 'New issues', rows: shown(created('issue', 'new issue')) },
+    { id: 'prs', label: 'New PRs', rows: shown(created('pr', 'new PR')) },
+  ];
+}
+
+export function withSkip(skipped, item, now) {
+  const cutoff = now - SKIP_DAYS * 864e5;
+  const kept = Object.entries(skipped).filter(([, at]) => at >= cutoff);
+  return { ...Object.fromEntries(kept), [skipKey(item)]: now };
+}
+
+export function parseSkipped(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, at]) => typeof at === 'number'));
+  } catch {
+    return {};
+  }
+}

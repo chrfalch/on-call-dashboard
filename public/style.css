@@ -380,17 +380,41 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
   background: var(--bg-muted); border: 1px solid var(--border-muted); font-variant-numeric: tabular-nums;
 }
 .task-actions { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 140px; }
-.task-actions .btn {
+.task-actions .btn, .since-actions .btn {
   justify-content: center; gap: 4px; padding: 1px 8px; font-size: 12px; font-weight: 400;
   background: transparent; border-color: var(--border); color: var(--fg-muted); box-shadow: none;
 }
-.task-actions .btn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); filter: none; }
+.task-actions .btn:hover:not(:disabled), .since-actions .btn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); filter: none; }
 .task-actions .btn .octicon { width: 12px; height: 12px; }
-.task-actions .btn-main { color: var(--success); border-color: var(--success); font-weight: 600; }
-.task-actions .btn-main:hover:not(:disabled) { color: var(--success); background: var(--bg-muted); }
-.task-actions .btn-danger { color: var(--danger); }
-.task-actions a.btn:hover { text-decoration: none; }
+.task-actions .btn-main, .since-actions .btn-main { color: var(--success); border-color: var(--success); font-weight: 600; }
+.task-actions .btn-main:hover:not(:disabled), .since-actions .btn-main:hover:not(:disabled) { color: var(--success); background: var(--bg-muted); }
+.task-actions .btn-danger, .since-actions .btn-danger { color: var(--danger); }
+.task-actions a.btn:hover, .since-actions a.btn:hover { text-decoration: none; }
 .task-secondary { display: flex; flex-direction: column; gap: 4px; }
+
+/* Since last time */
+.since { margin-top: 16px; }
+.since-title { margin: 0; font-size: 14px; }
+.since-title .muted { font-weight: 400; }
+.since-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.since-toggle, .since-tab { all: unset; cursor: pointer; }
+.since-toggle { color: var(--accent); }
+.since-toggle:hover { text-decoration: underline; }
+.since-toggle:focus-visible, .since-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.since-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border-muted); margin-bottom: 8px; }
+.since-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px 8px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.since-tab:hover { border-bottom-color: var(--border); }
+.since-tab.selected { border-bottom-color: #fd8c73; font-weight: 600; }
+.since-list { list-style: none; margin: 0; padding: 0; }
+.since-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border-muted); font-size: 13px; }
+.since-row:last-child { border-bottom: 0; }
+.since-item { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--fg); }
+.since-item:hover { color: var(--accent); text-decoration: none; }
+.since-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.since-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.since-all { margin-top: 6px; }
+/* Full width puts the labels on their own line; the indent lines them up with the title after the icon. */
+.since-labels { flex: 1 0 100%; margin-top: 0; padding-left: 24px; }
 .task-secondary .btn { flex: 1; }
 
 /* Dialog */

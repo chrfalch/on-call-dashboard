@@ -8,6 +8,7 @@ import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
 import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
+import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -44,8 +45,10 @@ const DEFAULT_FILTERS = {
   newerThanDays: 0,
   view: '',
   hideUnsupportedSdks: true,
+  sinceTab: 'issues',
+  sinceOpen: false,
 };
-const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks'];
+const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks', 'sinceTab', 'sinceOpen'];
 
 let data = { items: [], labels: [] };
 let filters = readHash();
@@ -1063,6 +1066,7 @@ function renderInbox() {
   const hidden = (key) => rowHidden({ key });
   const options = { now, me: me?.login, mode, includeAssigned: filters.inboxOthers, unsupportedSdks, hideUnsupported: filters.hideUnsupportedSdks };
   if (filters.tab !== 'inbox') return;
+  renderSince();
 
   $('#inbox-title').textContent = mode === 'mine' ? 'My Work' : 'On-call inbox';
   $('#inbox-mode-desc').textContent = MODES[mode];
@@ -1108,8 +1112,12 @@ function taskActionButton(t) {
   const action = taskAction(t);
   if (!action) return '';
   if (action.kind === 'open') return `<a class="btn btn-sm btn-main" href="${esc(action.url ?? t.item.url)}" target="_blank" rel="noreferrer">${esc(action.label)} ↗</a>`;
+  return actionButton(t, action, `data-task-do="${esc(t.key)}"`);
+}
+
+function actionButton(t, action, attrs) {
   const posted = action.kind === 'command' && isPosted(t.item.number, taskCommand(action));
-  return `<button class="btn btn-sm ${action.kind === 'close' ? 'btn-danger' : 'btn-main'}" data-task-do="${esc(t.key)}"${posted ? ' disabled' : ''}>${posted ? '✓ Requested' : esc(action.label)}</button>`;
+  return `<button class="btn btn-sm ${action.kind === 'close' ? 'btn-danger' : 'btn-main'}" ${attrs}${posted ? ' disabled' : ''}>${posted ? '✓ Requested' : esc(action.label)}</button>`;
 }
 
 function inboxMeta(i) {
@@ -1164,10 +1172,8 @@ function findTask(key) {
   return inboxVisible.find((t) => t.key === key);
 }
 
-async function doTask(t) {
-  if (!t || busy.has(t.item.number)) return;
-  const action = taskAction(t);
-  if (!action) return;
+async function doTask(t, action, closeTemplate) {
+  if (!t || !action || busy.has(t.item.number)) return;
   if (action.kind === 'command') {
     if (!requireToken()) return;
     const command = taskCommand(action);
@@ -1178,7 +1184,7 @@ async function doTask(t) {
     if (!severityMismatch(t.item)) markDone(t);
   } else if (action.kind === 'close') {
     selected = new Set([t.item.number]);
-    openCloseDialog(t.item.type, undefined, filters.cleanup === 'C4' ? 'Unsupported SDK' : undefined);
+    openCloseDialog(t.item.type, undefined, closeTemplate);
   } else if (action.kind === 'nudge') {
     openCommentDialog(t.item, `Hi @${t.item.author.login}, would you be able to address the requested changes? Thanks!`);
   } else if (action.kind === 'comment') {
@@ -1217,7 +1223,10 @@ function inboxClick(e) {
   const apply = t.closest('[data-rec-apply]');
   if (apply) return applyRec(findTask(apply.dataset.recApply));
   const go = t.closest('[data-task-do]');
-  if (go) return doTask(findTask(go.dataset.taskDo));
+  if (go) {
+    const task = findTask(go.dataset.taskDo);
+    return task && doTask(task, taskAction(task), filters.cleanup === 'C4' ? 'Unsupported SDK' : undefined);
+  }
   const row = t.closest('[data-task]');
   if (row && !t.closest('a, button')) {
     inboxFocus = inboxVisible.findIndex((x) => x.key === row.dataset.task);
@@ -1383,6 +1392,121 @@ async function postComment(item, body) {
   });
 }
 
+// ---------- since last time ----------
+
+const SINCE_ROWS = 10;
+const SINCE_COUNT_NOUNS = { mine: 'mine', issues: 'issues', prs: 'PRs' };
+let sinceSkipped = parseSkipped(localStorage.getItem('sinceSkipped'));
+const sinceExpanded = new Set(); // group ids that show every row
+let sinceVisible = [];
+
+function renderSince() {
+  const now = Date.now();
+  const groups = sinceGroups(data.items, { now, me: me?.login, skipped: sinceSkipped }).filter((group) => group.rows.length);
+  sinceVisible = groups.flatMap((group) => group.rows);
+  const day = sinceStart(now).toLocaleDateString(undefined, { weekday: 'long' });
+  $('#since').hidden = !data.items.length;
+  if (!groups.length) {
+    $('#since').innerHTML = `<p class="since-title muted">Nothing new since ${esc(day)}.</p>`;
+    return;
+  }
+  const selected = groups.find((group) => group.id === filters.sinceTab) ?? groups[0];
+  const open = filters.sinceOpen;
+  const counts = groups.map(({ id, rows }) => `${rows.length} ${SINCE_COUNT_NOUNS[id]}`).join(', ');
+  $('#since').innerHTML = `<div class="since-head">
+      <h2 class="since-title">Since last time <span class="muted">· from ${esc(day)} · ${esc(counts)}</span></h2>
+      <button class="since-toggle" data-since-open="${open ? '0' : '1'}" aria-expanded="${open}">${open ? 'Hide' : 'Show'}</button>
+    </div>
+    ${open ? `<div class="since-tabs" role="tablist">${groups
+      .map(({ id, label, rows }) => `<button class="since-tab${id === selected.id ? ' selected' : ''}" role="tab" aria-selected="${id === selected.id}" data-since-tab="${esc(id)}">${esc(label)} <span class="counter">${rows.length}</span></button>`)
+      .join('')}</div>
+    ${sinceListHtml(selected)}` : ''}`;
+}
+
+function sinceListHtml({ id, rows }) {
+  const shown = sinceExpanded.has(id) ? rows : rows.slice(0, SINCE_ROWS);
+  return `<ul class="Box since-list">${shown.map(sinceRowHtml).join('')}</ul>
+    ${rows.length > shown.length ? `<button class="btn btn-sm since-all" data-since-all="${esc(id)}">Show all ${rows.length}</button>` : ''}`;
+}
+
+function sinceRowHtml(row) {
+  const { item } = row;
+  const isBusy = busy.has(item.number);
+  return `<li class="since-row${isBusy ? ' busy' : ''}" data-since="${esc(row.key)}">
+    ${item.type === 'pr' ? icons.pr : icons.issue}
+    <a class="since-item" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
+    <span class="since-what muted">${esc(row.what)} ${esc(ago(row.at))}</span>
+    <span class="since-actions">
+      ${isBusy ? SPINNER : ''}
+      ${row.action ? actionButton(row, row.action, 'data-since-action="do"') : ''}
+      ${row.assign ? '<button class="btn btn-sm" data-since-action="assign">Assign to me</button>' : ''}
+      ${row.open ? `<a class="btn btn-sm" href="${esc(item.url)}" target="_blank" rel="noreferrer">Open ↗</a>` : ''}
+      <button class="btn btn-sm" data-since-action="skip" title="Hide this row until there is new activity">Skip</button>
+    </span>
+    <div class="task-labels since-labels">${item.assignees.map((a) => assigneeChipHtml(a, { filterable: false })).join('')}${item.labels.map((l) => labelHtml(l, { filterable: false })).join('')}</div>
+  </li>`;
+}
+
+function sinceClick(e) {
+  const tab = e.target.closest('[data-since-tab]');
+  const toggle = e.target.closest('[data-since-open]');
+  if (tab || toggle) {
+    // Picking a tab also shows its list.
+    if (tab) filters = { ...filters, sinceTab: tab.dataset.sinceTab, sinceOpen: true };
+    else filters = { ...filters, sinceOpen: toggle.dataset.sinceOpen === '1' };
+    writeHash();
+    return renderSince();
+  }
+  const showAll = e.target.closest('[data-since-all]');
+  if (showAll) {
+    sinceExpanded.add(showAll.dataset.sinceAll);
+    return renderSince();
+  }
+  const button = e.target.closest('[data-since-action]');
+  const row = button && sinceVisible.find((r) => r.key === button.closest('[data-since]').dataset.since);
+  if (!row) return;
+  const { sinceAction } = button.dataset;
+  if (sinceAction === 'do') return doTask(row, row.action);
+  if (sinceAction === 'assign') return assignToMe(row.item);
+  sinceSkipped = withSkip(sinceSkipped, row.item, Date.now());
+  localStorage.setItem('sinceSkipped', JSON.stringify(sinceSkipped));
+  renderSince();
+}
+
+async function assignToMe(item) {
+  if (!requireToken() || !me || busy.has(item.number)) return;
+  const { login } = me;
+  const path = `/repos/${data.repo}/issues/${item.number}/assignees`;
+  const body = JSON.stringify({ assignees: [login] });
+  try {
+    await whileBusy([item.number], () => gh(path, { method: 'POST', body }));
+  } catch (e) {
+    return toast(`Couldn't assign #${item.number}: ${e.message}`, { error: true });
+  }
+  const assigned = { login, at: new Date().toISOString() };
+  item.assignees = [...item.assignees, { login, avatarUrl: me.avatar_url }];
+  item.assignedEvents = [...(item.assignedEvents ?? []), assigned];
+  render();
+  refreshAfterSync();
+  toast(`Assigned #${item.number} to you`, {
+    undo: async () => {
+      if (busy.has(item.number)) return;
+      try {
+        await whileBusy([item.number], () => gh(path, { method: 'DELETE', body }));
+      } catch (e) {
+        return toast(`Couldn't unassign #${item.number}: ${e.message}`, { error: true });
+      }
+      // A sync after the assign may have replaced data.items; change the current object.
+      const current = data.items.find((i) => i.number === item.number) ?? item;
+      current.assignees = current.assignees.filter((person) => person.login !== login);
+      current.assignedEvents = (current.assignedEvents ?? []).filter((event) => event !== assigned);
+      render();
+      toast(`Unassigned #${item.number}`);
+      refreshAfterSync();
+    },
+  });
+}
+
 // ---------- events ----------
 
 document.addEventListener('click', (e) => {
@@ -1390,7 +1514,7 @@ document.addEventListener('click', (e) => {
   if (!t.closest('#sdk-menu')) $('#sdk-menu').open = false;
   const viewButton = t.closest('[data-view]');
   if (viewButton) return selectView(viewButton.dataset.view);
-  if (t.closest('[data-task] .AssigneeChip, [data-task] .IssueLabel')) return e.preventDefault();
+  if (t.closest('[data-task] .AssigneeChip, [data-task] .IssueLabel, [data-since] .AssigneeChip, [data-since] .IssueLabel')) return e.preventDefault();
   const chip = t.closest('.AssigneeChip');
   if (chip) {
     e.preventDefault();
@@ -1514,6 +1638,7 @@ $('#sdk-list').addEventListener('change', (e) => {
 $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
 $('#inbox-cleanup').addEventListener('click', inboxClick);
+$('#since').addEventListener('click', sinceClick);
 $('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
 $('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });
 

@@ -94,12 +94,12 @@ dependencies, no build step.
 - `public/since.js` — pure helpers for the Inbox "Since last time" section
   (`sinceStart`, `sinceGroups`, `sinceButtons`, `skipKey`, `withSkip`,
   `parseSkipped`). The window starts at local midnight yesterday, or on
-  Friday on a Monday. "My items" are open items assigned to the viewer with
-  a comment, review or commit from someone else after the viewer's last
+  Friday on a Monday. "My items" are open items assigned to the viewer, or
+  PRs that request the viewer's review, with a comment, review or commit from someone else after the viewer's last
   comment, review or assignment. A commit counts only when `lastCommitBy` is
   known and is not the viewer or a bot. "New issues" and "New PRs" are open
   items created in the window with no comment or review from a team member
-  (the author too) and not assigned to the viewer. Items assigned to someone
+  (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.
   Activity never comes from `updatedAt`.
   Shared by browser and Node; tested by `since.test.mjs`.

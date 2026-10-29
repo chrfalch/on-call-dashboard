@@ -122,7 +122,9 @@ export function withCommentLinks(issue, items, resolved) {
   const links = (issue.commentRefs ?? []).flatMap(({ number, by }) => {
     const pr = known(number, items, resolved);
     // expo-bot is a MEMBER, and it often names the PR that caused the bug.
-    return pr ? [{ ...pr, via: 'comment', by, fix: isTeam(by.association) && !isBot(by.login) }] : [];
+    // A PR merged before the issue opened cannot fix it; team comments name such PRs as history.
+    const mergedBefore = pr?.mergedAt && issue.createdAt && pr.mergedAt < issue.createdAt;
+    return pr ? [{ ...pr, via: 'comment', by, fix: isTeam(by.association) && !isBot(by.login) && !mergedBefore }] : [];
   });
   return { ...issue, linkedPrs: mergeCommentLinks(issue.linkedPrs.filter((pr) => !pr.via), links) };
 }

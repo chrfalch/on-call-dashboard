@@ -211,6 +211,12 @@ test('withCommentLinks marks a PR that expo-bot names as no fix, as #31955 on #3
   assert.deepEqual(withCommentLinks(issue, new Map(), new Map([[31955, facts(31955)]])).linkedPrs, [{ ...facts(31955), via: 'comment', by: by('expo-bot', 'MEMBER'), fix: false }]);
 });
 
+test('withCommentLinks marks a PR merged before the issue opened as no fix, as #28224 on #49359', () => {
+  const old = facts(28224, { mergedAt: '2024-04-23T20:10:27Z' });
+  const issue = { number: 49359, type: 'issue', createdAt: '2026-08-25T00:00:00Z', linkedPrs: [], commentRefs: [ref(28224)] };
+  assert.deepEqual(withCommentLinks(issue, new Map(), new Map([[28224, old]])).linkedPrs, [{ ...old, via: 'comment', by: by(), fix: false }]);
+});
+
 test('withCommentLinks marks a PR that a team member names as a fix', () => {
   for (const association of ['MEMBER', 'OWNER', 'COLLABORATOR']) {
     const issue = { number: 1, type: 'issue', linkedPrs: [], commentRefs: [{ number: 2, by: by('teammate', association) }] };

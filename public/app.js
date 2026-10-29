@@ -357,7 +357,11 @@ function itemParts(i, triageOpts) {
     if (i.isDraft) meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.draft)}>Draft</span>`);
     meta.push(checksHtml(i));
     if (i.reviewDecision === 'APPROVED') meta.push(`<span class="status approved" ${tipAttr(CHIP_TIPS.approved)}>${icons.check} Approved</span>`);
-    else if (i.reviewDecision === 'CHANGES_REQUESTED') meta.push(`<span class="status changes" ${tipAttr(CHIP_TIPS.changesRequested)}>Changes requested</span>`);
+    else if (i.reviewDecision === 'CHANGES_REQUESTED') {
+      const by = i.changesRequestedBy?.length ? ` by ${esc(i.changesRequestedBy.join(', '))}` : '';
+      const when = i.changesRequestedAt ? ` ${ago(i.changesRequestedAt)}` : '';
+      meta.push(`<span class="status changes" ${tipAttr(CHIP_TIPS.changesRequested)}>Changes requested${by}${when}</span>`);
+    }
     else if (i.reviewDecision === 'REVIEW_REQUIRED') meta.push(`<span class="status" ${tipAttr(CHIP_TIPS.reviewRequired)}>Review required</span>`);
     meta.push(conflictsHtml(i));
     for (const li of i.linkedIssues || []) {

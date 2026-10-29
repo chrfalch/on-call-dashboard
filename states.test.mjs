@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
-import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateOf } from './public/states.js';
+import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf } from './public/states.js';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -78,6 +78,38 @@ test('I8: an open fix PR', () => {
 
 test('I8 needs a fix PR: an open PR that only mentions the issue does not count', () => {
   assert.equal(state(issue({ labels: routed, linkedPrs: [linkedPr('OPEN', false)] })), 'I3');
+});
+
+test('stateLabel: I8 names the state of the cached fix PR', () => {
+  const prs = new Map([[10, changesRequested(2, { number: 10 })]]);
+  assert.equal(stateLabel(issue({ linkedPrs: [linkedPr('OPEN', true)] }), 'I8', prs), 'Fix in progress · changes requested');
+});
+
+test('stateLabel: I8 is plain when the fix PR is not cached or no map is given', () => {
+  const item = issue({ linkedPrs: [linkedPr('OPEN', true)] });
+  assert.equal(stateLabel(item, 'I8', new Map()), 'Fix in progress');
+  assert.equal(stateLabel(item, 'I8'), 'Fix in progress');
+});
+
+test('stateLabel: other states are plain', () => {
+  const prs = new Map([[10, changesRequested(2, { number: 10 })]]);
+  assert.equal(stateLabel(issue({ linkedPrs: [linkedPr('MERGED', true)] }), 'I9', prs), 'Fix merged');
+  assert.equal(stateLabel(changesRequested(), 'P4', prs), 'Changes requested');
+});
+
+test('stateLabel: I8 picks the first open fix PR and ignores PRs that only mention the issue', () => {
+  const prs = new Map([
+    [10, changesRequested(2, { number: 10 })],
+    [11, pr({ number: 11, isDraft: true })],
+    [12, pr({ number: 12, reviewDecision: 'APPROVED' })],
+  ]);
+  const linkedPrs = [
+    { ...linkedPr('OPEN', false), number: 10 },
+    { ...linkedPr('MERGED', true), number: 12 },
+    { ...linkedPr('OPEN', true), number: 11 },
+    { ...linkedPr('OPEN', true), number: 12 },
+  ];
+  assert.equal(stateLabel(issue({ linkedPrs }), 'I8', prs), 'Fix in progress · draft');
 });
 
 test('I8 beats I7: an open fix PR wins over accepted and assigned', () => {

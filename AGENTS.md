@@ -75,7 +75,9 @@ dependencies, no build step.
   each issue or PR one state (`STATES`, I1–I10 and P1–P10), and
   `cleanupFilters` gives the cleanup filters it meets (`CLEANUP_FILTERS`).
   `stateAction` and `cleanupAction` give the button for a row, and
-  `inboxRows` and `inboxCounts` give the rows and chip counts for a tab.
+  `stateLabel` its badge text; for I8 it adds the state of the open fix PR,
+  such as "Fix in progress · changes requested". `inboxRows` and
+  `inboxCounts` give the rows and chip counts for a tab.
   On-call mode keeps assigned items that are closed; open assigned items,
   cleanup chips included, show only with "Include already-assigned items",
   and `hideUnsupported` drops C4 rows everywhere except under the C4 chip.
@@ -99,8 +101,9 @@ dependencies, no build step.
   `parseSkipped`). The window starts at local midnight yesterday, or on
   Friday on a Monday. "My items" are open items assigned to the viewer, or
   PRs that request the viewer's review, with a comment, review or commit from someone else after the viewer's last
-  comment, review or assignment. A commit counts only when `lastCommitBy` is
-  known and is not the viewer or a bot. expo-bot's answer counts when the
+  comment, review or assignment. The viewer's comments and reviews on an
+  issue's fix PRs count as the viewer's comments on the issue. A commit
+  counts only when `lastCommitBy` is known and is not the viewer or a bot. expo-bot's answer counts when the
   viewer gave the last `review`, `triage` or `verify` command and the answer
   is newer than the viewer's last comment or review; a later assignment does
   not hide it. "New issues" and "New PRs" are open

@@ -29,9 +29,11 @@ const botFinished = (item, me) => {
 
 // The newest comment, review or commit by someone else after my last comment, review or assignment,
 // or the bot's answer to my command after my last comment or review: assigning myself does not mean I read it.
-function myItemEvent(item, me, start) {
+// My comments and reviews on an issue's fix PRs count as mine on the issue.
+function myItemEvent(item, me, start, prs) {
   const comments = item.comments ?? [];
-  const myComments = comments.filter((c) => c.login === me).map((c) => time(c.at));
+  const fixPrComments = (item.linkedPrs ?? []).filter((linked) => linked.fix === true).flatMap((linked) => prs.get(linked.number)?.comments ?? []);
+  const myComments = [...comments, ...fixPrComments].filter((c) => c.login === me).map((c) => time(c.at));
   const lastComment = myComments.length ? Math.max(...myComments) : start;
   const assigned = (item.assignedEvents ?? []).filter((e) => e.login === me).map((e) => time(e.at));
   const touches = [...myComments, ...assigned];
@@ -73,9 +75,10 @@ export function sinceGroups(items, { now = Date.now(), me = null, skipped = {} }
   };
   const shown = (rows) => rows.filter((r) => !(skipped[skipKey(r.item)] >= time(r.at)));
   const open = items.filter(isOpen);
+  const prs = new Map(items.filter((item) => item.type === 'pr').map((pr) => [pr.number, pr]));
 
   const mine = open.flatMap((item) => {
-    const event = (isMine(item, me) || awaitsMyReview(item, me)) && myItemEvent(item, me, start);
+    const event = (isMine(item, me) || awaitsMyReview(item, me)) && myItemEvent(item, me, start, prs);
     return event ? [row(item, event)] : [];
   });
   const inMine = new Set(mine.map((r) => r.item));

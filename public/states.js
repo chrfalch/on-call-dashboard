@@ -81,6 +81,15 @@ function prState(item) {
 
 export const stateOf = (item) => (item.type === 'pr' ? prState(item) : issueState(item));
 
+const openFixPr = (item) => (item.linkedPrs ?? []).find((linked) => linked.state === 'OPEN' && linked.fix === true);
+const labelOf = (stateId) => STATES.find((state) => state.id === stateId).label;
+
+// `prs` maps a PR number to its cached item, so a fix in progress can show where its PR stands.
+export function stateLabel(item, stateId, prs) {
+  const pr = stateId === 'I8' && prs?.get(openFixPr(item)?.number);
+  return pr ? `${labelOf(stateId)} · ${labelOf(stateOf(pr)).toLowerCase()}` : labelOf(stateId);
+}
+
 const openAction = { kind: 'open', label: 'Open' };
 
 export function stateAction(item, stateId, { now = Date.now() } = {}) {
@@ -92,7 +101,7 @@ export function stateAction(item, stateId, { now = Date.now() } = {}) {
     return { kind: 'apply-severity', label: `Apply ${item.triage.assessment.severity.label}` };
   }
   if (stateId === 'I8') {
-    const pr = (item.linkedPrs ?? []).find((linked) => linked.state === 'OPEN' && linked.fix === true);
+    const pr = openFixPr(item);
     const url = pr && (pr.url ?? item.url?.replace(/\/issues\/\d+$/, `/pull/${pr.number}`));
     return pr ? { kind: 'open', label: 'Open fix PR', url } : openAction;
   }

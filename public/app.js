@@ -6,7 +6,7 @@ import { weekTrend } from './trends.js';
 import { dayKey, parseLog, addDone, doneCounts, weekDone } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
-import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, cleanupAction, inboxRows, inboxCounts } from './states.js';
+import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
 
@@ -1096,8 +1096,9 @@ function renderInbox() {
     <div class="trend-caption">${done.issues} issues · ${done.prs} PRs</div>
     ${trendChart(doneDays, ['done'], `Done per day since Monday: ${doneDays.map((d) => d.done).join(', ')}`)}`;
 
+  const prs = new Map(items.filter((i) => i.type === 'pr').map((pr) => [pr.number, pr]));
   $('#inbox-list').innerHTML = inboxVisible.length
-    ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx)).join('')
+    ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx, prs)).join('')
     : `<li class="empty">${
         !data.items.length ? 'Loading from GitHub…' : mode === 'mine' && !me ? 'Sign in to see the items assigned to you.' : 'Inbox zero 🎉 Nothing left in this view.'
       }</li>`;
@@ -1134,7 +1135,7 @@ function fixLinksHtml(item) {
   return fixes ? `<span class="muted">${item.type === 'issue' ? 'Fix PRs' : 'Fixes'}</span> ${fixes}` : '';
 }
 
-function taskHtml(t, idx) {
+function taskHtml(t, idx, prs) {
   const item = t.item;
   const def = STATES.find((state) => state.id === t.stateId);
   const icon = item.type === 'pr' ? icons.pr : icons.issue;
@@ -1145,7 +1146,7 @@ function taskHtml(t, idx) {
     <div class="task-rank">${icon}</div>
     <div class="task-body">
       <div class="task-head">
-        <span class="kind-badge tone-${esc(def.tone)}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(def.label)}</span>
+        <span class="kind-badge tone-${esc(def.tone)}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(stateLabel(item, t.stateId, prs))}</span>
         <a class="row-title" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
         ${cleanup}
         ${fixLinksHtml(item)}

@@ -74,7 +74,8 @@ dependencies, no build step.
   `cleanupFilters` gives the cleanup filters it meets (`CLEANUP_FILTERS`).
   `stateAction` and `cleanupAction` give the button for a row, and
   `inboxRows` and `inboxCounts` give the rows and chip counts for a tab.
-  On-call mode keeps assigned items that are closed or have a cleanup filter,
+  On-call mode keeps assigned items that are closed, or that have a cleanup
+  filter when that cleanup chip is selected,
   and `hideUnsupported` drops C4 rows everywhere except under the C4 chip.
   Shared by browser and Node; tested by `states.test.mjs`.
 - `public/trends.js` — pure math for the trend tiles (`weekStart`,

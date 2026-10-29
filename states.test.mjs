@@ -40,7 +40,7 @@ const labels = (...names) => names.map((name) => ({ name }));
 const routed = labels('Android', 'sdk-54');
 const assigned = [{ login: 'owner' }];
 const linkedPr = (state, fix) => ({ number: 10, title: 'Fix it', state, mergedAt: state === 'MERGED' ? daysAgo(1) : null, baseRefName: 'main', fix });
-const verified = (outcome, at = daysAgo(1)) => ({ triage: { assessment: null, verification: { outcome, at }, fixPrs: [] } });
+const verified = (outcome, at = daysAgo(1), headline = null) => ({ triage: { assessment: null, verification: { outcome, at, headline }, fixPrs: [] } });
 const assessment = { kind: 'Bug', confidence: 80, severity: null, impact: null, scope: null, at: daysAgo(2) };
 const command = (name, at = daysAgo(2)) => ({ command: name, by: 'me', at });
 const botAsked = (name, at) => ({ bot: { lastCommand: command(name, at), botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false } });
@@ -141,11 +141,17 @@ test('I6: reproduced and nobody assigned', () => {
 });
 
 test('I5: the bot could not reproduce', () => {
-  assert.equal(state(issue(verified('pass'))), 'I5');
+  assert.equal(state(issue(verified('pass', daysAgo(1), 'not reproduced.'))), 'I5');
+});
+
+test('I5: not when a pass does not say "not reproduced"', () => {
+  const cannotVerify = { outcome: 'pass', at: daysAgo(1), headline: 'cannot verify in this environment.' };
+  assert.equal(state(issue({ triage: { assessment, verification: cannotVerify, fixPrs: [] } })), 'I3');
+  assert.equal(state(issue({ ...verified('pass'), ...waiting('reporter', 3) })), 'I4');
 });
 
 test('I5 beats I4: not reproducible while waiting on the reporter', () => {
-  assert.equal(state(issue({ ...verified('pass'), ...waiting('reporter', 3), labels: labels('needs more info') })), 'I5');
+  assert.equal(state(issue({ ...verified('pass', daysAgo(1), 'did not reproduce'), ...waiting('reporter', 3), labels: labels('needs more info') })), 'I5');
 });
 
 test('I4: waiting on the reporter', () => {
@@ -270,7 +276,7 @@ test('CI checks never pick a state', () => {
 });
 
 test('cleanup filters come back in ascending order', () => {
-  const item = issue({ ...waiting('reporter', 20), ...verified('pass', daysAgo(10)), labels: labels('sdk-50') });
+  const item = issue({ ...waiting('reporter', 20), ...verified('pass', daysAgo(10), 'not reproduced.'), labels: labels('sdk-50') });
   assert.deepEqual(filters(item), ['C2', 'C3', 'C4', 'C5']);
 });
 
@@ -318,12 +324,31 @@ test('C2: issues only', () => {
   assert.ok(!filters(pr(waiting('reporter', 14))).includes('C2'));
 });
 
+const notReproduced = 'not reproduced. On a hosted iOS simulator, an SDK 55 app upgraded in place to SDK 57 launches.';
+
 test('C3: not reproducible, verified 7 days ago', () => {
-  assert.ok(filters(issue(verified('pass', daysAgo(7)))).includes('C3'));
+  assert.ok(filters(issue(verified('pass', daysAgo(7), notReproduced))).includes('C3'));
+  assert.ok(filters(issue(verified('pass', daysAgo(7), 'Code path confirmed. Crash not reproduced. Cause not established.'))).includes('C3'));
+  assert.ok(filters(issue(verified('pass', daysAgo(7), 'The crash did not reproduce on the hosted simulator.'))).includes('C3'));
 });
 
 test('C3: not at 6 days', () => {
-  assert.ok(!filters(issue(verified('pass', daysAgo(6)))).includes('C3'));
+  assert.ok(!filters(issue(verified('pass', daysAgo(6), notReproduced))).includes('C3'));
+});
+
+test('C3: never a PR', () => {
+  assert.ok(!filters(pr(verified('pass', daysAgo(7), 'Reproduced and fixed for `temperatureUnit` on an Android emulator.'))).includes('C3'));
+  assert.ok(!filters(pr(verified('pass', daysAgo(7), notReproduced))).includes('C3'));
+});
+
+test('C3: not when the write-up does not say "not reproduced"', () => {
+  assert.ok(!filters(issue(verified('pass', daysAgo(7), 'cannot verify in this environment. I ran the repro on iOS 26.5.'))).includes('C3'));
+  assert.ok(!filters(issue(verified('pass', daysAgo(7), 'Reproduced on an Android emulator.'))).includes('C3'));
+  assert.ok(!filters(issue(verified('pass', daysAgo(7)))).includes('C3'));
+});
+
+test('C3: not when the outcome is not "pass"', () => {
+  assert.ok(!filters(issue(verified('problem', daysAgo(7), notReproduced))).includes('C3'));
 });
 
 test('C4: every SDK label is unsupported', () => {

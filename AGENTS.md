@@ -69,7 +69,11 @@ dependencies, no build step.
   `unsupported-sdk` close task, listed only under its chip. Items without a
   platform or SDK label that expo-bot has not triaged (`needsBotTriage`) also
   get a `bot-triage` task that posts `@expo-bot triage`, listed only under its
-  chip. Shared by browser and Node; tested by `inbox.test.mjs`.
+  chip. `notReproduced` tells when expo-bot could not reproduce an issue:
+  outcome `pass` and a write-up that says "not reproduced" or "did not
+  reproduce". `pass` alone also means "the fix works" on a PR or "cannot
+  verify". I5, C3 and the close task use it.
+  Shared by browser and Node; tested by `inbox.test.mjs`.
 - `public/views.js` — pure runbook views for the Issues and PRs list pages,
   which the UI no longer shows (`VIEWS`, `GROUPS`, `applyView`,
   `viewCounts`). Each view has a fixed rule, a fixed sort and an audience.

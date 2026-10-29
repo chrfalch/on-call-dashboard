@@ -7,7 +7,7 @@ const BOT_SANDBOX = 'expo-bot sandbox verification comment';
 const REPLIES = 'Comment analysis of human replies';
 const RANKING = 'Inbox ranking rules in the dashboard';
 
-export const OUTCOME_TEXT = { problem: 'Reproduced', blocked: 'Blocked', pass: 'Not reproduced' };
+export const OUTCOME_TEXT = { problem: 'Reproduced', blocked: 'Blocked', pass: 'Passed' };
 
 export const CHIP_TIPS = {
   label: { meaning: 'GitHub label. Click to filter by it, Alt-click to exclude it.', source: 'GitHub: labels on the item' },
@@ -125,7 +125,7 @@ export const ACTION_TIPS = {
 export const OUTCOME_TIPS = {
   problem: { meaning: 'expo-bot reproduced the problem in a sandbox. Click to open the comment.', source: BOT_SANDBOX },
   blocked: { meaning: 'expo-bot could not finish the reproduction in a sandbox. Click to open the comment.', source: BOT_SANDBOX },
-  pass: { meaning: 'expo-bot did not reproduce the problem in a sandbox. Click to open the comment.', source: BOT_SANDBOX },
+  pass: { meaning: 'expo-bot passed the sandbox check: on a pull request the fix usually works, on an issue expo-bot did not reproduce the problem or could not verify it. Click to open the comment.', source: BOT_SANDBOX },
 };
 
 // `meaning` replaces the entry's meaning for chips whose text depends on the item.

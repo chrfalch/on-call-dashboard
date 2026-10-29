@@ -35,6 +35,14 @@ export const PARKED = ['Issue accepted', '✋ on hold'];
 export const ASK_FOR_ISSUE = 'Thanks for the PR! We track every change against an issue. Can you link the issue this PR fixes (for example, add "Fixes #123" to the description)? If there is no issue yet, please open one that describes the problem, then link it here.';
 export const PLATFORM_LABEL = /^(Android|iOS|iOS \d+|iPadOS|macOS|tvOS|Platform: web|OS: .*)$/;
 
+// expo-bot has no outcome for "not reproducible": "pass" also means "the fix works" or
+// "cannot verify", so only the write-up tells.
+const NOT_REPRODUCED = /\b(not reproduced|did not reproduce)\b/i;
+export function notReproduced(item) {
+  const v = item.triage?.verification;
+  return v?.outcome === 'pass' && NOT_REPRODUCED.test(v.headline ?? '');
+}
+
 function missingRoutingLabels(item) {
   const missing = [];
   if (!item.labels.some((l) => PLATFORM_LABEL.test(l.name))) missing.push('no platform label');
@@ -105,7 +113,7 @@ function candidates(item, now) {
     const fixPending = (item.linkedPrs ?? []).some((pr) => pr.state === 'OPEN' && pr.fix === true);
     const closable = !parked && !fixPending;
     if (closable && conv.waitingOn === 'reporter' && waited >= 14) out.push({ kind: 'close', base: 20, reasons: [`reporter silent ${waited}d`] });
-    else if (closable && verdict === 'pass' && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
+    else if (closable && notReproduced(item) && waited >= 7) out.push({ kind: 'close', base: 20, reasons: ['bot could not reproduce'] });
   } else {
     if (item.isDraft) return out;
     const green = item.checks === 'SUCCESS';

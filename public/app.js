@@ -47,8 +47,9 @@ const DEFAULT_FILTERS = {
   hideUnsupportedSdks: true,
   sinceTab: 'issues',
   sinceOpen: false,
+  sinceInternal: false,
 };
-const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks', 'sinceTab', 'sinceOpen'];
+const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks', 'sinceTab', 'sinceOpen', 'sinceInternal'];
 
 let data = { items: [], labels: [] };
 let filters = readHash();
@@ -1447,12 +1448,13 @@ let sinceVisible = [];
 
 function renderSince() {
   const now = Date.now();
-  const groups = sinceGroups(data.items, { now, me: me?.login, skipped: sinceSkipped }).filter((group) => group.rows.length);
+  const groups = sinceGroups(data.items, { now, me: me?.login, skipped: sinceSkipped, includeInternal: filters.sinceInternal }).filter((group) => group.rows.length);
   sinceVisible = groups.flatMap((group) => group.rows);
   const day = sinceStart(now).toLocaleDateString(undefined, { weekday: 'long' });
   $('#since').hidden = !data.items.length;
+  const internalToggle = `<label class="checkbox-wrap since-internal" title="Check to include new items opened by members, owners and collaborators of the repository"><input type="checkbox" id="since-internal"${filters.sinceInternal ? ' checked' : ''} /> Include internal contributors</label>`;
   if (!groups.length) {
-    $('#since').innerHTML = `<p class="since-title muted">Nothing new since ${esc(day)}.</p>`;
+    $('#since').innerHTML = `<div class="since-head"><p class="since-title muted">Nothing new since ${esc(day)}.</p>${internalToggle}</div>`;
     return;
   }
   const selected = groups.find((group) => group.id === filters.sinceTab) ?? groups[0];
@@ -1462,9 +1464,9 @@ function renderSince() {
       <h2 class="since-title">Since last time <span class="muted">· from ${esc(day)} · ${esc(counts)}</span></h2>
       <button class="since-toggle" data-since-open="${open ? '0' : '1'}" aria-expanded="${open}">${open ? 'Hide' : 'Show'}</button>
     </div>
-    ${open ? `<div class="since-tabs" role="tablist">${groups
+    ${open ? `<div class="since-tabs"><div class="since-tablist" role="tablist">${groups
       .map(({ id, label, rows }) => `<button class="since-tab${id === selected.id ? ' selected' : ''}" role="tab" aria-selected="${id === selected.id}" data-since-tab="${esc(id)}">${esc(label)} <span class="counter">${rows.length}</span></button>`)
-      .join('')}</div>
+      .join('')}</div>${internalToggle}</div>
     ${sinceListHtml(selected)}` : ''}`;
 }
 
@@ -1693,6 +1695,14 @@ $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
 $('#inbox-cleanup').addEventListener('click', inboxClick);
 $('#since').addEventListener('click', sinceClick);
+$('#since').addEventListener('change', (e) => {
+  if (e.target.id !== 'since-internal') return;
+  filters.sinceInternal = e.target.checked;
+  writeHash();
+  renderSince();
+  // renderSince rebuilds the header, so the new checkbox needs the focus back for keyboard users.
+  $('#since-internal')?.focus();
+});
 $('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
 $('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });
 

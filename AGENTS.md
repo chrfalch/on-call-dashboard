@@ -116,6 +116,8 @@ dependencies, no build step.
   items created in the window with no comment or review from a team member
   (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.
+  Items opened by a team member leave "New issues" and "New PRs" unless
+  `includeInternal` is set; "My items" keeps them.
   Activity never comes from `updatedAt`.
   Shared by browser and Node; tested by `since.test.mjs`.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
@@ -150,4 +152,5 @@ dependencies, no build step.
   Filter state, including the active view (`view=<id>`),
   `hideUnsupportedSdks=0` and the "Since last time" tab
   (`sinceTab=<mine|issues|prs>`, default `issues`) and list visibility
-  (`sinceOpen=1`, default hidden), lives in the URL hash.
+  (`sinceOpen=1`, default hidden) and internal contributors
+  (`sinceInternal=1`, default off), lives in the URL hash.

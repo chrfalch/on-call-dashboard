@@ -114,6 +114,14 @@ test('my items: expo-bot finishing my review, triage or verify qualifies', () =>
   assert.deepEqual(groups([item(asked('rebase'))]).mine, [], 'other command');
 });
 
+test('my items: expo-bot finishing before I assigned myself still qualifies', () => {
+  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, lastBotReply: { at: hoursAgo(4), outcome: null }, botRepliedAfterCommand: true };
+  const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], assignedEvents: [{ login: ME, at: hoursAgo(3) }], bot });
+  const [row] = groups([item]).mine;
+  assert.equal(row?.what, 'expo-bot finished the review');
+  assert.equal(row?.at, hoursAgo(4));
+});
+
 test('my items: expo-bot finishing before my last comment does not qualify', () => {
   const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, lastBotReply: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
   assert.deepEqual(groups([pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(2))], bot })]).mine, []);

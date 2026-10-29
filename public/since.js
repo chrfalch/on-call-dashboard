@@ -27,21 +27,24 @@ const botFinished = (item, me) => {
   return !!bot?.botRepliedAfterCommand && bot.lastCommand?.by === me && Object.hasOwn(BOT_DONE_TEXT, bot.lastCommand.command);
 };
 
-// The newest comment, review or commit by someone else, or the bot's answer to my command, after my last comment, review or assignment.
+// The newest comment, review or commit by someone else after my last comment, review or assignment,
+// or the bot's answer to my command after my last comment or review: assigning myself does not mean I read it.
 function myItemEvent(item, me, start) {
   const comments = item.comments ?? [];
-  const touches = [
-    ...comments.filter((c) => c.login === me).map((c) => time(c.at)),
-    ...(item.assignedEvents ?? []).filter((e) => e.login === me).map((e) => time(e.at)),
-  ];
+  const myComments = comments.filter((c) => c.login === me).map((c) => time(c.at));
+  const lastComment = myComments.length ? Math.max(...myComments) : start;
+  const assigned = (item.assignedEvents ?? []).filter((e) => e.login === me).map((e) => time(e.at));
+  const touches = [...myComments, ...assigned];
   const lastTouch = touches.length ? Math.max(...touches) : start;
   const byOthers = (login) => login !== me && !isBot(login);
   const events = [
     ...comments.filter((c) => byOthers(c.login)).map(commentEvent),
     ...(item.lastCommitAt && byOthers(item.lastCommitBy) ? [{ at: item.lastCommitAt, what: 'new commit' }] : []),
-    ...(botFinished(item, me) ? [{ at: item.bot.lastBotReply.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] }] : []),
-  ];
-  return events.filter((e) => time(e.at) > lastTouch).sort(newestFirst)[0] ?? null;
+  ].filter((e) => time(e.at) > lastTouch);
+  if (botFinished(item, me) && time(item.bot.lastBotReply.at) > lastComment) {
+    events.push({ at: item.bot.lastBotReply.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] });
+  }
+  return events.sort(newestFirst)[0] ?? null;
 }
 
 const teamActed = (item) => (item.comments ?? []).some((c) => isTeam(c.association) && !isBot(c.login));

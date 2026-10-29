@@ -19,6 +19,7 @@ const REVIEW_TEXT = { APPROVED: 'approved', CHANGES_REQUESTED: 'requested change
 const commentEvent = (c) => ({ at: c.at, what: `@${c.login} ${c.review ? REVIEW_TEXT[c.review] ?? 'reviewed' : 'replied'}` });
 
 const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
+const awaitsMyReview = (item, me) => !!me && (item.reviewRequests ?? []).some((person) => person.login === me);
 
 // The newest comment, review or commit by someone else after my last comment, review or assignment.
 function myItemEvent(item, me, start) {
@@ -63,12 +64,13 @@ export function sinceGroups(items, { now = Date.now(), me = null, skipped = {} }
   const open = items.filter(isOpen);
 
   const mine = open.flatMap((item) => {
-    const event = isMine(item, me) && myItemEvent(item, me, start);
+    const event = (isMine(item, me) || awaitsMyReview(item, me)) && myItemEvent(item, me, start);
     return event ? [row(item, event)] : [];
   });
+  const inMine = new Set(mine.map((r) => r.item));
   const created = (type, what) =>
     open
-      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && !isMine(item, me))
+      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && !isMine(item, me) && !inMine.has(item))
       .map((item) => row(item, { at: item.createdAt, what }))
       .sort((a, b) => Number(a.open) - Number(b.open) || Number(!!b.action) - Number(!!a.action) || newestFirst(a, b));
 

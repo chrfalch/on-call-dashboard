@@ -142,6 +142,23 @@ test('my items: only open items assigned to me', () => {
   assert.deepEqual(numbers(groups(items).mine), [1]);
 });
 
+test('my items: a PR that requests my review counts as mine', () => {
+  const activity = { createdAt: daysAgo(30), comments: [comment('contributor', hoursAgo(3))] };
+  const items = [
+    pr({ ...activity, number: 1, reviewRequests: [{ login: ME }] }),
+    pr({ ...activity, number: 2, reviewRequests: [{ login: 'colleague' }] }),
+  ];
+  assert.deepEqual(numbers(groups(items).mine), [1]);
+});
+
+test('my items: a new PR that requests my review shows once', () => {
+  const quiet = pr({ number: 1, reviewRequests: [{ login: ME }] });
+  const active = pr({ number: 2, reviewRequests: [{ login: ME }], comments: [comment('contributor', hoursAgo(1))] });
+  const { mine, prs } = groups([quiet, active]);
+  assert.deepEqual(numbers(mine), [2]);
+  assert.deepEqual(numbers(prs), [1]);
+});
+
 test('my items: hidden when signed out', () => {
   const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(3))] });
   assert.deepEqual(groups([item], { me: null }).mine, []);

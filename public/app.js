@@ -665,7 +665,9 @@ async function gh(path, opts = {}) {
     const j = await res.json().catch(() => ({}));
     throw new Error(`${res.status} ${j.message || res.statusText}`);
   }
-  return res.status === 204 ? null : res.json();
+  // Some successful writes, such as a 204, have no body to parse.
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // `action` defaults to the item type's own command, so one call can mix issues and PRs.
@@ -728,6 +730,32 @@ async function undo(posts) {
 function requireToken() {
   if (getToken()) return true;
   openTokenDialog();
+  return false;
+}
+
+// GitHub has no PR-wide approve, so each waiting workflow run is approved on its own.
+async function approveCi(item, runIds) {
+  if (!requireToken()) return false;
+  const runs = `${runIds.length} waiting workflow run${runIds.length === 1 ? '' : 's'}`;
+  if (!confirm(`Approve and run ${runs} on #${item.number}? This runs the pull request's code in GitHub Actions.`)) return false;
+  const failed = await whileBusy([item.number], async () => {
+    const out = [];
+    for (const id of runIds) {
+      await gh(`/repos/${data.repo}/actions/runs/${id}/approve`, { method: 'POST' }).catch((e) => out.push({ id, error: e.message }));
+    }
+    return out;
+  });
+  item.ciApprovalRunIds = failed.map((f) => f.id);
+  render();
+  if (!failed.length) {
+    toast(`Approved ${runs} on #${item.number}`);
+    return true;
+  }
+  const detail = [...Map.groupBy(failed, (f) => f.error)].map(([error, list]) => `${error} (run ${list.map((f) => f.id).join(', ')})`).join('; ');
+  toast(`Couldn't approve ${failed.length} of ${runIds.length} runs on #${item.number}: ${detail}`, {
+    error: true,
+    link: { href: `${item.url}/checks`, label: 'Open checks ↗' },
+  });
   return false;
 }
 
@@ -872,7 +900,7 @@ async function closeItems(numbers, body, reason) {
   if (failed.length) toast(`Failed on ${failed.length}: ${failed[0].reason.message}`, { error: true });
 }
 
-function toast(msg, { undo, error } = {}) {
+function toast(msg, { undo, error, link } = {}) {
   const el = document.createElement('div');
   el.className = `toast${error ? ' error' : ''}`;
   el.innerHTML = `<span>${esc(msg)}</span>`;
@@ -882,8 +910,12 @@ function toast(msg, { undo, error } = {}) {
     b.onclick = () => { el.remove(); undo(); };
     el.append(b);
   }
+  if (link) {
+    const a = Object.assign(document.createElement('a'), { href: link.href, target: '_blank', rel: 'noreferrer', textContent: link.label });
+    el.append(a);
+  }
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), undo ? 10000 : 5000);
+  setTimeout(() => el.remove(), undo || link ? 10000 : 5000);
 }
 
 // ---------- auth ----------
@@ -1191,6 +1223,8 @@ async function doTask(t, action, closeTemplate) {
   } else if (action.kind === 'close') {
     selected = new Set([t.item.number]);
     openCloseDialog(t.item.type, undefined, closeTemplate);
+  } else if (action.kind === 'approve-ci') {
+    if (await approveCi(t.item, action.runIds)) markDone(t);
   } else if (action.kind === 'nudge') {
     openCommentDialog(t.item, `Hi @${t.item.author.login}, would you be able to address the requested changes? Thanks!`);
   } else if (action.kind === 'comment') {

@@ -451,6 +451,52 @@ test('C11: a bot author without a linked issue', () => {
   assert.ok(filters(pr({ state: 'OPEN', author: { login: 'dependabot[bot]' }, authorAssociation: 'NONE', linkedIssues: [] })).includes('C11'));
 });
 
+const noBotReview = { bot: { lastCommand: null, botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false } };
+const awaitingCi = (over = {}) => pr({ state: 'OPEN', author: { login: 'contributor' }, ciApprovalRunIds: [101, 102], ...botReview(true), ...over });
+
+test('P11: CI runs wait for approval after the bot review, instead of P6', () => {
+  assert.equal(state(awaitingCi()), 'P11');
+});
+
+test('P11: CI runs wait for approval after the bot review, instead of P7', () => {
+  assert.equal(state(awaitingCi({ reviewRequests: [{ login: 'reviewer' }] })), 'P11');
+});
+
+test('P11: not before the bot review is asked', () => {
+  assert.equal(state(awaitingCi(noBotReview)), 'P2');
+});
+
+test('P11: not while the bot is still reviewing', () => {
+  assert.equal(state(awaitingCi(botReview(false))), 'P3');
+});
+
+test('P11: never for a github-actions PR', () => {
+  assert.equal(state(awaitingCi({ author: { login: 'github-actions' } })), 'P6');
+  assert.equal(state(awaitingCi({ author: { login: 'github-actions' }, ...noBotReview })), 'P2');
+});
+
+test('P11: another bot author still needs the bot review first', () => {
+  assert.equal(state(awaitingCi({ author: { login: 'dependabot' } })), 'P11');
+  assert.equal(state(awaitingCi({ author: { login: 'dependabot' }, ...noBotReview })), 'P2');
+});
+
+test('P11: earlier states win', () => {
+  assert.equal(state(awaitingCi({ reviewDecision: 'CHANGES_REQUESTED', changesRequestedAt: daysAgo(2), changesRequestedBy: ['me'], lastCommitAt: daysAgo(3) })), 'P4');
+  assert.equal(state(changesRequested(5, { lastCommitAt: daysAgo(1), ciApprovalRunIds: [101] })), 'P5');
+  assert.equal(state(awaitingCi({ reviewDecision: 'APPROVED' })), 'P8');
+  assert.equal(state(awaitingCi({ isDraft: true })), 'P1');
+});
+
+test('P11: not without waiting runs', () => {
+  assert.equal(state(awaitingCi({ ciApprovalRunIds: [] })), 'P6');
+  assert.equal(state(awaitingCi({ ciApprovalRunIds: undefined })), 'P6');
+});
+
+test('no cleanup filter for CI approval', () => {
+  assert.ok(!CLEANUP_FILTERS.some((filter) => filter.id === 'C12'));
+  assert.ok(!filters(awaitingCi()).includes('C12'));
+});
+
 test('ASK_FOR_ISSUE gives a linking example and asks to open an issue', () => {
   assert.equal(
     ASK_FOR_ISSUE,
@@ -486,6 +532,7 @@ test('STATES lists the issue track, then the PR track, with labels', () => {
     ['P3', 'Bot reviewing', 'pr'],
     ['P4', 'Changes requested', 'pr'],
     ['P5', 'Author answered', 'pr'],
+    ['P11', 'CI awaits approval', 'pr'],
     ['P6', 'Ready for human', 'pr'],
     ['P7', 'In human review', 'pr'],
     ['P8', 'Ready to merge', 'pr'],
@@ -504,8 +551,8 @@ test('STATE_CHIPS: every state except Closed, Merged and Abandoned, in order', (
 
 test('STATES: on-call states and tones', () => {
   const ids = (pick) => STATES.filter(pick).map((s) => s.id);
-  assert.deepEqual(ids((s) => s.oncall), ['I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I9', 'P2', 'P3', 'P6']);
-  assert.deepEqual(ids((s) => s.tone === 'attention'), ['I1', 'I3', 'P2', 'P5', 'P6']);
+  assert.deepEqual(ids((s) => s.oncall), ['I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I9', 'P2', 'P3', 'P11', 'P6']);
+  assert.deepEqual(ids((s) => s.tone === 'attention'), ['I1', 'I3', 'P2', 'P5', 'P11', 'P6']);
   assert.deepEqual(ids((s) => s.tone === 'danger'), ['I6']);
   assert.deepEqual(ids((s) => s.tone === 'success'), ['I5', 'I9', 'P8']);
   assert.equal(ids((s) => s.tone === 'muted').length, 11);
@@ -591,6 +638,10 @@ test('cleanupAction: C10 re-posts the review when that is what the bot owes', ()
 
 test('cleanupAction: C11 asks the author to link an issue', () => {
   assert.deepEqual(cleanupAction(pr(), 'C11'), { kind: 'comment', label: 'Ask for an issue', body: ASK_FOR_ISSUE });
+});
+
+test('stateAction: P11 approves the waiting runs', () => {
+  assert.deepEqual(action(awaitingCi(), 'P11'), { kind: 'approve-ci', label: 'Approve and run', runIds: [101, 102] });
 });
 
 const rowOpts = { now: NOW, me: 'me', mode: 'oncall', unsupportedSdks: new Set(['sdk-50']) };
@@ -691,6 +742,12 @@ test('inboxRows: on-call mode leaves an assigned item with a cleanup filter out 
   const counts = inboxCounts(items, rowOpts);
   assert.equal(counts.states[row.stateId], 0);
   assert.equal(counts.cleanup.C11, 1);
+});
+
+test('inboxCounts: the P11 chip counts the PRs whose CI awaits approval', () => {
+  const items = [awaitingCi({ number: 1 }), awaitingCi({ number: 2, ciApprovalRunIds: [] }), awaitingCi({ number: 3, state: 'MERGED' })];
+  assert.equal(inboxCounts(items, rowOpts).states.P11, 1);
+  assert.deepEqual(keys(items, { stateId: 'P11' }), ['pr#1:P11']);
 });
 
 test('inboxRows: on-call mode keeps an assigned closed item', () => {

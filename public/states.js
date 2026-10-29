@@ -22,6 +22,7 @@ export const STATES = [
   { id: 'P3', label: 'Bot reviewing', track: 'pr', oncall: true, icon: 'bot', tone: 'muted' },
   { id: 'P4', label: 'Changes requested', track: 'pr', oncall: false, icon: 'clock', tone: 'muted' },
   { id: 'P5', label: 'Author answered', track: 'pr', oncall: false, icon: 'reply', tone: 'attention' },
+  { id: 'P11', label: 'CI awaits approval', track: 'pr', oncall: true, icon: 'clock', tone: 'attention' },
   { id: 'P6', label: 'Ready for human', track: 'pr', oncall: true, icon: 'eye', tone: 'attention' },
   { id: 'P7', label: 'In human review', track: 'pr', oncall: false, icon: 'eye', tone: 'muted' },
   { id: 'P8', label: 'Ready to merge', track: 'pr', oncall: false, icon: 'merge', tone: 'success' },
@@ -65,7 +66,8 @@ function issueState(item) {
   return 'I3';
 }
 
-// CI status is deliberately absent: a red build is a cleanup signal (C9), not a workflow step.
+// A red build is a cleanup signal (C9), not a workflow step. CI runs waiting for approval are a
+// workflow step (P11), reached only after the bot review, so a person reads that review before approving.
 function prState(item) {
   if (item.state === 'CLOSED') return 'P10';
   if (item.state === 'MERGED') return 'P9';
@@ -75,6 +77,7 @@ function prState(item) {
   if (item.reviewDecision === 'CHANGES_REQUESTED') return 'P4';
   if (item.bot?.lastReview && !item.bot.botRepliedAfterReview) return 'P3';
   if (!item.bot?.lastReview) return 'P2';
+  if ((item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
   if ((item.reviewRequests ?? []).length || (item.latestReviews ?? []).length) return 'P7';
   return 'P6';
 }
@@ -97,6 +100,7 @@ export function stateAction(item, stateId, { now = Date.now() } = {}) {
     return pr ? { kind: 'open', label: 'Open fix PR', url } : openAction;
   }
   if (stateId === 'P2') return { kind: 'command', label: 'Ask bot to review', body: '@expo-bot review' };
+  if (stateId === 'P11') return { kind: 'approve-ci', label: 'Approve and run', runIds: item.ciApprovalRunIds };
   if (stateId === 'P4' && item.changesRequestedAt && days(item.changesRequestedAt, now) >= 7) {
     return { kind: 'nudge', label: 'Nudge author' };
   }

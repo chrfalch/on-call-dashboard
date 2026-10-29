@@ -22,7 +22,10 @@ dependencies, no build step.
   review state for a PR review) from the last 30 comments and the PR's latest
   reviews, and `assignedEvents` ({login, at}, the last 10 assignments). A PR
   also keeps `lastCommitBy`, the login of the last commit's author (null
-  when GitHub does not know the user).
+  when GitHub does not know the user), and `ciApprovalRunIds`, the REST ids of
+  the GitHub Actions runs on the last commit that wait for a maintainer to
+  approve them (check suites with conclusion `ACTION_REQUIRED`;
+  `statusCheckRollup` still says SUCCESS for these).
   After each sync it fetches the issues and PRs created or closed in the last
   9 days (raw timestamps for the trend tiles) into
   `.cache/trends-<owner>-<name>.json`. Recommendations run
@@ -72,13 +75,16 @@ dependencies, no build step.
   `viewCounts`). Each view has a fixed rule, a fixed sort and an audience.
   "Needs bot triage" lists issues and PRs with the `needsBotTriage` rule. Shared by browser and Node; tested by `views.test.mjs`.
 - `public/states.js` — pure workflow states for the Inbox: `stateOf` gives
-  each issue or PR one state (`STATES`, I1–I10 and P1–P10), and
+  each issue or PR one state (`STATES`, I1–I10 and P1–P11), and
   `cleanupFilters` gives the cleanup filters it meets (`CLEANUP_FILTERS`).
   `stateAction` and `cleanupAction` give the button for a row, and
   `inboxRows` and `inboxCounts` give the rows and chip counts for a tab.
   On-call mode keeps assigned items that are closed, or that have a cleanup
   filter when that cleanup chip is selected,
   and `hideUnsupported` drops C4 rows everywhere except under the C4 chip.
+  P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
+  expo-bot review is done, never for a `github-actions` author; its button
+  approves each run in the browser after a confirm.
   Shared by browser and Node; tested by `states.test.mjs`.
 - `public/trends.js` — pure math for the trend tiles (`weekStart`,
   `weekTrend`): cumulative opened and closed counts per local day since

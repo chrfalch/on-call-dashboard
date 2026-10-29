@@ -35,7 +35,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 17;
+const CACHE_VERSION = 18;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -92,6 +92,8 @@ const COMMON = `
   reactions(content: THUMBS_UP) { totalCount }
   comments(last: 30) { totalCount nodes { author { login } authorAssociation createdAt lastEditedAt url body } }
 `;
+// 15368 is the GitHub Actions app. Without the filter, other apps' suites push its suites out of the page.
+const ACTIONS_SUITES = 'checkSuites(first: 40, filterBy: { appId: 15368 }) { nodes { conclusion workflowRun { databaseId } } }';
 const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
@@ -100,7 +102,7 @@ const PR_FIELDS = `
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
     latestOpinionatedReviews(first: 10) { nodes { state submittedAt author { login } } }
-    commits(last: 1) { nodes { commit { committedDate author { user { login } } statusCheckRollup { state } } } }
+    commits(last: 1) { nodes { commit { committedDate author { user { login } } statusCheckRollup { state } ${ACTIONS_SUITES} } } }
     ${ASSIGNED_EVENTS}
   }`;
 const LINKED_PR = '__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } }';
@@ -131,7 +133,7 @@ query($cursor: String, $owner: String!, $name: String!, $first: Int!) {
 const RECENT_QUERY = (kind) => `
 query($cursor: String, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-    ${kind}(first: 20, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    ${kind}(first: 15, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
       nodes { ${ITEM_FIELDS(kind)} }
     }
@@ -221,6 +223,11 @@ function normalize(n) {
       // Committer date, not push time (GitHub deprecated pushedDate): a commit made before the review and pushed after it is missed.
       lastCommitAt: n.commits.nodes[0]?.commit.committedDate ?? null,
       lastCommitBy: n.commits.nodes[0]?.commit.author?.user?.login ?? null,
+      // statusCheckRollup reports SUCCESS while these runs wait for a maintainer to approve them.
+      ciApprovalRunIds: (n.commits.nodes[0]?.commit.checkSuites?.nodes ?? [])
+        .filter((s) => s?.conclusion === 'ACTION_REQUIRED')
+        .map((s) => s.workflowRun?.databaseId)
+        .filter(Boolean),
       // latestReviews drops a reviewer's review once their review is re-requested; this keeps it.
       changesRequestedAt: changesRequested.map((r) => r.submittedAt).sort().at(-1) ?? null,
       changesRequestedBy: changesRequested.map((r) => r.author?.login).filter(Boolean),
@@ -271,8 +278,9 @@ async function fetchAll(kind, states = 'OPEN', updatedSince = null) {
   const out = [];
   let cursor = null;
   do {
-    // PR pages are heavy (reviews, checks, comments); smaller pages avoid 502 timeouts.
-    const d = await gql(LIST_QUERY(kind, states), { cursor, owner: OWNER, name: NAME, first: kind === 'pullRequests' ? 30 : 50 });
+    // PR pages are heavy (reviews, checks, comments, check suites); 30 per page took ~10 s
+    // with check suites and hit GitHub's timeout (502). 15 stays well under it.
+    const d = await gql(LIST_QUERY(kind, states), { cursor, owner: OWNER, name: NAME, first: kind === 'pullRequests' ? 15 : 50 });
     const conn = d.repository[kind];
     const nodes = updatedSince ? conn.nodes.filter((node) => node.updatedAt >= updatedSince) : conn.nodes;
     out.push(...nodes.map(normalize));

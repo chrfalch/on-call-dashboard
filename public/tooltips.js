@@ -87,6 +87,7 @@ export const STATE_TIPS = {
   P3: { meaning: 'Pull request waiting for expo-bot to finish its review.', source: '@expo-bot review commands and replies' },
   P4: { meaning: 'Pull request where a reviewer requested changes.', source: 'GitHub pull request review decision' },
   P5: { meaning: 'Pull request whose author acted after changes were requested.', source: 'GitHub reviews, commits, requested reviewers and comments' },
+  P11: { meaning: 'Pull request with GitHub Actions runs that wait for a maintainer to approve them, after the expo-bot review. Never for pull requests by github-actions.', source: 'GitHub Actions check suites on the last commit and expo-bot replies' },
   P6: { meaning: 'Pull request ready for a human reviewer.', source: 'GitHub pull request reviews and expo-bot replies' },
   P7: { meaning: 'Pull request with human review activity or a requested reviewer.', source: 'GitHub reviews and requested reviewers' },
   P8: { meaning: 'Approved pull request ready to merge.', source: 'GitHub pull request review decision' },

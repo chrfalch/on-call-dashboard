@@ -35,7 +35,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 15;
+const CACHE_VERSION = 16;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -80,6 +80,9 @@ async function gql(query, variables = {}, { allowNotFound = false } = {}, attemp
   return json.data;
 }
 
+const ASSIGNED_EVENTS = `assignedEvents: timelineItems(itemTypes: [ASSIGNED_EVENT], last: 10) {
+  nodes { ... on AssignedEvent { createdAt assignee { ... on User { login } } } }
+}`;
 const COMMON = `
   __typename number title url createdAt updatedAt state closedAt
   author { login avatarUrl url }
@@ -97,7 +100,8 @@ const PR_FIELDS = `
     reviewRequests(first: 5) { nodes { requestedReviewer { ... on User { login avatarUrl } ... on Team { name } } } }
     latestReviews(first: 10) { nodes { state submittedAt authorAssociation author { login avatarUrl } } }
     latestOpinionatedReviews(first: 10) { nodes { state submittedAt author { login } } }
-    commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+    commits(last: 1) { nodes { commit { committedDate author { user { login } } statusCheckRollup { state } } } }
+    ${ASSIGNED_EVENTS}
   }`;
 const LINKED_PR = '__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } }';
 const LINKED_PRS = `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], last: 100) {
@@ -108,9 +112,7 @@ const ISSUE_FIELDS = `
     ${COMMON}
     issueType { name color }
     ${LINKED_PRS}
-    assignedEvents: timelineItems(itemTypes: [ASSIGNED_EVENT], last: 10) {
-      nodes { ... on AssignedEvent { createdAt assignee { ... on User { login } } } }
-    }
+    ${ASSIGNED_EVENTS}
   }`;
 
 const ITEM_FIELDS = (kind) => kind === 'pullRequests' ? PR_FIELDS : ISSUE_FIELDS;
@@ -179,7 +181,7 @@ function normalize(n) {
   const reviews = isPR
     ? n.latestReviews.nodes
         .filter((r) => r.submittedAt)
-        .map((r) => ({ author: r.author, authorAssociation: r.authorAssociation, createdAt: r.submittedAt, url: n.url, body: `(review: ${r.state})` }))
+        .map((r) => ({ author: r.author, authorAssociation: r.authorAssociation, createdAt: r.submittedAt, url: n.url, body: `(review: ${r.state})`, review: r.state }))
     : [];
   const comments = [...n.comments.nodes, ...reviews].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const item = {
@@ -199,6 +201,8 @@ function normalize(n) {
     thumbsUp: n.reactions.totalCount,
     commentCount: n.comments.totalCount,
     lastCommentAt: comments.length ? comments[comments.length - 1].createdAt : null,
+    comments: comments.map((c) => ({ login: c.author?.login ?? null, association: c.authorAssociation, at: c.createdAt, ...(c.review && { review: c.review }) })),
+    assignedEvents: n.assignedEvents.nodes.map((e) => ({ login: e.assignee?.login ?? null, at: e.createdAt })),
     ...analyzeComments(comments, { authorLogin: n.author?.login, authorAssociation: n.authorAssociation, createdAt: n.createdAt }),
   };
   if (isPR) {
@@ -216,6 +220,7 @@ function normalize(n) {
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
       // Committer date, not push time (GitHub deprecated pushedDate): a commit made before the review and pushed after it is missed.
       lastCommitAt: n.commits.nodes[0]?.commit.committedDate ?? null,
+      lastCommitBy: n.commits.nodes[0]?.commit.author?.user?.login ?? null,
       // latestReviews drops a reviewer's review once their review is re-requested; this keeps it.
       changesRequestedAt: changesRequested.map((r) => r.submittedAt).sort().at(-1) ?? null,
       changesRequestedBy: changesRequested.map((r) => r.author?.login).filter(Boolean),

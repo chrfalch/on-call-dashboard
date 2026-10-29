@@ -2,19 +2,13 @@
 //  - what expo-bot concluded (triage assessment, sandbox verification, fix PRs)
 //  - who the conversation is waiting on (team vs. reporter)
 
-export const BOT_LOGINS = new Set(['expo-bot', 'github-actions', 'codecov', 'dependabot']);
-const TEAM_ASSOCIATIONS = new Set(['MEMBER', 'OWNER', 'COLLABORATOR']);
+import { isBot, isTeam } from './public/people.js';
+
+export { BOT_LOGINS, isBot, isTeam } from './public/people.js';
+
 const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
 // Team-only: a reporter's comment can start with a path such as "/Users/…".
 const SLASH_COMMAND_RE = /^\s*\/([a-z-]+)(?![\w/])/i;
-
-export function isBot(login) {
-  return !login || BOT_LOGINS.has(login) || login.endsWith('[bot]');
-}
-
-export function isTeam(association) {
-  return TEAM_ASSOCIATIONS.has(association);
-}
 
 // "- **Severity:** S2 - Medium: Breakage in …" -> { code: 'S2', label: 'severity: medium' }
 function parseSeverity(body) {

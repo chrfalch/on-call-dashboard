@@ -151,7 +151,7 @@ export function cleanupAction(item, id) {
 const assigned = (item) => (item.assignees ?? []).length > 0;
 const mine = (item, me) =>
   !!me && ((item.assignees ?? []).some((person) => person.login === me) || (item.reviewRequests ?? []).some((person) => person.login === me));
-const rowKey = (item, stateId) => `${item.type}#${item.number}:${stateId}`;
+export const rowKey = (item, stateId) => `${item.type}#${item.number}:${stateId}`;
 
 function rowData(item, ctx) {
   const stateId = stateOf(item);

@@ -408,10 +408,12 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .since-list { list-style: none; margin: 0; padding: 0; }
 .since-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border-muted); font-size: 13px; }
 .since-row:last-child { border-bottom: 0; }
-.since-item { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--fg); }
+/* One line that never wraps, so a long title is cut off instead of pushing the buttons down. */
+.since-line { display: flex; align-items: center; gap: 8px; flex: 1 0 100%; min-width: 0; }
+.since-item { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--fg); }
 .since-item:hover { color: var(--accent); text-decoration: none; }
 .since-by { flex: none; font-size: 12px; }
-.since-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.since-what { flex: 1 0 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .since-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .since-all { margin-top: 6px; }
 /* Full width puts the labels on their own line; the indent lines them up with the title after the icon. */

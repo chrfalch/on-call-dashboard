@@ -1433,6 +1433,7 @@ function sinceRowHtml(row) {
   const { item } = row;
   const isBusy = busy.has(item.number);
   return `<li class="since-row${isBusy ? ' busy' : ''}" data-since="${esc(row.key)}">
+    <div class="since-line">
     ${item.type === 'pr' ? icons.pr : icons.issue}
     <a class="since-item" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
     <span class="since-by muted">by ${authorHtml(item)}</span>
@@ -1444,6 +1445,7 @@ function sinceRowHtml(row) {
       ${row.open ? `<a class="btn btn-sm" href="${esc(item.url)}" target="_blank" rel="noreferrer">Open ↗</a>` : ''}
       <button class="btn btn-sm" data-since-action="skip" title="Hide this row until there is new activity">Skip</button>
     </span>
+    </div>
     <div class="task-labels since-labels">${item.assignees.map((a) => assigneeChipHtml(a, { filterable: false })).join('')}${item.labels.map((l) => labelHtml(l, { filterable: false })).join('')}</div>
   </li>`;
 }

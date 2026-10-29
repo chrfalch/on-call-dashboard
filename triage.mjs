@@ -96,7 +96,11 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
     const login = c.author?.login;
     if (isBot(login)) {
       if (login === 'expo-bot') {
-        lastBotReply = { at: c.createdAt, outcome: c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null };
+        // expo-bot answers some commands by editing an older comment, so an edit is a reply too.
+        const at = c.lastEditedAt > c.createdAt ? c.lastEditedAt : c.createdAt;
+        if (!lastBotReply || at > lastBotReply.at) {
+          lastBotReply = { at, outcome: c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null };
+        }
         assessment = parseAssessment(c) ?? assessment;
         verification = parseVerification(c) ?? verification;
         for (const m of c.body.matchAll(/Opened https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/g)) fixPrs.push(Number(m[1]));

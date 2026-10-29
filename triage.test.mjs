@@ -97,6 +97,21 @@ test('a leading slash from a non-team member is a normal comment', () => {
   assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
 });
 
+test('an expo-bot comment edited after a command is a reply at its edit time', () => {
+  const sticky = { ...c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', '<!-- expo-ai-code-reviewer --> Review'), lastEditedAt: '2026-01-02T01:00:00Z' };
+  const r = analyzeComments([sticky, c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review')], issue);
+  assert.equal(r.bot.lastBotReply.at, '2026-01-02T01:00:00Z');
+  assert.equal(r.bot.botRepliedAfterReview, true);
+  assert.equal(r.bot.botRepliedAfterCommand, true);
+});
+
+test('the last bot reply is the newest creation or edit time, whatever the comment order', () => {
+  const sticky = { ...c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', 'Review'), lastEditedAt: '2026-01-05T00:00:00Z' };
+  const later = c('expo-bot', 'NONE', '2026-01-03T00:00:00Z', '<!-- expo-sandbox-outcome:pass -->');
+  const r = analyzeComments([sticky, later], issue);
+  assert.deepEqual(r.bot.lastBotReply, { at: '2026-01-05T00:00:00Z', outcome: null });
+});
+
 test('lastReview tracks the newest review command, not other commands', () => {
   const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
   const reply = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', 'Review done');

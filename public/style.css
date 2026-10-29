@@ -396,7 +396,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .since { margin-top: 16px; }
 .since-title { margin: 0; font-size: 14px; }
 .since-title .muted { font-weight: 400; }
-.since-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.since-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .since-toggle, .since-tab { all: unset; cursor: pointer; }
 .since-toggle { color: var(--accent); }
 .since-toggle:hover { text-decoration: underline; }

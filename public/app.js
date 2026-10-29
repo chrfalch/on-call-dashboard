@@ -1435,6 +1435,7 @@ function sinceRowHtml(row) {
   return `<li class="since-row${isBusy ? ' busy' : ''}" data-since="${esc(row.key)}">
     ${item.type === 'pr' ? icons.pr : icons.issue}
     <a class="since-item" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
+    <span class="since-by muted">by ${authorHtml(item)}</span>
     <span class="since-what muted">${esc(row.what)} ${esc(ago(row.at))}</span>
     <span class="since-actions">
       ${isBusy ? SPINNER : ''}

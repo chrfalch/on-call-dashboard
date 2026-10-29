@@ -49,7 +49,7 @@ function myItemEvent(item, me, start) {
 
 const teamActed = (item) => (item.comments ?? []).some((c) => isTeam(c.association) && !isBot(c.login));
 
-// `action` is the state's one-click action; Assign when nobody owns the item, Open when someone else does.
+// `action` is the state's one-click action; Assign when nobody owns the item, Open when someone else does; Unassign when I am assigned.
 export function sinceButtons(item, { me = null, now = Date.now(), stateId = stateOf(item) } = {}) {
   const action = stateAction(item, stateId, { now });
   const assigned = item.assignees.length > 0;
@@ -57,6 +57,7 @@ export function sinceButtons(item, { me = null, now = Date.now(), stateId = stat
     action: action?.kind === 'open' ? null : action,
     assign: !!me && !assigned,
     open: assigned && !isMine(item, me),
+    unassign: isMine(item, me),
   };
 }
 

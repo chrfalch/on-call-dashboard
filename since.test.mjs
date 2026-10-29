@@ -333,6 +333,13 @@ test('buttons: Open when someone else is assigned', () => {
   assert.equal(buttons.open, true);
 });
 
+test('buttons: Unassign only on items assigned to me', () => {
+  assert.equal(sinceButtons(issue({ assignees: [{ login: ME }, { login: 'colleague' }] }), { me: ME, now: NOW }).unassign, true);
+  assert.equal(sinceButtons(issue({ assignees: [{ login: 'colleague' }] }), { me: ME, now: NOW }).unassign, false);
+  assert.equal(sinceButtons(issue(), { me: ME, now: NOW }).unassign, false);
+  assert.equal(sinceButtons(issue({ assignees: [{ login: ME }] }), { me: null, now: NOW }).unassign, false);
+});
+
 test('buttons: neither Assign nor Open on my own items', () => {
   const item = issue({ assignees: [{ login: ME }, { login: 'colleague' }], createdAt: daysAgo(30), comments: [comment('reporter', hoursAgo(2))] });
   const [row] = groups([item]).mine;

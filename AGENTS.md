@@ -22,7 +22,8 @@ dependencies, no build step.
   9 days (raw timestamps for the trend tiles) into
   `.cache/trends-<owner>-<name>.json`. Recommendations run
   `claude -p` with no tools, three at a time, in the empty `.cache/claude-cwd/`;
-  results are cached in `.cache/recommendations-<owner>-<name>.json`. The route
+  results are cached in `.cache/recommendations-<owner>-<name>.json`. Only a
+  click starts a run: browser polls send `poll: true` and never start one. The route
   rejects a request whose `Origin` header is present and is not
   `http://localhost:<port>` or `http://127.0.0.1:<port>` (403), and a body that is
   not `application/json` (415). This blocks other web pages in the browser. The
@@ -32,12 +33,12 @@ dependencies, no build step.
   `recommend.test.mjs`.
 - `public/actions.js` — the actions a recommendation can propose (`ACTIONS`).
   Shared by `recommend.mjs` and the browser.
-- `public/recs.js` — pure browser helpers for recommendations: the request
-  body for the visible tasks, freshness checks, `applyPlan`, which maps a
-  recommendation to what the apply button does, and `recDisagrees`, which
-  tells when a recommendation does not do what a close or bot-command task
-  asks. `recIsNextStep` tells when the task's button applies a severity
-  label, so the recommendation is the step after it. Tested by
+- `public/recs.js` — pure browser helpers for recommendations: `recRequest`,
+  the request body for one Inbox row, keyed `<number>:<state>`, or
+  `<number>:<state>:custom-<hash>` for a custom prompt; freshness checks;
+  `applyPlan`, which maps a recommendation to what the apply button does; and
+  `recDisagrees`, which tells when a recommendation does not do what the
+  row's own close, comment or bot-command button does. Tested by
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   Tested by `triage.test.mjs`.
@@ -87,8 +88,9 @@ dependencies, no build step.
   actions. The Inbox is the only page; the header shows the total open issues
   and PRs without filters. The Inbox has two tabs, "On-call inbox" and "My
   Work". Workflow state chips, in an Issues group and a PRs group, and
-  Cleanup chips sit beside the trend tiles. Recommendations are not shown in
-  the Inbox until the Cleanup-filter recommendations land. The list-page code (`renderViews` and the Runbook
+  Cleanup chips sit beside the trend tiles. The agent runs only when the user
+  clicks "Ask agent…" on an open row, with the standard prompt or their own
+  question; the answer shows on that row. The list-page code (`renderViews` and the Runbook
   view cards) stays but is not reachable.
 - `public/index.html`, `public/style.css` — markup and GitHub-like styles.
 

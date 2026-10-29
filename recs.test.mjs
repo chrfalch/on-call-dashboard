@@ -1,106 +1,105 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS } from './public/actions.js';
-import { TASK_KINDS } from './public/inbox.js';
-import { applyPlan, hasPending, recAction, recDisagrees, recFor, recIsNextStep, recLabel, recRequest, recSignature } from './public/recs.js';
+import * as recs from './public/recs.js';
+import { applyPlan, hasPending, promptHash, recAction, recDisagrees, recFor, recLabel, recRequest, taskKey } from './public/recs.js';
+import { cleanupAction, stateAction } from './public/states.js';
 import { recKey } from './recommend.mjs';
 
 const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
 const pr = { type: 'pr', number: 34, url: 'https://github.com/expo/expo/pull/34', updatedAt: '2026-10-26T11:00:00Z' };
-const task = (item, kind = 'reply', reasons = []) => ({ key: `${item.number}:${kind}`, kind, item, reasons, score: 50, also: [] });
+const row = (item, stateId = 'I4', cleanup = ['C2']) => ({ item, stateId, cleanup, key: `${item.type}#${item.number}:${stateId}` });
 const rec = (action, over = {}) => ({ action, who: 'on-call', why: 'Because.', draft: null, confidence: 70, ...over });
 
-test('recRequest sends key, kind and reason texts, and nothing about the item', () => {
-  const body = recRequest([task(issue, 'reply', [{ text: 'waiting 3d' }, { text: '👍 4' }])]);
-  assert.deepEqual(body, { tasks: [{ key: '12:reply', kind: 'reply', reasons: [{ text: 'waiting 3d' }, { text: '👍 4' }] }] });
+test('promptHash is the 32-bit FNV-1a of the UTF-8 text, as 8 hex characters', () => {
+  assert.equal(promptHash(''), '811c9dc5');
+  assert.equal(promptHash('a'), 'e40c292c');
+  assert.equal(promptHash('foobar'), 'bf9cf968');
+  assert.match(promptHash('Fermez-la, s’il vous plaît 😀'), /^[0-9a-f]{8}$/);
+  assert.notEqual(promptHash('é'), promptHash('é'.normalize('NFD')));
 });
 
-test('recRequest turns label reasons into text and drops empty ones', () => {
-  const body = recRequest([task(issue, 'reply', [{ label: 'severity: high' }, { label: undefined }, { text: '' }])]);
-  assert.deepEqual(body.tasks[0].reasons, [{ text: 'severity: high' }]);
+test('taskKey is the item number and workflow state, with :custom-<hash> for an operator prompt', () => {
+  assert.equal(taskKey(row(issue)), '12:I4');
+  assert.equal(taskKey(row(pr, 'P6', [])), '34:P6');
+  assert.equal(taskKey(row(issue), { prompt: 'Draft a close.' }), `12:I4:custom-${promptHash('Draft a close.')}`);
+  assert.equal(taskKey(row(issue), { prompt: '  Draft a close.\n' }), taskKey(row(issue), { prompt: 'Draft a close.' }));
+  assert.equal(taskKey(row(issue), { prompt: '   ' }), '12:I4');
 });
 
-test('recRequest sends unsupported-SDK tasks, so the agent can check the close', () => {
-  const keys = recRequest([task({ ...issue, number: 1 }, 'unsupported-sdk'), task({ ...issue, number: 2 })]).tasks.map((t) => t.key);
-  assert.deepEqual(keys, ['1:unsupported-sdk', '2:reply']);
+test('two different prompts on the same row get different keys, the same prompt the same key', () => {
+  const a = recRequest(row(issue), { prompt: 'Draft a close.' }).tasks[0].key;
+  const b = recRequest(row(issue), { prompt: 'Ask for a Snack.' }).tasks[0].key;
+  assert.notEqual(a, b);
+  assert.equal(recRequest(row(issue), { prompt: 'Draft a close.' }).tasks[0].key, a);
 });
 
-test('recRequest, recSignature and recFor leave out bot-triage tasks, which have nothing to decide', () => {
-  const triage = task({ ...issue, number: 1 }, 'bot-triage');
-  const reply = task({ ...issue, number: 2 });
-  assert.deepEqual(recRequest([triage, reply]).tasks.map((t) => t.key), ['2:reply']);
-  assert.equal(recSignature([triage, reply]), recSignature([reply]));
-  const done = { status: 'done', rec: rec('wait'), recKey: recKey(triage, triage.item) };
-  assert.equal(recFor({ [triage.key]: done }, triage), undefined);
+test('recRequest sends one task with the state and cleanup filters, and nothing about the item', () => {
+  assert.deepEqual(recRequest(row(issue, 'I4', ['C2', 'C4'])), { tasks: [{ key: '12:I4', state: 'I4', filters: ['C2', 'C4'] }] });
+  assert.deepEqual(recRequest(row(pr, 'P2', [])), { tasks: [{ key: '34:P2', state: 'P2', filters: [] }] });
 });
 
-test('bot-triage tasks do not take one of the 30 requested slots', () => {
-  const tasks = [task({ ...issue, number: 100 }, 'bot-triage'), ...Array.from({ length: 30 }, (_, i) => task({ ...issue, number: i + 1 }))];
-  assert.equal(recRequest(tasks).tasks.length, 30);
-  assert.ok(recSignature(tasks).includes('30:reply@'));
+test('recRequest asks for any row, including C10 and bot-command states', () => {
+  assert.deepEqual(recRequest(row(pr, 'P3', ['C10'])).tasks.map((t) => t.key), ['34:P3']);
+  assert.deepEqual(recRequest(row(issue, 'I1', [])).tasks.map((t) => t.key), ['12:I1']);
 });
 
-test('recRequest keeps the first 30 tasks in order', () => {
-  const tasks = Array.from({ length: 35 }, (_, i) => task({ ...issue, number: i + 1 }));
-  const keys = recRequest(tasks).tasks.map((t) => t.key);
-  assert.equal(keys.length, 30);
-  assert.equal(keys[0], '1:reply');
-  assert.equal(keys[29], '30:reply');
+test('recRequest with a prompt sends it trimmed under the :custom key', () => {
+  assert.deepEqual(recRequest(row(issue), { prompt: '  Draft a polite close.\n' }), {
+    tasks: [{ key: `12:I4:custom-${promptHash('Draft a polite close.')}`, state: 'I4', filters: ['C2'], prompt: 'Draft a polite close.' }],
+  });
 });
 
-test('recRequest of no tasks is an empty list', () => {
-  assert.deepEqual(recRequest([]), { tasks: [] });
+test('recRequest with an empty or missing prompt is the predefined request', () => {
+  for (const prompt of [undefined, '', '   \n', null]) {
+    assert.deepEqual(recRequest(row(issue), { prompt }), { tasks: [{ key: '12:I4', state: 'I4', filters: ['C2'] }] }, String(prompt));
+  }
 });
 
-test('recSignature changes when the requested set or an item version changes', () => {
-  const a = [task(issue), task(pr, 'merge')];
-  assert.equal(recSignature(a), recSignature([task(issue), task(pr, 'merge')]));
-  assert.notEqual(recSignature(a), recSignature([task(pr, 'merge'), task(issue)]));
-  assert.notEqual(recSignature(a), recSignature([task(issue)]));
-  assert.notEqual(recSignature(a), recSignature([task({ ...issue, updatedAt: '2026-10-27T00:00:00Z' }), task(pr, 'merge')]));
-});
-
-test('recSignature ignores tasks after the first 30', () => {
-  const tasks = Array.from({ length: 30 }, (_, i) => task({ ...issue, number: i + 1 }));
-  assert.equal(recSignature(tasks), recSignature([...tasks, task({ ...issue, number: 99 })]));
+test('recs.js no longer exports the batch and task-kind helpers', () => {
+  assert.equal(recs.recSignature, undefined);
+  assert.equal(recs.recIsNextStep, undefined);
 });
 
 test('hasPending is true only when some task is pending', () => {
-  assert.equal(hasPending({ '1:reply': { status: 'pending' }, '2:reply': { status: 'error', error: 'x' } }), true);
-  assert.equal(hasPending({ '1:reply': { status: 'done', rec: rec('wait'), recKey: '1:reply@t' } }), false);
+  assert.equal(hasPending({ '1:I4': { status: 'pending' }, '2:I4': { status: 'error', error: 'x' } }), true);
+  assert.equal(hasPending({ '1:I4': { status: 'done', rec: rec('wait'), recKey: '1:I4@t' } }), false);
   assert.equal(hasPending({}), false);
   assert.equal(hasPending(null), false);
   assert.equal(hasPending(undefined), false);
 });
 
-test('recFor returns the entry for the task', () => {
+test('recFor returns the entry for the key', () => {
   const pending = { status: 'pending' };
   const error = { status: 'error', error: 'claude failed' };
-  assert.equal(recFor({ '12:reply': pending }, task(issue)), pending);
-  assert.equal(recFor({ '12:reply': error }, task(issue)), error);
-  assert.equal(recFor({}, task(issue)), undefined);
-  assert.equal(recFor(undefined, task(issue)), undefined);
+  assert.equal(recFor({ '12:I4': pending }, '12:I4', issue), pending);
+  assert.equal(recFor({ '12:I4:custom': error }, '12:I4:custom', issue), error);
+  assert.equal(recFor({ '12:I4': pending }, '12:I4:custom', issue), undefined);
+  assert.equal(recFor({}, '12:I4', issue), undefined);
+  assert.equal(recFor(undefined, '12:I4', issue), undefined);
 });
 
 test('recFor drops a done rec made for an older version of the item', () => {
-  const current = { status: 'done', rec: rec('wait'), recKey: `12:reply@${issue.updatedAt}` };
-  const stale = { status: 'done', rec: rec('wait'), recKey: '12:reply@2026-10-01T00:00:00Z' };
-  assert.equal(recFor({ '12:reply': current }, task(issue)), current);
-  assert.equal(recFor({ '12:reply': stale }, task(issue)), undefined);
+  const current = { status: 'done', rec: rec('wait'), recKey: `12:I4@${issue.updatedAt}` };
+  const stale = { status: 'done', rec: rec('wait'), recKey: '12:I4@2026-10-01T00:00:00Z' };
+  assert.equal(recFor({ '12:I4': current }, '12:I4', issue), current);
+  assert.equal(recFor({ '12:I4': stale }, '12:I4', issue), undefined);
+  const custom = { status: 'done', rec: rec('wait'), recKey: `12:I4:custom@${issue.updatedAt}` };
+  assert.equal(recFor({ '12:I4:custom': custom }, '12:I4:custom', issue), custom);
 });
 
-test('recFor and recSignature follow a linked PR merging, like the server recKey', () => {
+test('recFor follows a linked PR merging, like the server recKey', () => {
   const linkedPr = (state) => ({ number: 7, title: 'Fix', state, mergedAt: null, baseRefName: 'main' });
-  const open = task({ ...issue, linkedPrs: [linkedPr('OPEN')] }, 'close-candidate');
-  const merged = task({ ...issue, linkedPrs: [linkedPr('MERGED')] }, 'close-candidate');
-  const done = { status: 'done', rec: rec('wait'), recKey: recKey(merged, merged.item) };
-  assert.equal(recFor({ '12:close-candidate': done }, merged), done);
-  assert.equal(recFor({ '12:close-candidate': done }, open), undefined);
-  assert.notEqual(recSignature([open]), recSignature([merged]));
+  const open = { ...issue, linkedPrs: [linkedPr('OPEN')] };
+  const merged = { ...issue, linkedPrs: [linkedPr('MERGED')] };
+  const done = { status: 'done', rec: rec('wait'), recKey: recKey({ key: '12:I9' }, merged) };
+  assert.equal(recFor({ '12:I9': done }, '12:I9', merged), done);
+  assert.equal(recFor({ '12:I9': done }, '12:I9', open), undefined);
 });
 
 test('recFor does not read inherited properties', () => {
-  assert.equal(recFor({}, { ...task(issue), key: 'toString' }), undefined);
+  assert.equal(recFor(Object.create({ '12:I4': { status: 'pending' } }), '12:I4', issue), undefined);
+  assert.equal(recFor({}, 'toString', issue), undefined);
 });
 
 test('recAction finds the action when it fits the item type', () => {
@@ -170,47 +169,78 @@ test('recLabel returns null for an unknown action or one for the other item type
   assert.equal(recLabel(rec('nudge-author', { who: 'brentvatne' }), issue), null);
 });
 
-test('recDisagrees: a close task and a rec that does not close', () => {
-  assert.deepEqual(recDisagrees(task(pr, 'close'), rec('nudge-author')), { task: 'Close stale', agent: 'Nudge author' });
-  assert.deepEqual(recDisagrees(task(issue, 'close-candidate'), rec('wait')), { task: 'Close candidate', agent: 'Wait' });
+const close = { kind: 'close', label: 'Close…' };
+
+test('recDisagrees: a close button and a rec that does not close', () => {
+  assert.deepEqual(recDisagrees(close, rec('nudge-author'), pr), { task: 'Close…', agent: 'Nudge author' });
+  assert.deepEqual(recDisagrees(cleanupAction(issue, 'C2'), rec('wait'), issue), { task: 'Close…', agent: 'Wait' });
+  assert.deepEqual(recDisagrees(stateAction(issue, 'I9'), rec('ask-reporter'), issue), { task: 'Close…', agent: 'Ask reporter' });
 });
 
-test('recDisagrees: a close task agrees with close and close as duplicate', () => {
-  assert.equal(recDisagrees(task(pr, 'close'), rec('close')), null);
-  assert.equal(recDisagrees(task(issue, 'close'), rec('close-duplicate')), null);
+test('recDisagrees: a close button agrees with close and close as duplicate', () => {
+  assert.equal(recDisagrees(close, rec('close'), pr), null);
+  assert.equal(recDisagrees(close, rec('close-duplicate'), issue), null);
 });
 
-test('recDisagrees: a bot-command task agrees only with that command', () => {
-  assert.equal(recDisagrees(task(issue, 'verify'), rec('verify')), null);
-  assert.equal(recDisagrees(task(pr, 'bot-review'), rec('request-review')), null);
-  assert.deepEqual(recDisagrees(task(issue, 'verify'), rec('ask-reporter')), { task: 'Verify new issue', agent: 'Ask reporter' });
-  assert.deepEqual(recDisagrees(task(pr, 'bot-review'), rec('close')), { task: 'Request bot review', agent: 'Close' });
+test('recDisagrees: a comment button agrees only with an action that comments', () => {
+  const ask = cleanupAction(pr, 'C11');
+  assert.equal(recDisagrees(ask, rec('nudge-author', { draft: 'Please open an issue.' }), pr), null);
+  assert.equal(recDisagrees(ask, rec('review-note', { draft: 'Note.' }), pr), null);
+  assert.deepEqual(recDisagrees(ask, rec('close'), pr), { task: 'Ask for an issue', agent: 'Close' });
+  assert.deepEqual(recDisagrees(ask, rec('request-review'), pr), { task: 'Ask for an issue', agent: 'Ask bot to review' });
 });
 
-test('recDisagrees: tasks that only open the item never disagree', () => {
-  for (const kind of ['reply', 'first-response', 'review', 'merge', 'nudge', 'assign-repro', 'fix-severity']) {
-    assert.equal(recDisagrees(task(pr, kind), rec('wait')), null, kind);
+test('recDisagrees: a command button disagrees with a rec that posts a different command', () => {
+  const verify = stateAction(issue, 'I3');
+  assert.equal(recDisagrees(verify, rec('verify'), issue), null);
+  const review = stateAction(pr, 'P2');
+  assert.equal(recDisagrees(review, rec('request-review'), pr), null);
+  const triage = stateAction(issue, 'I1');
+  assert.deepEqual(recDisagrees(triage, rec('verify'), issue), { task: 'Ask bot to triage', agent: 'Ask bot to verify' });
+  const again = { kind: 'command', label: 'Ask bot again', body: '@expo-bot review' };
+  assert.equal(recDisagrees(again, rec('request-review'), pr), null);
+});
+
+test('recDisagrees: a command button disagrees with a rec that closes', () => {
+  const triage = stateAction(issue, 'I1');
+  assert.deepEqual(recDisagrees(triage, rec('close'), issue), { task: triage.label, agent: 'Close' });
+  assert.deepEqual(recDisagrees(triage, rec('close-duplicate'), issue), { task: triage.label, agent: 'Close as duplicate' });
+  const review = stateAction(pr, 'P2');
+  assert.deepEqual(recDisagrees(review, rec('close'), pr), { task: review.label, agent: 'Close' });
+});
+
+test('recDisagrees: a command button agrees with a rec that comments, opens the item or waits', () => {
+  const triage = stateAction(issue, 'I1');
+  for (const id of ['ask-reporter', 'accept', 'assign-owner', 'wait']) {
+    assert.equal(recDisagrees(triage, rec(id, { draft: 'Text.' }), issue), null, id);
+  }
+  for (const id of ['nudge-author', 'review-note', 'merge', 'wait']) {
+    assert.equal(recDisagrees(stateAction(pr, 'P2'), rec(id, { draft: 'Text.' }), pr), null, id);
   }
 });
 
-test('recIsNextStep: only tasks whose button applies the severity label', () => {
-  assert.equal(recIsNextStep(task(issue, 'fix-severity')), true);
-  for (const kind of ['reply', 'close-candidate', 'no-such-kind', 'toString']) {
-    assert.equal(recIsNextStep(task(issue, kind)), false, kind);
-  }
+test('recDisagrees: a nudge button counts as a comment', () => {
+  const nudge = stateAction({ ...pr, changesRequestedAt: '2026-01-01T00:00:00Z' }, 'P4');
+  assert.equal(nudge.kind, 'nudge');
+  assert.equal(recDisagrees(nudge, rec('nudge-author', { draft: 'Please rebase.' }), pr), null);
+  assert.deepEqual(recDisagrees(nudge, rec('close'), pr), { task: 'Nudge author', agent: 'Close' });
+  assert.deepEqual(recDisagrees(nudge, rec('request-review'), pr), { task: 'Nudge author', agent: 'Ask bot to review' });
 });
 
-test('recDisagrees: no answer for an unknown action, an action for the other item type, or an unknown task kind', () => {
-  assert.equal(recDisagrees(task(pr, 'close'), rec('nope')), null);
-  assert.equal(recDisagrees(task(pr, 'close'), rec('accept')), null);
-  assert.equal(recDisagrees(task(pr, 'nope'), rec('wait')), null);
-  assert.equal(recDisagrees(task(pr, 'close'), undefined), null);
+test('recDisagrees: an apply-severity button never disagrees', () => {
+  const severity = { kind: 'apply-severity', label: 'Apply severity: high' };
+  for (const id of ['close', 'verify', 'ask-reporter', 'wait']) assert.equal(recDisagrees(severity, rec(id, { draft: 'Text.' }), issue), null, id);
 });
 
-test('recDisagrees: every bot-command task kind agrees with some action', () => {
-  for (const [kind, { action }] of Object.entries(TASK_KINDS)) {
-    if (action !== 'command') continue;
-    const item = kind === 'bot-review' ? pr : issue;
-    assert.ok(ACTIONS.some((a) => recDisagrees(task(item, kind), rec(a.id)) === null), kind);
-  }
+test('recDisagrees: buttons that only open the item never disagree', () => {
+  for (const id of ['C1', 'C5', 'C8', 'C9']) assert.equal(recDisagrees(cleanupAction(pr, id), rec('close'), pr), null, id);
+  assert.equal(recDisagrees({ kind: 'open', label: 'Open' }, rec('wait'), issue), null);
+});
+
+test('recDisagrees: no answer for an unknown action, an action for the other item type, or no button', () => {
+  assert.equal(recDisagrees(close, rec('nope'), pr), null);
+  assert.equal(recDisagrees(close, rec('accept'), pr), null);
+  assert.equal(recDisagrees(close, undefined, pr), null);
+  assert.equal(recDisagrees(undefined, rec('wait'), pr), null);
+  assert.equal(recDisagrees({ kind: 'toString', label: 'x' }, rec('wait'), pr), null);
 });

@@ -1,12 +1,13 @@
 // Expo triage dashboard client.
 import { MODES, PLATFORM_LABEL } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
-import { CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, STATE_TIPS, CLEANUP_TIPS, tooltip } from './tooltips.js';
+import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, STATE_TIPS, CLEANUP_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
 import { dayKey, parseLog, addDone, doneCounts, weekDone } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
 import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, cleanupAction, inboxRows, inboxCounts } from './states.js';
+import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -1138,6 +1139,7 @@ function taskHtml(t, idx) {
         <div class="task-labels">${item.assignees.map((a) => assigneeChipHtml(a, { filterable: false })).join('')}${item.labels.map((l) => labelHtml(l, { filterable: false })).join('')}</div>
         ${item.type === 'issue' ? triageHtml(item, { fixPrs: false, brief: true }) : ''}
       </div>
+      ${recHtml(t)}
     </div>
     <div class="task-actions">
       ${isBusy ? SPINNER : ''}
@@ -1146,6 +1148,7 @@ function taskHtml(t, idx) {
         ${isOpen(item) && taskAction(t)?.kind !== 'close' ? `<button class="btn btn-sm btn-danger" data-task-close="${esc(t.key)}">Close…</button>` : ''}
       </div>
       <div class="task-secondary">
+        ${isOpen(item) ? `<button class="btn btn-sm" data-task-ask="${esc(t.key)}" title="Ask the agent to recommend the next step for this row">Ask agent…</button>` : ''}
         ${isOpen(item) ? `<button class="btn btn-sm" data-task-bot="${esc(t.key)}" title="Write a comment; it starts with @expo-bot">${icons.bot}Comment</button>` : ''}
         <button class="btn btn-sm" data-task-done="${esc(t.key)}" title="I did what this row asks; hide it until its state changes">✓ Done</button>
       </div>
@@ -1202,6 +1205,13 @@ function inboxClick(e) {
     const task = findTask(bot.dataset.taskBot);
     return task && openCommentDialog(task.item, '@expo-bot ');
   }
+  const ask = t.closest('[data-task-ask]');
+  if (ask) {
+    const task = findTask(ask.dataset.taskAsk);
+    return task && isOpen(task.item) && openAskDialog(task);
+  }
+  const apply = t.closest('[data-rec-apply]');
+  if (apply) return applyRec(findTask(apply.dataset.recApply));
   const go = t.closest('[data-task-do]');
   if (go) return doTask(findTask(go.dataset.taskDo));
   const row = t.closest('[data-task]');
@@ -1209,6 +1219,130 @@ function inboxClick(e) {
     inboxFocus = inboxVisible.findIndex((x) => x.key === row.dataset.task);
     document.querySelectorAll('.task').forEach((el, idx) => el.classList.toggle('focused', idx === inboxFocus));
   }
+}
+
+// ---------- agent recommendations ----------
+// The agent runs only when the user asks on a row. Rec text is model output derived from
+// untrusted issue text: render it only through esc(), and take URLs, command bodies and close
+// reasons from applyPlan, never from the rec.
+
+const REC_POLL_MS = 10000;
+const recAsks = new Map(); // row key -> { request, key, response } of the latest question on that row
+let recPoll = null;
+let askRow = null;
+
+document.body.insertAdjacentHTML('beforeend', `
+  <dialog id="ask-dialog" class="dialog">
+    <form method="dialog">
+      <h3 id="ask-title">Ask the agent</h3>
+      <p class="muted">Leave it empty for the standard recommendation for this row, or write your own question. Nothing is posted until you apply the answer.</p>
+      <textarea id="ask-prompt" rows="5" maxlength="1000" placeholder="Optional, up to 1000 characters"></textarea>
+      <div class="dialog-actions">
+        <div class="header-spacer"></div>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button value="ask" class="btn btn-primary">Ask agent</button>
+      </div>
+    </form>
+  </dialog>`);
+
+function openAskDialog(t) {
+  askRow = t;
+  $('#ask-title').textContent = `Ask the agent about #${t.item.number}`;
+  $('#ask-prompt').value = recAsks.get(t.key)?.request.tasks[0].prompt ?? '';
+  // Escape closes without a button, which would keep the previous returnValue.
+  $('#ask-dialog').returnValue = '';
+  $('#ask-dialog').showModal();
+}
+
+$('#ask-dialog').addEventListener('close', () => {
+  if ($('#ask-dialog').returnValue !== 'ask') return;
+  const t = findTask(askRow.key);
+  if (t) askAgent(t, $('#ask-prompt').value);
+  else toast(`#${askRow.item.number} changed while the dialog was open. Ask again from its row.`, { error: true });
+});
+
+function askAgent(t, prompt) {
+  const request = recRequest(t, { prompt });
+  const { key } = request.tasks[0];
+  const ask = { request, key, response: { [key]: { status: 'pending' } } };
+  recAsks.set(t.key, ask);
+  renderInbox();
+  fetchRec(t.key, ask);
+}
+
+async function fetchRec(rowKey, ask, { poll = false } = {}) {
+  let response;
+  try {
+    const res = await fetch('/api/recommendations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...ask.request, poll }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`);
+    response = await res.json();
+  } catch (e) {
+    response = { [ask.key]: { status: 'error', error: `The request failed: ${e.message}` } };
+  }
+  if (recAsks.get(rowKey) !== ask) return;
+  ask.response = response;
+  if (hasPending(response) && !recPoll) recPoll = setTimeout(pollRecs, REC_POLL_MS);
+  renderInbox();
+}
+
+// A poll never starts a run: only a click may. The server answers ITEM_CHANGED when the
+// item has a newer version than the one asked about.
+function pollRecs() {
+  recPoll = null;
+  for (const [rowKey, ask] of recAsks) {
+    if (hasPending(ask.response)) fetchRec(rowKey, ask, { poll: true });
+  }
+}
+
+function recEntry(t) {
+  const ask = recAsks.get(t.key);
+  return ask && recFor(ask.response, ask.key, t.item);
+}
+
+const REC_SUFFIX = { comment: '…', close: '…', github: ' ↗' };
+
+function recHtml(t) {
+  const ask = recAsks.get(t.key);
+  if (!ask) return '';
+  const entry = recEntry(t);
+  const { prompt } = ask.request.tasks[0];
+  const head = `<span class="rec-tag" ${tipAttr(CHIP_TIPS.recTag)}>Agent</span>${prompt ? `<span class="rec-prompt">“${esc(prompt)}”</span>` : ''}`;
+  const noRec = (reason) => `<div class="rec" ${tipAttr(CHIP_TIPS.recError, reason)}>${head}No recommendation</div>`;
+  if (!entry) return noRec(ITEM_CHANGED);
+  if (entry.status === 'pending') return `<div class="rec">${head}Thinking…</div>`;
+  if (entry.status !== 'done') return noRec(entry.error);
+  const { rec } = entry;
+  const label = recLabel(rec, t.item);
+  if (!label) return noRec('The recommended action is not valid for this item.');
+  const { kind } = applyPlan(rec, t.item);
+  const posted = kind === 'command' && isPosted(t.item.number, ACTIONS[t.item.type]);
+  const actionTip = tipAttr(ACTION_TIPS[rec.action]);
+  const apply =
+    kind === 'none'
+      ? `<span class="rec-action" ${actionTip}>${esc(label.button)}</span>`
+      : `<button class="btn btn-xs" data-rec-apply="${esc(t.key)}" ${actionTip}${posted ? ' disabled' : ''}>${esc(label.button)}${REC_SUFFIX[kind] ?? ''}</button>`;
+  const who = label.who ? `<span class="rec-who" ${tipAttr(CHIP_TIPS.recWho)}>${esc(label.who)} <b>${esc(rec.who)}</b></span>` : '';
+  const conflict = recDisagrees(taskAction(t), rec, t.item);
+  const disagrees = conflict
+    ? `<span class="rec-disagrees" ${tipAttr(CHIP_TIPS.recDisagrees, `The row says "${conflict.task}". The agent recommends "${conflict.agent}". Check the thread before you act.`)}>agent disagrees</span>`
+    : '';
+  const draft = rec.draft ? `<div class="rec-draft">${esc(rec.draft)}</div>` : '';
+  return `<div class="rec">${head}${disagrees}${apply}${who}<span class="rec-confidence" ${tipAttr(CHIP_TIPS.recConfidence)}>${esc(rec.confidence)}%</span><span class="rec-why" ${tipAttr(CHIP_TIPS.recWhy)}>${esc(rec.why)}</span>${draft}</div>`;
+}
+
+function applyRec(t) {
+  const entry = t && recEntry(t);
+  if (entry?.status !== 'done' || busy.has(t.item.number)) return;
+  const plan = applyPlan(entry.rec, t.item);
+  if (plan.kind === 'command') {
+    // postCommand posts the dashboard's own command for the item type, so refuse a recommendation for any other body.
+    if (plan.body === ACTIONS[t.item.type].body) postCommand([t.item.number]);
+    else toast(`Unknown command “${plan.body}”`, { error: true });
+  } else if (plan.kind === 'comment') openCommentDialog(t.item, plan.body);
+  else if (plan.kind === 'close') {
+    selected = new Set([t.item.number]);
+    openCloseDialog(t.item.type, { body: plan.body, reason: plan.reason });
+  } else if (plan.kind === 'github') window.open(plan.url, '_blank', 'noopener');
 }
 
 let commentItem = null;

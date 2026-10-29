@@ -681,6 +681,18 @@ test('inboxRows: on-call mode keeps an assigned item with a cleanup filter', () 
   assert.equal(inboxCounts(items, rowOpts).cleanup.C8, 1);
 });
 
+test('inboxRows: on-call mode leaves an assigned item with a cleanup filter out of the list and state chips unless includeAssigned', () => {
+  const items = [pr({ number: 1, state: 'OPEN', assignees: assigned })];
+  const [row] = rows(items, { includeAssigned: true });
+  assert.ok(row.cleanup.includes('C11'));
+  assert.deepEqual(keys(items), []);
+  assert.deepEqual(keys(items, { stateId: row.stateId }), []);
+  assert.deepEqual(keys(items, { cleanupId: 'C11' }), [row.key]);
+  const counts = inboxCounts(items, rowOpts);
+  assert.equal(counts.states[row.stateId], 0);
+  assert.equal(counts.cleanup.C11, 1);
+});
+
 test('inboxRows: on-call mode keeps an assigned closed item', () => {
   const items = [issue({ number: 1, ...fresh({ assignees: assigned, state: 'CLOSED' }) })];
   assert.deepEqual(keys(items, { stateId: 'I10' }), ['issue#1:I10']);

@@ -1162,6 +1162,7 @@ function taskHtml(t, idx) {
       <div class="task-secondary">
         ${isOpen(item) ? `<button class="btn btn-sm" data-task-ask="${esc(t.key)}" title="Ask the agent to recommend the next step for this row">Ask agent…</button>` : ''}
         ${isOpen(item) ? `<button class="btn btn-sm" data-task-bot="${esc(t.key)}" title="Write a comment; it starts with @expo-bot">${icons.bot}Comment</button>` : ''}
+        ${me && item.assignees.some((a) => a.login === me.login) ? `<button class="btn btn-sm" data-task-unassign="${esc(t.key)}">Unassign me</button>` : ''}
         <button class="btn btn-sm" data-task-done="${esc(t.key)}" title="I did what this row asks; hide it until its state changes">✓ Done</button>
       </div>
     </div>
@@ -1214,6 +1215,11 @@ function inboxClick(e) {
   if (bot) {
     const task = findTask(bot.dataset.taskBot);
     return task && openCommentDialog(task.item, '@expo-bot ');
+  }
+  const unassign = t.closest('[data-task-unassign]');
+  if (unassign) {
+    const task = findTask(unassign.dataset.taskUnassign);
+    return task && unassignMe(task.item);
   }
   const ask = t.closest('[data-task-ask]');
   if (ask) {
@@ -1442,6 +1448,7 @@ function sinceRowHtml(row) {
       ${isBusy ? SPINNER : ''}
       ${row.action ? actionButton(row, row.action, 'data-since-action="do"') : ''}
       ${row.assign ? '<button class="btn btn-sm" data-since-action="assign">Assign to me</button>' : ''}
+      ${row.unassign ? '<button class="btn btn-sm" data-since-action="unassign">Unassign me</button>' : ''}
       ${row.open ? `<a class="btn btn-sm" href="${esc(item.url)}" target="_blank" rel="noreferrer">Open ↗</a>` : ''}
       <button class="btn btn-sm" data-since-action="skip" title="Hide this row until there is new activity">Skip</button>
     </span>
@@ -1471,6 +1478,7 @@ function sinceClick(e) {
   const { sinceAction } = button.dataset;
   if (sinceAction === 'do') return doTask(row, row.action);
   if (sinceAction === 'assign') return assignToMe(row.item);
+  if (sinceAction === 'unassign') return unassignMe(row.item);
   sinceSkipped = withSkip(sinceSkipped, row.item, Date.now());
   localStorage.setItem('sinceSkipped', JSON.stringify(sinceSkipped));
   renderSince();
@@ -1491,23 +1499,26 @@ async function assignToMe(item) {
   item.assignedEvents = [...(item.assignedEvents ?? []), assigned];
   render();
   refreshAfterSync();
-  toast(`Assigned #${item.number} to you`, {
-    undo: async () => {
-      if (busy.has(item.number)) return;
-      try {
-        await whileBusy([item.number], () => gh(path, { method: 'DELETE', body }));
-      } catch (e) {
-        return toast(`Couldn't unassign #${item.number}: ${e.message}`, { error: true });
-      }
-      // A sync after the assign may have replaced data.items; change the current object.
-      const current = data.items.find((i) => i.number === item.number) ?? item;
-      current.assignees = current.assignees.filter((person) => person.login !== login);
-      current.assignedEvents = (current.assignedEvents ?? []).filter((event) => event !== assigned);
-      render();
-      toast(`Unassigned #${item.number}`);
-      refreshAfterSync();
-    },
-  });
+  toast(`Assigned #${item.number} to you`, { undo: () => unassignMe(item, { undoOf: assigned }) });
+}
+
+// `undoOf` is the assigned event an undo takes back; a plain unassign keeps the history and offers its own undo.
+async function unassignMe(item, { undoOf = null } = {}) {
+  if (!requireToken() || !me || busy.has(item.number)) return;
+  const { login } = me;
+  const body = JSON.stringify({ assignees: [login] });
+  try {
+    await whileBusy([item.number], () => gh(`/repos/${data.repo}/issues/${item.number}/assignees`, { method: 'DELETE', body }));
+  } catch (e) {
+    return toast(`Couldn't unassign #${item.number}: ${e.message}`, { error: true });
+  }
+  // A sync after the assign may have replaced data.items; change the current object.
+  const current = data.items.find((i) => i.number === item.number) ?? item;
+  current.assignees = current.assignees.filter((person) => person.login !== login);
+  if (undoOf) current.assignedEvents = (current.assignedEvents ?? []).filter((event) => event !== undoOf);
+  render();
+  refreshAfterSync();
+  toast(`Unassigned #${item.number}`, undoOf ? {} : { undo: () => assignToMe(current) });
 }
 
 // ---------- events ----------

@@ -2,22 +2,26 @@
 // recommendation does. Rec text is untrusted model output, so a plan only ever takes the
 // draft from it; command bodies, close reasons and URLs come from ACTIONS and the item.
 import { ACTIONS } from './actions.js';
-import { TASK_KINDS } from './inbox.js';
 
-const MAX_TASKS = 30;
-// The task posts one fixed bot command, so there is nothing for the agent to decide.
-const NO_REC_KINDS = new Set(['bot-triage']);
+// 32-bit FNV-1a of the UTF-8 bytes. The server stores and queues recs by key, so the key
+// must change with the prompt; this only needs to tell prompts apart, not resist forgery.
+export function promptHash(text) {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text)) hash = Math.imul(hash ^ byte, 0x01000193);
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
 
-const recTasks = (tasks) => tasks.filter((t) => !NO_REC_KINDS.has(t.kind)).slice(0, MAX_TASKS);
+const promptOf = (prompt) => (typeof prompt === 'string' ? prompt.trim() : '');
 
-export function recRequest(tasks) {
-  return {
-    tasks: recTasks(tasks).map(({ key, kind, reasons }) => ({
-      key,
-      kind,
-      reasons: reasons.map((r) => ({ text: r.text ?? r.label })).filter((r) => r.text),
-    })),
-  };
+export function taskKey(row, { prompt } = {}) {
+  const text = promptOf(prompt);
+  return `${row.item.number}:${row.stateId}${text ? `:custom-${promptHash(text)}` : ''}`;
+}
+
+export function recRequest(row, { prompt } = {}) {
+  const text = promptOf(prompt);
+  const task = { key: taskKey(row, { prompt: text }), state: row.stateId, filters: row.cleanup };
+  return { tasks: [text ? { ...task, prompt: text } : task] };
 }
 
 // A linked PR merging does not touch the issue's updatedAt, so merged PRs are part of the
@@ -30,15 +34,13 @@ export function itemVersion(item) {
 // The server keeps one rec per key and makes a new one when the item version changes.
 export const recKey = (task, item) => `${task.key}@${itemVersion(item)}`;
 
-// Includes the item version: a new version means a new rec, so that needs a new request.
-export const recSignature = (tasks) => recTasks(tasks).map((t) => recKey(t, t.item)).join(' ');
+export const ITEM_CHANGED = 'No answer for the current item. It changed, or the request was dropped. Ask again.';
 
 export const hasPending = (response) => Object.values(response ?? {}).some((entry) => entry?.status === 'pending');
 
-export function recFor(response, task) {
-  if (NO_REC_KINDS.has(task.kind)) return undefined;
-  const entry = response && Object.hasOwn(response, task.key) ? response[task.key] : undefined;
-  if (entry?.status === 'done' && entry.recKey !== recKey(task, task.item)) return undefined;
+export function recFor(response, key, item) {
+  const entry = response && Object.hasOwn(response, key) ? response[key] : undefined;
+  if (entry?.status === 'done' && entry.recKey !== recKey({ key }, item)) return undefined;
   return entry;
 }
 
@@ -51,22 +53,21 @@ export function recLabel(rec, item) {
   return action.button ? { button: `${action.button} ${rec.who}`, who: null } : { button: action.label, who: action.who };
 }
 
-const TASK_COMMAND = { verify: 'verify', 'bot-review': 'request-review' };
+// Close and comment buttons name one specific step. A command button disagrees only with a
+// close or a different command: I1 always offers `@expo-bot triage`, which no rec action posts,
+// so a comment, a GitHub step or a wait can come next to it. Other buttons open the item or
+// apply a label apart from the rec, so no rec can disagree with them.
+const STEP_OF = { close: 'close', comment: 'comment', nudge: 'comment' };
 
-// Only close and bot-command tasks name one specific action. Tasks that open the item leave
-// the next step open, so no rec can disagree with them.
-export function recDisagrees(task, rec) {
-  const kind = Object.hasOwn(TASK_KINDS, task.kind) ? TASK_KINDS[task.kind] : undefined;
-  const action = recAction(rec, task.item);
-  if (!kind || !action || (kind.action === 'command' && !TASK_COMMAND[task.kind])) return null;
-  const agrees =
-    kind.action === 'close' ? action.apply === 'close'
-    : kind.action === 'command' ? action.id === TASK_COMMAND[task.kind]
-    : true;
-  return agrees ? null : { task: kind.label, agent: action.label };
+export function recDisagrees(rowAction, rec, item) {
+  const action = recAction(rec, item);
+  if (!action || !rowAction) return null;
+  const plan = applyPlan(rec, item);
+  const disagrees =
+    rowAction.kind === 'command' ? plan.kind === 'close' || (plan.kind === 'command' && plan.body !== rowAction.body)
+    : Object.hasOwn(STEP_OF, rowAction.kind) && plan.kind !== STEP_OF[rowAction.kind];
+  return disagrees ? { task: rowAction.label, agent: action.label } : null;
 }
-
-export const recIsNextStep = (task) => Object.hasOwn(TASK_KINDS, task.kind) && TASK_KINDS[task.kind].action === 'apply-severity';
 
 export function applyPlan(rec, item) {
   const action = recAction(rec, item);

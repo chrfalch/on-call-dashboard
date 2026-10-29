@@ -311,7 +311,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 }
 .triage-details p { margin: 2px 0 6px; }
 .triage-details strong { color: var(--fg-muted); font-weight: 600; }
-#close-body, #comment-body { width: 100%; font: inherit; color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
+#close-body, #comment-body, #ask-prompt { width: 100%; font: inherit; color: var(--fg); background: var(--bg-muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
 
 /* Triage inbox */
 .inbox-header { display: flex; align-items: flex-start; gap: 24px; margin: 20px 0 12px; }
@@ -366,14 +366,15 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
   font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em; white-space: nowrap; cursor: help;
   color: var(--attention); border: 1px solid var(--attention);
 }
-.rec-next {
-  font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em; white-space: nowrap; cursor: help;
-  color: var(--fg-muted); border: 1px solid var(--border);
-}
 .rec-action { font-weight: 600; color: var(--fg); white-space: nowrap; }
 .rec-who { overflow-wrap: anywhere; }
 .rec-who b { font-weight: 600; color: var(--fg); }
 .rec-why { flex: 1 1 20em; min-width: 0; overflow-wrap: anywhere; }
+.rec-prompt { max-width: 30em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.rec-draft {
+  flex-basis: 100%; padding-left: 8px; border-left: 2px solid var(--border); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}
 .rec-confidence {
   font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 2em;
   background: var(--bg-muted); border: 1px solid var(--border-muted); font-variant-numeric: tabular-nums;

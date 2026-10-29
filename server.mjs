@@ -11,7 +11,7 @@ import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
 import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
 import { createSyncRunner } from './sync-runner.mjs';
-import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
+import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, ITEM_CHANGED, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, recStep, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = process.env.REPO_OWNER || 'expo';
@@ -576,13 +576,15 @@ function drain() {
   }
 }
 
-function recommendations(entries) {
+function recommendations(entries, poll) {
   const now = Date.now();
   return respond(entries, ({ task, item }) => {
     const job = { key: recKey(task, item), task, item };
     const stored = storedResult(job.key, agent, now);
-    if (!stored) enqueue(job);
-    return stored ?? { status: 'pending' };
+    const step = recStep({ stored, queued: agent.queued.has(job.key), poll });
+    if (step === 'enqueue') enqueue(job);
+    if (step === 'result') return stored;
+    return step === 'changed' ? { status: 'error', error: ITEM_CHANGED } : { status: 'pending' };
   });
 }
 
@@ -689,7 +691,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/recommendations' && req.method === 'POST') {
     const rejected = requestError(req.headers, PORT);
-    const entries = rejected ? null : validateTasks(await readJson(req), state.items);
+    const body = rejected ? undefined : await readJson(req);
+    const entries = rejected ? null : validateTasks(body, state.items);
     if (!entries) {
       const { status, error } = rejected ?? { status: 400, error: 'expected a JSON body {tasks: [...]} of at most 64 KB' };
       // The request body may be partly unread, so this connection cannot serve another request.
@@ -697,7 +700,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ error }), () => req.destroy());
     }
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    return res.end(JSON.stringify(recommendations(entries)));
+    return res.end(JSON.stringify(recommendations(entries, body.poll === true)));
   }
   const file = path.join(__dirname, 'public', url.pathname === '/' ? 'index.html' : path.normalize(url.pathname));
   if (!file.startsWith(path.join(__dirname, 'public'))) {

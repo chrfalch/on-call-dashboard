@@ -46,6 +46,8 @@ dependencies, no build step.
   row's own close, comment or bot-command button does. Tested by
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
+  expo-bot sometimes answers a command by editing an older comment, so a bot
+  reply's time is the comment's `lastEditedAt` when that is newer.
   Tested by `triage.test.mjs`.
 - `public/people.js` — `isBot` and `isTeam`, which tell who wrote a comment.
   `triage.mjs` re-exports them, so the server and the browser share one copy.
@@ -97,7 +99,8 @@ dependencies, no build step.
   Friday on a Monday. "My items" are open items assigned to the viewer, or
   PRs that request the viewer's review, with a comment, review or commit from someone else after the viewer's last
   comment, review or assignment. A commit counts only when `lastCommitBy` is
-  known and is not the viewer or a bot. "New issues" and "New PRs" are open
+  known and is not the viewer or a bot. expo-bot's answer counts when the
+  viewer gave the last `review`, `triage` or `verify` command. "New issues" and "New PRs" are open
   items created in the window with no comment or review from a team member
   (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.

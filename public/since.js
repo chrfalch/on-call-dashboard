@@ -21,7 +21,13 @@ const commentEvent = (c) => ({ at: c.at, what: `@${c.login} ${c.review ? REVIEW_
 const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
 const awaitsMyReview = (item, me) => !!me && (item.reviewRequests ?? []).some((person) => person.login === me);
 
-// The newest comment, review or commit by someone else after my last comment, review or assignment.
+const BOT_DONE_TEXT = { review: 'expo-bot finished the review', triage: 'expo-bot finished triage', verify: 'expo-bot finished verify' };
+const botFinished = (item, me) => {
+  const bot = item.bot;
+  return !!bot?.botRepliedAfterCommand && bot.lastCommand?.by === me && Object.hasOwn(BOT_DONE_TEXT, bot.lastCommand.command);
+};
+
+// The newest comment, review or commit by someone else, or the bot's answer to my command, after my last comment, review or assignment.
 function myItemEvent(item, me, start) {
   const comments = item.comments ?? [];
   const touches = [
@@ -33,6 +39,7 @@ function myItemEvent(item, me, start) {
   const events = [
     ...comments.filter((c) => byOthers(c.login)).map(commentEvent),
     ...(item.lastCommitAt && byOthers(item.lastCommitBy) ? [{ at: item.lastCommitAt, what: 'new commit' }] : []),
+    ...(botFinished(item, me) ? [{ at: item.bot.lastBotReply.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] }] : []),
   ];
   return events.filter((e) => time(e.at) > lastTouch).sort(newestFirst)[0] ?? null;
 }

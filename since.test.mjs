@@ -97,6 +97,28 @@ test('my items: a review after my touch qualifies and names its state', () => {
   assert.equal(row.what, '@reviewer requested changes');
 });
 
+test('my items: expo-bot finishing my review, triage or verify qualifies', () => {
+  const asked = (command, by = ME, replied = true) => ({
+    lastCommand: { command, by, at: hoursAgo(5) },
+    lastBotReply: { at: hoursAgo(3), outcome: null },
+    botRepliedAfterCommand: replied,
+  });
+  const item = (bot) => pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], bot });
+  for (const [command, what] of [['review', 'expo-bot finished the review'], ['triage', 'expo-bot finished triage'], ['verify', 'expo-bot finished verify']]) {
+    const [row] = groups([item(asked(command))]).mine;
+    assert.equal(row.what, what, command);
+    assert.equal(row.at, hoursAgo(3), command);
+  }
+  assert.deepEqual(groups([item(asked('review', 'colleague'))]).mine, [], 'asked by someone else');
+  assert.deepEqual(groups([item(asked('review', ME, false))]).mine, [], 'no reply yet');
+  assert.deepEqual(groups([item(asked('rebase'))]).mine, [], 'other command');
+});
+
+test('my items: expo-bot finishing before my last comment does not qualify', () => {
+  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, lastBotReply: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
+  assert.deepEqual(groups([pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(2))], bot })]).mine, []);
+});
+
 test('my items: a commit after my touch qualifies', () => {
   const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(20))], lastCommitAt: hoursAgo(4), lastCommitBy: 'contributor' });
   const [row] = groups([item]).mine;

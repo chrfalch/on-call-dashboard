@@ -101,7 +101,9 @@ dependencies, no build step.
   PRs that request the viewer's review, with a comment, review or commit from someone else after the viewer's last
   comment, review or assignment. A commit counts only when `lastCommitBy` is
   known and is not the viewer or a bot. expo-bot's answer counts when the
-  viewer gave the last `review`, `triage` or `verify` command. "New issues" and "New PRs" are open
+  viewer gave the last `review`, `triage` or `verify` command and the answer
+  is newer than the viewer's last comment or review; a later assignment does
+  not hide it. "New issues" and "New PRs" are open
   items created in the window with no comment or review from a team member
   (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.

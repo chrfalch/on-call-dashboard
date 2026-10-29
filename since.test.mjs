@@ -127,6 +127,23 @@ test('my items: expo-bot finishing before my last comment does not qualify', () 
   assert.deepEqual(groups([pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(2))], bot })]).mine, []);
 });
 
+test('my items: my review on the fix PR counts as touching the issue', () => {
+  const bot = { lastCommand: { command: 'triage', by: ME, at: hoursAgo(20) }, lastBotReply: { at: hoursAgo(15), outcome: null }, botRepliedAfterCommand: true };
+  const linkedPrs = (fix) => [{ number: 2, state: 'OPEN', fix }];
+  const fixIssue = (fix = true) => issue({ ...assignedToMe, number: 1, comments: [comment(ME, hoursAgo(20))], linkedPrs: linkedPrs(fix), bot });
+  const fixPr = (at) => pr({ number: 2, reviewDecision: 'CHANGES_REQUESTED', comments: [comment(ME, at, { review: 'CHANGES_REQUESTED' })] });
+
+  assert.deepEqual(groups([fixIssue(), fixPr(hoursAgo(2))]).mine, [], 'reviewed after the bot answered');
+  assert.equal(groups([fixIssue(), fixPr(hoursAgo(18))]).mine[0]?.what, 'expo-bot finished triage', 'reviewed before the bot answered');
+  assert.equal(groups([fixIssue(false), fixPr(hoursAgo(2))]).mine[0]?.what, 'expo-bot finished triage', 'not a fix PR');
+});
+
+test('my items: my review on the fix PR hides older comments by others on the issue', () => {
+  const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(5))], linkedPrs: [{ number: 2, state: 'MERGED', fix: true }] });
+  const fixPr = pr({ number: 2, state: 'MERGED', comments: [comment(ME, hoursAgo(2), { review: 'APPROVED' })] });
+  assert.deepEqual(groups([item, fixPr]).mine, []);
+});
+
 test('my items: a commit after my touch qualifies', () => {
   const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(20))], lastCommitAt: hoursAgo(4), lastCommitBy: 'contributor' });
   const [row] = groups([item]).mine;

@@ -158,10 +158,10 @@ function rowData(item, ctx) {
   return { item, stateId, cleanup: cleanupFilters(item, ctx), key: rowKey(item, stateId) };
 }
 
-function inMode(row, { me, mode, includeAssigned, cleanupChip = false }) {
+function inMode(row, { me, mode, includeAssigned }) {
   if (mode === 'mine') return mine(row.item, me);
-  // Closed items show only under their own chip, and cleanup chips exist to catch owned work, so both keep assigned items.
-  if (!isOpen(row.item) || cleanupChip) return true;
+  // Closed items show only under their own chip, so they keep assigned items.
+  if (!isOpen(row.item)) return true;
   if (!includeAssigned && assigned(row.item)) return false;
   return row.cleanup.length > 0 || !!STATE_BY_ID[row.stateId]?.oncall;
 }
@@ -186,7 +186,7 @@ export function inboxRows(
   const ctx = { now, unsupportedSdks };
   return items
     .map((item) => rowData(item, ctx))
-    .filter((row) => inMode(row, { me, mode, includeAssigned, cleanupChip: !!cleanupId }))
+    .filter((row) => inMode(row, { me, mode, includeAssigned }))
     .filter((row) => (stateId ? row.stateId === stateId : isOpen(row.item)))
     .filter((row) => (!cleanupId || row.cleanup.includes(cleanupId)) && (cleanupId === 'C4' || shownSdk(row, hideUnsupported)))
     .filter((row) => visible(row, hidden))
@@ -202,14 +202,12 @@ export function inboxCounts(
   { now = Date.now(), me = null, mode = 'oncall', includeAssigned = false, unsupportedSdks = new Set(), hideUnsupported = false, hidden } = {},
 ) {
   const ctx = { now, unsupportedSdks };
-  const all = items.map((item) => rowData(item, ctx)).filter((row) => visible(row, hidden));
-  const stateRows = all.filter((row) => inMode(row, { me, mode, includeAssigned }) && shownSdk(row, hideUnsupported));
-  const chipRows = all.filter((row) => inMode(row, { me, mode, includeAssigned, cleanupChip: true }));
-  const chipShown = chipRows.filter((row) => shownSdk(row, hideUnsupported));
+  const rows = items.map((item) => rowData(item, ctx)).filter((row) => inMode(row, { me, mode, includeAssigned }) && visible(row, hidden));
+  const shown = rows.filter((row) => shownSdk(row, hideUnsupported));
   return {
-    states: Object.fromEntries(STATES.map(({ id }) => [id, stateRows.filter((row) => row.stateId === id).length])),
+    states: Object.fromEntries(STATES.map(({ id }) => [id, shown.filter((row) => row.stateId === id).length])),
     cleanup: Object.fromEntries(
-      CLEANUP_FILTERS.map(({ id }) => [id, (id === 'C4' ? chipRows : chipShown).filter((row) => isOpen(row.item) && row.cleanup.includes(id)).length]),
+      CLEANUP_FILTERS.map(({ id }) => [id, (id === 'C4' ? rows : shown).filter((row) => isOpen(row.item) && row.cleanup.includes(id)).length]),
     ),
   };
 }

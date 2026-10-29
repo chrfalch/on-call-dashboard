@@ -675,22 +675,26 @@ test('inboxCounts match inboxRows; state counts include closed items, cleanup co
   assert.equal(counts.states.I3, rows(items, { hidden, stateId: 'I3' }).length);
 });
 
-test('inboxRows: on-call mode keeps an assigned item with a cleanup filter', () => {
+test('inboxRows: on-call mode lists an assigned item under its cleanup chip only with includeAssigned', () => {
   const items = [issue({ number: 1, ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(7) })];
-  assert.deepEqual(keys(items, { cleanupId: 'C8' }), ['issue#1:I7']);
-  assert.equal(inboxCounts(items, rowOpts).cleanup.C8, 1);
+  assert.deepEqual(keys(items, { cleanupId: 'C8' }), []);
+  assert.deepEqual(keys(items, { cleanupId: 'C8', includeAssigned: true }), ['issue#1:I7']);
+  assert.equal(inboxCounts(items, rowOpts).cleanup.C8, 0);
+  assert.equal(inboxCounts(items, { ...rowOpts, includeAssigned: true }).cleanup.C8, 1);
 });
 
-test('inboxRows: on-call mode leaves an assigned item with a cleanup filter out of the list and state chips unless includeAssigned', () => {
+test('inboxRows: on-call mode leaves an assigned item with a cleanup filter out of every list and count unless includeAssigned', () => {
   const items = [pr({ number: 1, state: 'OPEN', assignees: assigned })];
   const [row] = rows(items, { includeAssigned: true });
   assert.ok(row.cleanup.includes('C11'));
   assert.deepEqual(keys(items), []);
   assert.deepEqual(keys(items, { stateId: row.stateId }), []);
-  assert.deepEqual(keys(items, { cleanupId: 'C11' }), [row.key]);
+  assert.deepEqual(keys(items, { cleanupId: 'C11' }), []);
+  assert.deepEqual(keys(items, { cleanupId: 'C11', includeAssigned: true }), [row.key]);
   const counts = inboxCounts(items, rowOpts);
   assert.equal(counts.states[row.stateId], 0);
-  assert.equal(counts.cleanup.C11, 1);
+  assert.equal(counts.cleanup.C11, 0);
+  assert.equal(inboxCounts(items, { ...rowOpts, includeAssigned: true }).cleanup.C11, 1);
 });
 
 test('inboxRows: on-call mode keeps an assigned closed item', () => {

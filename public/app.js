@@ -1128,12 +1128,16 @@ function inboxMeta(i) {
   return meta;
 }
 
+function fixLinksHtml(item) {
+  const links = item.type === 'issue' ? (item.linkedPrs ?? []).filter((pr) => pr.fix === true) : item.fixedIssues ?? [];
+  const fixes = links.map((link) => `<a class="fix-pr" href="${esc(link.url ?? `https://github.com/${data.repo}/${item.type === 'issue' ? 'pull' : 'issues'}/${link.number}`)}" target="_blank" rel="noreferrer">#${esc(link.number)}</a>`).join(' ');
+  return fixes ? `<span class="muted">${item.type === 'issue' ? 'Fix PRs' : 'Fixes'}</span> ${fixes}` : '';
+}
+
 function taskHtml(t, idx) {
   const item = t.item;
   const def = STATES.find((state) => state.id === t.stateId);
   const icon = item.type === 'pr' ? icons.pr : icons.issue;
-  const links = item.type === 'issue' ? (item.linkedPrs ?? []).filter((pr) => pr.fix === true) : item.fixedIssues ?? [];
-  const fixes = links.map((link) => `<a class="fix-pr" href="${esc(link.url ?? `https://github.com/${data.repo}/${item.type === 'issue' ? 'pull' : 'issues'}/${link.number}`)}" target="_blank" rel="noreferrer">#${esc(link.number)}</a>`).join(' ');
   const cleanup = t.cleanup.map((id) => `<span class="reason" ${tipAttr(CLEANUP_TIPS[id])}>${esc(CLEANUP_FILTERS.find((filter) => filter.id === id).label)}</span>`).join('');
   const hidden = rowHidden(t);
   const isBusy = busy.has(item.number);
@@ -1144,7 +1148,7 @@ function taskHtml(t, idx) {
         <span class="kind-badge tone-${esc(def.tone)}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(def.label)}</span>
         <a class="row-title" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
         ${cleanup}
-        ${fixes ? `<span class="muted">${item.type === 'issue' ? 'Fix PRs' : 'Fixes'}</span> ${fixes}` : ''}
+        ${fixLinksHtml(item)}
       </div>
       <div class="row-main">
         <div class="meta">${inboxMeta(item).filter(Boolean).join(' ')}</div>
@@ -1443,6 +1447,7 @@ function sinceRowHtml(row) {
     ${item.type === 'pr' ? icons.pr : icons.issue}
     <a class="since-item" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
     <span class="since-by muted">by ${authorHtml(item)}</span>
+    ${fixLinksHtml(item)}
     <span class="since-what muted">${esc(row.what)} ${esc(ago(row.at))}</span>
     <span class="since-actions">
       ${isBusy ? SPINNER : ''}

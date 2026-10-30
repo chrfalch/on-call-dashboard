@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
 import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf } from './public/states.js';
+import { analyzeComments } from './triage.mjs';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -160,6 +161,26 @@ test('I4: waiting on the reporter', () => {
 
 test('I4: labeled needs more info', () => {
   assert.equal(state(issue({ labels: labels('needs more info') })), 'I4');
+});
+
+test('I4: not after the reporter answered a needs more info label', () => {
+  const answered = issue({ triage: { assessment, verification: null, fixPrs: [] }, ...authorReplied(1), labels: labels('needs more info') });
+  assert.equal(state(answered), 'I3');
+});
+
+test('I4: the needs more info label in any case', () => {
+  const conversation = { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'team', at: daysAgo(1) }, since: daysAgo(1) };
+  assert.equal(state(issue({ conversation, labels: labels('Needs More Info') })), 'I4');
+});
+
+test('I4: not for an issue the team opened, even with the needs more info label', () => {
+  const conversation = { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) };
+  const item = issue({ triage: { assessment, verification: null, fixPrs: [] }, conversation, labels: labels('needs more info') });
+  assert.equal(state(item), 'I3');
+});
+
+test('I4: an old cache item without a conversation, labeled needs more info', () => {
+  assert.equal(state(issue({ conversation: undefined, labels: labels('needs more info') })), 'I4');
 });
 
 test('I4 beats I3: assessed by the bot while waiting on the reporter', () => {
@@ -349,6 +370,55 @@ test('C3: not when the write-up does not say "not reproduced"', () => {
 
 test('C3: not when the outcome is not "pass"', () => {
   assert.ok(!filters(issue(verified('problem', daysAgo(7), notReproduced))).includes('C3'));
+});
+
+test('C3: the clock starts at the last edit of the verdict', () => {
+  const editedAgo = (d) => {
+    const comment = {
+      author: { login: 'expo-bot' },
+      authorAssociation: 'NONE',
+      createdAt: daysAgo(30),
+      lastEditedAt: daysAgo(d),
+      url: 'https://x/verdict',
+      body: `<!-- expo-sandbox-outcome:pass -->\n\n${notReproduced}`,
+    };
+    const { triage } = analyzeComments([comment], { authorLogin: 'reporter1', authorAssociation: 'NONE', createdAt: daysAgo(40) });
+    return issue({ triage });
+  };
+  assert.ok(!filters(editedAgo(6)).includes('C3'));
+  assert.ok(filters(editedAgo(7)).includes('C3'));
+});
+
+const needsMoreInfo = labels('needs more info');
+
+test('C2: the "needs more info" label counts after 14 days, even when the team spoke last without a question', () => {
+  assert.ok(filters(issue({ ...waiting('team', 15), labels: needsMoreInfo })).includes('C2'));
+  assert.ok(filters(issue({ ...waiting('team', 15), labels: labels('Needs More Info') })).includes('C2'));
+  assert.ok(!filters(issue({ ...waiting('team', 13), labels: needsMoreInfo })).includes('C2'));
+  assert.ok(!filters(issue({ ...waiting('team', 30), labels: [...needsMoreInfo, ...labels('✋ on hold')] })).includes('C2'));
+  assert.ok(!filters(pr({ ...waiting('team', 30), labels: needsMoreInfo })).includes('C2'));
+});
+
+test('C1: never with the "needs more info" label', () => {
+  assert.ok(!filters(issue({ ...waiting('team', 15), labels: needsMoreInfo })).includes('C1'));
+  assert.ok(!filters(issue({ ...waiting('team', 15), labels: labels('Needs More Info') })).includes('C1'));
+});
+
+test('"needs more info" label: when the reporter spoke last, no C2 and C1 as without the label', () => {
+  const reporterLast = (d) => ({
+    conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(d), lastHuman: { login: 'reporter1', role: 'reporter', at: daysAgo(d) } },
+  });
+  const labeled = issue({ ...reporterLast(15), labels: needsMoreInfo });
+  assert.ok(!filters(labeled).includes('C2'));
+  assert.ok(filters(labeled).includes('C1'));
+  assert.deepEqual(filters(labeled), filters(issue({ ...reporterLast(15), labels: labels('needs review') })));
+  assert.ok(!filters(issue({ ...reporterLast(6), labels: needsMoreInfo })).includes('C1'));
+});
+
+test('C2: not for a team-opened issue with the "needs more info" label', () => {
+  const item = issue({ conversation: { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) }, labels: needsMoreInfo });
+  assert.ok(!filters(item).includes('C2'));
+  assert.ok(!filters(item).includes('C1'));
 });
 
 test('C4: every SDK label is unsupported', () => {

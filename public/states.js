@@ -1,6 +1,6 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
-import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
+import { ASK_FOR_ISSUE, asksForMoreInfo, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
 import { isBot } from './people.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
@@ -52,6 +52,10 @@ const STATE_BY_ID = Object.fromEntries(STATES.map((state) => [state.id, state]))
 const hasFixPr = (item, state) => (item.linkedPrs ?? []).some((pr) => pr.state === state && pr.fix === true);
 const unlabeledUnowned = VIEWS.find((view) => view.id === 'issue:unlabeled-unowned');
 
+// Caches from before the label rule say 'team' for a labeled item; the label counts until the reporter answers.
+const labelWaitsOnReporter = (item, conv) =>
+  conv.waitingOn === 'team' && conv.lastHuman?.role !== 'reporter' && asksForMoreInfo(item.labels);
+
 function issueState(item) {
   if (item.state === 'CLOSED') return 'I10';
   if (hasFixPr(item, 'MERGED')) return 'I9';
@@ -59,7 +63,8 @@ function issueState(item) {
   const { assessment, verification } = item.triage ?? {};
   if (verification?.outcome === 'problem' || hasLabel(item, 'Issue accepted')) return item.assignees.length ? 'I7' : 'I6';
   if (notReproduced(item)) return 'I5';
-  if (item.conversation?.waitingOn === 'reporter' || hasLabel(item, 'needs more info')) return 'I4';
+  const conv = conversationOf(item);
+  if (conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv)) return 'I4';
   if (assessment && (!verification || verification.outcome === 'blocked')) return 'I3';
   const command = item.bot?.lastCommand?.command;
   if ((command === 'triage' || command === 'verify') && !item.bot.botRepliedAfterCommand) return 'I2';
@@ -132,11 +137,12 @@ const closeable = (item, { me }) =>
 const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'team' && atLeast(conv.since, 7, now);
+    return item.type === 'issue' && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now);
   },
   C2: (item, ctx) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'reporter' && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
+    const waitsOnReporter = conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv);
+    return item.type === 'issue' && waitsOnReporter && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
   },
   C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),
   C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),

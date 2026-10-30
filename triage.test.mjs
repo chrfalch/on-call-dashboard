@@ -83,11 +83,11 @@ test('a bare slash command from the team is a command, not a reply', () => {
   assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
 });
 
-test('a slash command with a long note still counts as a team reply', () => {
+test('a slash command with a long note is still a command, not a reply', () => {
   const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/verify can you also share your app.json please?')], issue);
   assert.equal(r.bot.lastCommand.command, 'verify');
-  assert.equal(r.conversation.waitingOn, 'reporter');
-  assert.equal(r.conversation.teamReplied, true);
+  assert.equal(r.conversation.waitingOn, 'team');
+  assert.equal(r.conversation.teamReplied, false);
 });
 
 test('a leading slash from a non-team member is a normal comment', () => {
@@ -137,7 +137,7 @@ test('a team comment that starts with a path is not a command', () => {
   const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/Users/x/app.json')], issue);
   assert.equal(r.bot.lastCommand, null);
   assert.equal(r.bot.lastReview, null);
-  assert.equal(r.conversation.waitingOn, 'reporter');
+  assert.equal(r.conversation.waitingOn, 'team');
 });
 
 test('community comments do not count as team replies', () => {
@@ -153,6 +153,105 @@ test('issues opened by the team are internal', () => {
 test('collects fix PRs opened by the bot', () => {
   const r = analyzeComments([c('expo-bot', 'NONE', 't', '🔧 Opened https://github.com/expo/expo/pull/52054 with the verified fix')], issue);
   assert.deepEqual(r.triage.fixPrs, [52054]);
+});
+
+test('"@expo-bot <word>" from outside the team is a plain comment', () => {
+  const r = analyzeComments([c('reporter1', 'NONE', '2026-01-02T00:00:00Z', '@expo-bot thanks')], issue);
+  assert.equal(r.bot.lastCommand, null);
+  assert.equal(r.conversation.lastHuman.role, 'reporter');
+  assert.equal(r.conversation.lastReporterAt, '2026-01-02T00:00:00Z');
+  assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
+});
+
+test('"check" from the team counts as verify', () => {
+  assert.equal(analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot check')], issue).bot.lastCommand.command, 'verify');
+  assert.equal(analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/check')], issue).bot.lastCommand.command, 'verify');
+});
+
+test('a long @expo-bot command from the team is not a reply', () => {
+  const report = c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Still broken on SDK 55');
+  const command = c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '@expo-bot verify this on SDK 55 with the repro from the issue body, please?');
+  const r = analyzeComments([report, command], issue);
+  assert.equal(r.bot.lastCommand.command, 'verify');
+  assert.equal(r.conversation.waitingOn, 'team');
+  assert.equal(r.conversation.teamReplied, false);
+  assert.equal(r.conversation.lastTeamAt, null);
+  assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
+});
+
+test('a team comment waits on the reporter only with a question or a mention of the author', () => {
+  const waitingOn = (body) => analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', body)], issue).conversation.waitingOn;
+  assert.equal(waitingOn('Which SDK version do you use?'), 'reporter');
+  assert.equal(waitingOn('@reporter1 please share a repro.'), 'reporter');
+  assert.equal(waitingOn('Thanks @Reporter1, looking.'), 'reporter');
+  assert.equal(waitingOn('@reporter1'), 'reporter');
+  assert.equal(waitingOn('cc @reporter1-x'), 'team');
+  assert.equal(waitingOn('cc @reporter12'), 'team');
+  assert.equal(waitingOn('cc @other, can you look.'), 'team');
+  assert.equal(waitingOn('Thanks, we will look into it.'), 'team');
+});
+
+test('a team review entry waits on the reporter', () => {
+  const reviewEntry = { ...c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '(review: CHANGES_REQUESTED)'), review: 'CHANGES_REQUESTED' };
+  const r = analyzeComments([reviewEntry], issue);
+  assert.equal(r.conversation.waitingOn, 'reporter');
+  assert.equal(r.conversation.lastTeamAt, '2026-01-02T00:00:00Z');
+});
+
+test('items opened by the team stay internal whatever the comments say', () => {
+  const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', 'Can you check?')], { ...issue, authorAssociation: 'MEMBER' });
+  assert.equal(r.conversation.waitingOn, 'internal');
+});
+
+test('lastTeamAt and lastReporterAt are the newest plain comments, null when none', () => {
+  const none = analyzeComments([], issue).conversation;
+  assert.equal(none.lastTeamAt, null);
+  assert.equal(none.lastReporterAt, null);
+
+  const r = analyzeComments(
+    [
+      c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'It crashes'),
+      c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', 'Which device?'),
+      c('reporter1', 'NONE', '2026-01-04T00:00:00Z', 'Pixel 8'),
+      c('someone', 'CONTRIBUTOR', '2026-01-05T00:00:00Z', 'Same here'),
+      c('kudo', 'MEMBER', '2026-01-06T00:00:00Z', '@expo-bot verify'),
+      c('reporter1', 'NONE', '2026-01-07T00:00:00Z', '@expo-bot verify'),
+    ],
+    issue
+  ).conversation;
+  assert.equal(r.lastTeamAt, '2026-01-03T00:00:00Z');
+  assert.equal(r.lastReporterAt, '2026-01-07T00:00:00Z');
+});
+
+const verdict = (createdAt, outcome, lastEditedAt) => ({ ...c('expo-bot', 'NONE', createdAt, `<!-- expo-sandbox-outcome:${outcome} -->`), lastEditedAt });
+
+test('an edited verdict is dated at its edit time', () => {
+  const r = analyzeComments([verdict('2026-01-02T00:00:00Z', 'pass', '2026-01-09T00:00:00Z')], issue);
+  assert.equal(r.triage.verification.at, '2026-01-09T00:00:00Z');
+  assert.equal(analyzeComments([verdict('2026-01-02T00:00:00Z', 'pass', null)], issue).triage.verification.at, '2026-01-02T00:00:00Z');
+});
+
+test('the verdict edited or created last wins', () => {
+  const older = verdict('2026-01-02T00:00:00Z', 'problem', '2026-01-09T00:00:00Z');
+  const newer = verdict('2026-01-05T00:00:00Z', 'pass', null);
+  const r = analyzeComments([older, newer], issue);
+  assert.equal(r.triage.verification.outcome, 'problem');
+  assert.equal(r.triage.verification.at, '2026-01-09T00:00:00Z');
+  assert.equal(analyzeComments([verdict('2026-01-02T00:00:00Z', 'problem', null), newer], issue).triage.verification.outcome, 'pass');
+});
+
+test('the "needs more info" label waits on the reporter until they answer, but not on team-opened items', () => {
+  const report = c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Here is more detail');
+  const labeled = { ...issue, labels: [{ name: 'Needs More Info' }] };
+  const answered = analyzeComments([report], labeled).conversation;
+  assert.equal(answered.waitingOn, 'team');
+  assert.equal(answered.since, '2026-01-02T00:00:00Z');
+  const teamLast = analyzeComments([report, c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', 'Thanks, looking.')], labeled).conversation;
+  assert.equal(teamLast.waitingOn, 'reporter');
+  assert.equal(teamLast.since, '2026-01-03T00:00:00Z');
+  assert.equal(analyzeComments([], labeled).conversation.waitingOn, 'reporter');
+  assert.equal(analyzeComments([report], { ...labeled, authorAssociation: 'MEMBER' }).conversation.waitingOn, 'internal');
+  assert.equal(analyzeComments([report], { ...issue, labels: [{ name: 'needs review' }] }).conversation.waitingOn, 'team');
 });
 
 test('summarize strips mentions, bold and links, and skips boilerplate', () => {

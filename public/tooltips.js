@@ -96,9 +96,9 @@ export const STATE_TIPS = {
 };
 
 export const CLEANUP_TIPS = {
-  C1: { meaning: 'Issue where the team has owed a reply for at least seven days.', source: REPLIES },
-  C2: { meaning: 'Issue where the reporter has been silent for at least 14 days.', source: REPLIES },
-  C3: { meaning: 'Issue still open seven days after expo-bot could not reproduce it.', source: BOT_SANDBOX },
+  C1: { meaning: 'Issue where the team has owed a reply for at least seven days. With the "needs more info" label, only after the reporter answered.', source: REPLIES },
+  C2: { meaning: 'Issue that has waited on the reporter for at least 14 days: the team asked a question, mentioned the reporter or reviewed, or the issue has the "needs more info" label and the reporter has not answered.', source: `${REPLIES}, and the "needs more info" label` },
+  C3: { meaning: 'Issue still open seven days after expo-bot could not reproduce it.', source: `${BOT_SANDBOX}. The seven days start at the last edit of that comment.` },
   C4: { meaning: 'Item whose SDK labels are all marked unsupported.', source: 'GitHub sdk-* labels and your unsupported SDK settings' },
   C5: { meaning: 'Unlabeled and unowned issue that fell through normal triage.', source: 'GitHub labels and assignees' },
   C7: { meaning: 'Pull request left with requested changes for at least 21 days.', source: 'GitHub pull request reviews' },

@@ -141,7 +141,14 @@ const CLEANUP = {
   C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),
   C5: (item, ctx) => item.type === unlabeledUnowned.scope && unlabeledUnowned.match(item, ctx),
   C7: (item, ctx) => stateOf(item) === 'P4' && atLeast(item.changesRequestedAt, 21, ctx.now) && closeable(item, ctx),
-  C8: (item, { now }) => stateOf(item) === 'I7' && !(item.linkedPrs ?? []).length && atLeast(item.ownerLastActivityAt, 7, now),
+  C8: (item, { now }) => {
+    const stateId = stateOf(item);
+    if (stateId === 'I7') return atLeast(item.ownerLastActivityAt, 7, now);
+    if (stateId !== 'P7') return false;
+    const owners = new Set([...(item.assignees ?? []), ...(item.reviewRequests ?? [])].map((person) => person.login).filter(Boolean));
+    return owners.size > 0 && atLeast(item.createdAt, 7, now) &&
+      !(item.comments ?? []).some((comment) => owners.has(comment.login) && days(comment.at, now) < 7);
+  },
   C9: (item) =>
     item.reviewDecision === 'APPROVED' &&
     (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE' || ['BLOCKED', 'BEHIND'].includes(item.mergeStateStatus)),

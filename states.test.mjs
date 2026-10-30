@@ -163,6 +163,16 @@ test('I4: labeled needs more info', () => {
   assert.equal(state(issue({ labels: labels('needs more info') })), 'I4');
 });
 
+test('I4: not after the reporter answered a needs more info label', () => {
+  const answered = issue({ triage: { assessment, verification: null, fixPrs: [] }, ...authorReplied(1), labels: labels('needs more info') });
+  assert.equal(state(answered), 'I3');
+});
+
+test('I4: the needs more info label in any case', () => {
+  const conversation = { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'team', at: daysAgo(1) }, since: daysAgo(1) };
+  assert.equal(state(issue({ conversation, labels: labels('Needs More Info') })), 'I4');
+});
+
 test('I4 beats I3: assessed by the bot while waiting on the reporter', () => {
   assert.equal(state(issue({ triage: { assessment, verification: null, fixPrs: [] }, ...waiting('reporter', 3) })), 'I4');
 });

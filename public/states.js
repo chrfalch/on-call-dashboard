@@ -52,6 +52,10 @@ const STATE_BY_ID = Object.fromEntries(STATES.map((state) => [state.id, state]))
 const hasFixPr = (item, state) => (item.linkedPrs ?? []).some((pr) => pr.state === state && pr.fix === true);
 const unlabeledUnowned = VIEWS.find((view) => view.id === 'issue:unlabeled-unowned');
 
+// Caches from before the label rule say 'team' for a labeled item; the label counts until the reporter answers.
+const labelWaitsOnReporter = (item, conv) =>
+  conv.waitingOn === 'team' && conv.lastHuman?.role !== 'reporter' && asksForMoreInfo(item.labels);
+
 function issueState(item) {
   if (item.state === 'CLOSED') return 'I10';
   if (hasFixPr(item, 'MERGED')) return 'I9';
@@ -59,7 +63,8 @@ function issueState(item) {
   const { assessment, verification } = item.triage ?? {};
   if (verification?.outcome === 'problem' || hasLabel(item, 'Issue accepted')) return item.assignees.length ? 'I7' : 'I6';
   if (notReproduced(item)) return 'I5';
-  if (item.conversation?.waitingOn === 'reporter' || hasLabel(item, 'needs more info')) return 'I4';
+  const conv = conversationOf(item);
+  if (conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv)) return 'I4';
   if (assessment && (!verification || verification.outcome === 'blocked')) return 'I3';
   const command = item.bot?.lastCommand?.command;
   if ((command === 'triage' || command === 'verify') && !item.bot.botRepliedAfterCommand) return 'I2';
@@ -128,10 +133,6 @@ const closeable = (item, { me }) =>
   (item.assignees ?? []).every((person) => !!me && person.login === me) &&
   !hasFixPr(item, 'OPEN') &&
   !(item.type === 'pr' && (item.isDraft || isInternal(item)));
-
-// Caches from before the label rule say 'team' for a labeled item; the label counts until the reporter answers.
-const labelWaitsOnReporter = (item, conv) =>
-  conv.waitingOn === 'team' && conv.lastHuman?.role !== 'reporter' && asksForMoreInfo(item.labels);
 
 const CLEANUP = {
   C1: (item, { now }) => {

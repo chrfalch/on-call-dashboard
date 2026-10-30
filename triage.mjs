@@ -112,7 +112,6 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   const fixPrs = [];
   let lastCommand = null;
   let lastReview = null;
-  let lastBotReply = null;
   const lastAnswer = {};
   let lastHuman = null;
   let lastTeamAt = null;
@@ -125,15 +124,11 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
     const login = c.author?.login;
     if (isBot(login)) {
       if (login === 'expo-bot') {
-        // expo-bot answers some commands by editing an older comment, so an edit is a reply too.
-        const at = editedAt(c);
-        if (!lastBotReply || at > lastBotReply.at) {
-          lastBotReply = { at, outcome: c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null };
-        }
         // The bot's PR review entries come with the sticky review comment, which is the answer that counts.
         if (!c.review) {
-          for (const [kind, answeredAt] of Object.entries(botAnswers(c))) {
-            if (!lastAnswer[kind] || answeredAt > lastAnswer[kind]) lastAnswer[kind] = answeredAt;
+          const outcome = c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null;
+          for (const [kind, at] of Object.entries(botAnswers(c))) {
+            if (!lastAnswer[kind] || at > lastAnswer[kind].at) lastAnswer[kind] = { at, outcome };
           }
         }
         assessment = parseAssessment(c) ?? assessment;
@@ -167,13 +162,16 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   else if (lastHuman?.role === 'team' && teamAskedReporter) waitingOn = 'reporter';
   else waitingOn = 'team';
 
+  const answer = lastCommand && lastAnswer[answerKind(lastCommand.command)];
+  const commandAnswer = answer && answer.at > lastCommand.at ? answer : null;
+
   return {
     bot: {
       lastCommand,
-      lastBotReply,
-      botRepliedAfterCommand: !!(lastCommand && lastAnswer[answerKind(lastCommand.command)] > lastCommand.at),
+      commandAnswer,
+      botRepliedAfterCommand: !!commandAnswer,
       lastReview,
-      botRepliedAfterReview: !!(lastReview && lastAnswer.review > lastReview.at),
+      botRepliedAfterReview: !!(lastReview && lastAnswer.review?.at > lastReview.at),
     },
     triage: assessment || verification || fixPrs.length ? { assessment, verification, fixPrs: [...new Set(fixPrs)] } : null,
     conversation: {

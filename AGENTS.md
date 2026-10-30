@@ -58,10 +58,11 @@ dependencies, no build step.
   `<!-- expo-sandbox-outcome:… -->` comment or "⚠️ `/verify` failed"; `triage`
   a `<!-- expo-triage:complete:v1 -->` comment; any other command any expo-bot
   comment, at its edit-aware time. Unmarked answers such as "🔍 `/verify`
-  started" answer only those other commands. `lastBotReply` is still the newest
-  expo-bot comment of any kind. The same edit-aware time dates a sandbox
-  verdict (`verification.at`, the C3 clock), and the verdict with the newest such time wins. "@expo-bot <word>" and
-  "/<word>" are commands only from the team (`check` counts as `verify`);
+  started" answer only those other commands. `commandAnswer` is that answer to
+  the last command, `{at, outcome}` with its sandbox outcome, or null. The
+  same edit-aware time dates a sandbox verdict (`verification.at`, the C3
+  clock), and the verdict with the newest such time wins. "@expo-bot <word>"
+  and "/<word>" are commands only from the team (`check` counts as `verify`);
   a command is never a reply, whatever its length. `conversation.waitingOn`
   is `internal` for items the team opened; else `reporter` with the "needs
   more info" label (any case) unless the item author wrote the last human
@@ -143,8 +144,8 @@ dependencies, no build step.
   issue's fix PRs count as the viewer's comments on the issue. A commit
   counts only when `lastCommitBy` is known and is not the viewer or a bot. expo-bot's answer counts when the
   viewer gave the last `review`, `triage` or `verify` command, the bot answered
-  it, and the newest expo-bot comment of any kind (`lastBotReply`, which also
-  dates the event) is newer than the viewer's last comment or review; a later
+  it, and that answer (`commandAnswer`, which also dates the event) is newer
+  than the viewer's last comment or review; a later
   assignment does not hide it. "New issues" and "New PRs" are open
   items created in the window with no comment or review from a team member
   (the author too), not assigned to the viewer and not in "My items". Items assigned to someone

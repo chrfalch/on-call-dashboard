@@ -100,16 +100,17 @@ test('a leading slash from a non-team member is a normal comment', () => {
 test('an expo-bot comment edited after a command is a reply at its edit time', () => {
   const sticky = { ...c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', '<!-- expo-ai-code-reviewer --> Review'), lastEditedAt: '2026-01-02T01:00:00Z' };
   const r = analyzeComments([sticky, c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review')], issue);
-  assert.equal(r.bot.lastBotReply.at, '2026-01-02T01:00:00Z');
+  assert.deepEqual(r.bot.commandAnswer, { at: '2026-01-02T01:00:00Z', outcome: null });
   assert.equal(r.bot.botRepliedAfterReview, true);
   assert.equal(r.bot.botRepliedAfterCommand, true);
 });
 
-test('the last bot reply is the newest creation or edit time, whatever the comment order', () => {
+test('the answer to a command is the newest creation or edit time, whatever the comment order', () => {
   const sticky = { ...c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', 'Review'), lastEditedAt: '2026-01-05T00:00:00Z' };
+  const rebase = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot rebase');
   const later = c('expo-bot', 'NONE', '2026-01-03T00:00:00Z', '<!-- expo-sandbox-outcome:pass -->');
-  const r = analyzeComments([sticky, later], issue);
-  assert.deepEqual(r.bot.lastBotReply, { at: '2026-01-05T00:00:00Z', outcome: null });
+  const r = analyzeComments([sticky, rebase, later], issue);
+  assert.deepEqual(r.bot.commandAnswer, { at: '2026-01-05T00:00:00Z', outcome: null });
 });
 
 test('lastReview tracks the newest review command, not other commands', () => {
@@ -145,11 +146,31 @@ test('a verify answer does not answer a review; an edit of the sticky review com
   const pending = analyzeComments([sticky, review, outcome], issue);
   assert.equal(pending.bot.botRepliedAfterReview, false);
   assert.equal(pending.bot.botRepliedAfterCommand, false);
-  assert.equal(pending.bot.lastBotReply.at, '2026-01-02T01:00:00Z');
+  assert.equal(pending.bot.commandAnswer, null);
 
   const edited = analyzeComments([{ ...sticky, lastEditedAt: '2026-01-02T02:00:00Z' }, review, outcome], issue);
   assert.equal(edited.bot.botRepliedAfterReview, true);
   assert.equal(edited.bot.botRepliedAfterCommand, true);
+  assert.deepEqual(edited.bot.commandAnswer, { at: '2026-01-02T02:00:00Z', outcome: null });
+});
+
+test('the answer to a command carries the sandbox outcome of that same comment', () => {
+  const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify');
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+  const review = { ...c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', REVIEW_ANSWER), lastEditedAt: '2026-01-02T02:00:00Z' };
+  assert.deepEqual(analyzeComments([review, verify, outcome], issue).bot.commandAnswer, { at: '2026-01-02T01:00:00Z', outcome: 'pass' });
+});
+
+test('there is no command answer without a command or without an answer of its kind after it', () => {
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+  assert.equal(analyzeComments([outcome], issue).bot.commandAnswer, null);
+
+  const before = c('expo-bot', 'NONE', '2026-01-01T12:00:00Z', VERIFY_ANSWER);
+  const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify');
+  assert.equal(analyzeComments([before, verify], issue).bot.commandAnswer, null);
+
+  const triage = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot triage');
+  assert.equal(analyzeComments([triage, outcome], issue).bot.commandAnswer, null);
 });
 
 test('an expo-bot PR review entry does not answer a review', () => {

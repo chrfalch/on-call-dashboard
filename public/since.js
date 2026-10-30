@@ -43,8 +43,8 @@ function myItemEvent(item, me, start, prs) {
     ...comments.filter((c) => byOthers(c.login)).map(commentEvent),
     ...(item.lastCommitAt && byOthers(item.lastCommitBy) ? [{ at: item.lastCommitAt, what: 'new commit' }] : []),
   ].filter((e) => time(e.at) > lastTouch);
-  if (botFinished(item, me) && time(item.bot.lastBotReply.at) > lastComment) {
-    events.push({ at: item.bot.lastBotReply.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] });
+  if (botFinished(item, me) && time(item.bot.commandAnswer.at) > lastComment) {
+    events.push({ at: item.bot.commandAnswer.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] });
   }
   return events.sort(newestFirst)[0] ?? null;
 }

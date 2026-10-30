@@ -100,7 +100,7 @@ test('my items: a review after my touch qualifies and names its state', () => {
 test('my items: expo-bot finishing my review, triage or verify qualifies', () => {
   const asked = (command, by = ME, replied = true) => ({
     lastCommand: { command, by, at: hoursAgo(5) },
-    lastBotReply: { at: hoursAgo(3), outcome: null },
+    commandAnswer: { at: hoursAgo(3), outcome: null },
     botRepliedAfterCommand: replied,
   });
   const item = (bot) => pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], bot });
@@ -115,20 +115,28 @@ test('my items: expo-bot finishing my review, triage or verify qualifies', () =>
 });
 
 test('my items: expo-bot finishing before I assigned myself still qualifies', () => {
-  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, lastBotReply: { at: hoursAgo(4), outcome: null }, botRepliedAfterCommand: true };
+  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(4), outcome: null }, botRepliedAfterCommand: true };
   const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], assignedEvents: [{ login: ME, at: hoursAgo(3) }], bot });
   const [row] = groups([item]).mine;
   assert.equal(row?.what, 'expo-bot finished the review');
   assert.equal(row?.at, hoursAgo(4));
 });
 
+test('my items: the answer to my command dates the event, not a newer expo-bot comment of another kind', () => {
+  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
+  const comments = (mine) => [comment(ME, mine), comment('expo-bot', hoursAgo(1))];
+  const [row] = groups([pr({ ...assignedToMe, comments: comments(hoursAgo(5)), bot })]).mine;
+  assert.equal(row?.at, hoursAgo(3));
+  assert.deepEqual(groups([pr({ ...assignedToMe, comments: comments(hoursAgo(2)), bot })]).mine, []);
+});
+
 test('my items: expo-bot finishing before my last comment does not qualify', () => {
-  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, lastBotReply: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
+  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
   assert.deepEqual(groups([pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(2))], bot })]).mine, []);
 });
 
 test('my items: my review on the fix PR counts as touching the issue', () => {
-  const bot = { lastCommand: { command: 'triage', by: ME, at: hoursAgo(20) }, lastBotReply: { at: hoursAgo(15), outcome: null }, botRepliedAfterCommand: true };
+  const bot = { lastCommand: { command: 'triage', by: ME, at: hoursAgo(20) }, commandAnswer: { at: hoursAgo(15), outcome: null }, botRepliedAfterCommand: true };
   const linkedPrs = (fix) => [{ number: 2, state: 'OPEN', fix }];
   const fixIssue = (fix = true) => issue({ ...assignedToMe, number: 1, comments: [comment(ME, hoursAgo(20))], linkedPrs: linkedPrs(fix), bot });
   const fixPr = (at) => pr({ number: 2, reviewDecision: 'CHANGES_REQUESTED', comments: [comment(ME, at, { review: 'CHANGES_REQUESTED' })] });

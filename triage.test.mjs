@@ -71,7 +71,7 @@ test('bot comments and bare @expo-bot commands are not replies', () => {
   assert.equal(r.conversation.waitingOn, 'team');
   assert.equal(r.conversation.teamReplied, false);
   assert.equal(r.bot.lastCommand.command, 'verify');
-  assert.equal(r.bot.botRepliedAfterCommand, true);
+  assert.equal(r.bot.botRepliedAfterCommand, false);
 });
 
 test('a bare slash command from the team is a command, not a reply', () => {
@@ -114,7 +114,7 @@ test('the last bot reply is the newest creation or edit time, whatever the comme
 
 test('lastReview tracks the newest review command, not other commands', () => {
   const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
-  const reply = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', 'Review done');
+  const reply = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', '<!-- expo-ai-code-reviewer -->\nReview done');
   const rebase = c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '@expo-bot rebase');
 
   const reviewed = analyzeComments([review, reply, rebase], issue);
@@ -131,6 +131,68 @@ test('lastReview tracks the newest review command, not other commands', () => {
   const none = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify'), reply], issue);
   assert.equal(none.bot.lastReview, null);
   assert.equal(none.bot.botRepliedAfterReview, false);
+});
+
+const REVIEW_ANSWER = '<!-- expo-ai-code-reviewer -->\n## 🤖 AI code review';
+const VERIFY_ANSWER = '<!-- expo-sandbox-outcome:pass -->\n**Outcome: pass** @kudo';
+const TRIAGE_ANSWER = '<!-- expo-triage:complete:v1 -->\n**Bug** · 80% confidence';
+
+test('a verify answer does not answer a review; an edit of the sticky review comment does', () => {
+  const sticky = c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', REVIEW_ANSWER);
+  const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+
+  const pending = analyzeComments([sticky, review, outcome], issue);
+  assert.equal(pending.bot.botRepliedAfterReview, false);
+  assert.equal(pending.bot.botRepliedAfterCommand, false);
+  assert.equal(pending.bot.lastBotReply.at, '2026-01-02T01:00:00Z');
+
+  const edited = analyzeComments([{ ...sticky, lastEditedAt: '2026-01-02T02:00:00Z' }, review, outcome], issue);
+  assert.equal(edited.bot.botRepliedAfterReview, true);
+  assert.equal(edited.bot.botRepliedAfterCommand, true);
+});
+
+test('an expo-bot PR review entry does not answer a review', () => {
+  const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
+  const entry = { ...c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', '(review: COMMENTED)'), review: 'COMMENTED' };
+  assert.equal(analyzeComments([review, entry], issue).bot.botRepliedAfterReview, false);
+});
+
+test('the review fork hint does not answer a review', () => {
+  const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
+  const hint = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', '<!-- expo-ai-code-reviewer:fork-hint -->\nThis PR comes from a fork.');
+  const r = analyzeComments([review, hint], issue);
+  assert.equal(r.bot.botRepliedAfterReview, false);
+  assert.equal(r.bot.botRepliedAfterCommand, false);
+});
+
+test('"/verify started" does not answer a verify; the outcome comment does', () => {
+  const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify');
+  const started = c('expo-bot', 'NONE', '2026-01-02T00:01:00Z', '🔍 `/verify` started for @kudo');
+  assert.equal(analyzeComments([verify, started], issue).bot.botRepliedAfterCommand, false);
+
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+  assert.equal(analyzeComments([verify, started, outcome], issue).bot.botRepliedAfterCommand, true);
+});
+
+test('"/verify failed" answers a verify', () => {
+  const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '/verify');
+  const failed = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', '⚠️ `/verify` failed before it could post findings.');
+  assert.equal(analyzeComments([verify, failed], issue).bot.botRepliedAfterCommand, true);
+});
+
+test('the triage comment a verify posts first answers a triage command', () => {
+  const triage = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot triage');
+  const first = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', `${TRIAGE_ANSWER}\n\nVerification is still running…`);
+  assert.equal(analyzeComments([triage, first], issue).bot.botRepliedAfterCommand, true);
+});
+
+test('on a PR written by expo-bot, an outcome comment answers a work command', () => {
+  const work = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot fix the failing test');
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+  const r = analyzeComments([work, outcome], { ...issue, authorLogin: 'expo-bot' });
+  assert.equal(r.bot.lastCommand.command, 'fix');
+  assert.equal(r.bot.botRepliedAfterCommand, true);
 });
 
 test('a team comment that starts with a path is not a command', () => {

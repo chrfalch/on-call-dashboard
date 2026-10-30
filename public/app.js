@@ -378,11 +378,11 @@ function itemParts(i, triageOpts) {
   const c = i.bot.lastCommand;
   if (c) {
     const replied = i.bot.botRepliedAfterCommand;
-    const outcome = replied && i.bot.lastBotReply.outcome ? ` · ${esc(i.bot.lastBotReply.outcome)}` : '';
+    const outcome = replied && i.bot.commandAnswer.outcome ? ` · ${esc(i.bot.commandAnswer.outcome)}` : '';
     meta.push(
       `<span class="bot-status ${replied ? 'replied' : 'pending'}" ${tipAttr(
         CHIP_TIPS.botCommand,
-        `Last @expo-bot command by ${c.by} ${ago(c.at)}${replied ? `; bot replied ${ago(i.bot.lastBotReply.at)}` : '; no bot reply yet'}`
+        `Last @expo-bot command by ${c.by} ${ago(c.at)}${replied ? `; bot replied ${ago(i.bot.commandAnswer.at)}` : '; no bot reply yet'}`
       )}>${icons.bot} ${esc(c.command)} ${ago(c.at)}${replied ? ' ✓' + outcome : ' …'}</span>`
     );
   }

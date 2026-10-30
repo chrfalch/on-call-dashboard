@@ -119,20 +119,28 @@ export function stateAction(item, stateId, { now = Date.now() } = {}) {
 const atLeast = (iso, d, now) => !!iso && days(iso, now) >= d;
 const unanswered = (asked, replied, now) => !!asked && !replied && atLeast(asked.at, 1, now);
 
+const isInternal = (item) => conversationOf(item).waitingOn === 'internal' || hasLabel(item, 'contributor: internal');
+
+// Without a known viewer, any assignee blocks.
+const closeable = (item, { me }) =>
+  !PARKED.some((l) => hasLabel(item, l)) &&
+  (item.assignees ?? []).every((person) => !!me && person.login === me) &&
+  !hasFixPr(item, 'OPEN') &&
+  !(item.type === 'pr' && (item.isDraft || isInternal(item)));
+
 const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
     return item.type === 'issue' && conv.waitingOn === 'team' && atLeast(conv.since, 7, now);
   },
-  C2: (item, { now }) => {
+  C2: (item, ctx) => {
     const conv = conversationOf(item);
-    const parked = PARKED.some((l) => hasLabel(item, l));
-    return item.type === 'issue' && conv.waitingOn === 'reporter' && atLeast(conv.since, 14, now) && !hasFixPr(item, 'OPEN') && !parked;
+    return item.type === 'issue' && conv.waitingOn === 'reporter' && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
   },
-  C3: (item, { now }) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, now),
-  C4: (item, { unsupportedSdks }) => isUnsupportedSdk(item, unsupportedSdks),
+  C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),
+  C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),
   C5: (item, ctx) => item.type === unlabeledUnowned.scope && unlabeledUnowned.match(item, ctx),
-  C7: (item, { now }) => stateOf(item) === 'P4' && atLeast(item.changesRequestedAt, 21, now),
+  C7: (item, ctx) => stateOf(item) === 'P4' && atLeast(item.changesRequestedAt, 21, ctx.now) && closeable(item, ctx),
   C8: (item, { now }) => stateOf(item) === 'I7' && !(item.linkedPrs ?? []).length && atLeast(item.ownerLastActivityAt, 7, now),
   C9: (item) =>
     item.reviewDecision === 'APPROVED' &&
@@ -141,8 +149,7 @@ const CLEANUP = {
     !!bot && (unanswered(bot.lastCommand, bot.botRepliedAfterCommand, now) || unanswered(bot.lastReview, bot.botRepliedAfterReview, now)),
   C11: (item) =>
     item.type === 'pr' && item.state === 'OPEN' && !item.isDraft &&
-    Array.isArray(item.linkedIssues) && item.linkedIssues.length === 0 &&
-    conversationOf(item).waitingOn !== 'internal' && !hasLabel(item, 'contributor: internal'),
+    Array.isArray(item.linkedIssues) && item.linkedIssues.length === 0 && !isInternal(item),
 };
 
 // Ids in ascending order. C6 has no rule yet, so it never matches.
@@ -180,7 +187,7 @@ function inMode(row, { me, mode, includeAssigned }) {
 }
 
 const visible = (row, hidden) => !hidden?.(row.key);
-const shownSdk = (row, hideUnsupported) => !hideUnsupported || !row.cleanup.includes('C4');
+const shownSdk = (row, hideUnsupported, unsupportedSdks) => !hideUnsupported || !isUnsupportedSdk(row.item, unsupportedSdks);
 
 export function inboxRows(
   items,
@@ -196,12 +203,12 @@ export function inboxRows(
     hidden,
   } = {},
 ) {
-  const ctx = { now, unsupportedSdks };
+  const ctx = { now, me, unsupportedSdks };
   return items
     .map((item) => rowData(item, ctx))
     .filter((row) => inMode(row, { me, mode, includeAssigned }))
     .filter((row) => (stateId ? row.stateId === stateId : isOpen(row.item)))
-    .filter((row) => (!cleanupId || row.cleanup.includes(cleanupId)) && (cleanupId === 'C4' || shownSdk(row, hideUnsupported)))
+    .filter((row) => (!cleanupId || row.cleanup.includes(cleanupId)) && (cleanupId === 'C4' || shownSdk(row, hideUnsupported, unsupportedSdks)))
     .filter((row) => visible(row, hidden))
     .sort(
       (a, b) =>
@@ -214,9 +221,9 @@ export function inboxCounts(
   items,
   { now = Date.now(), me = null, mode = 'oncall', includeAssigned = false, unsupportedSdks = new Set(), hideUnsupported = false, hidden } = {},
 ) {
-  const ctx = { now, unsupportedSdks };
+  const ctx = { now, me, unsupportedSdks };
   const rows = items.map((item) => rowData(item, ctx)).filter((row) => inMode(row, { me, mode, includeAssigned }) && visible(row, hidden));
-  const shown = rows.filter((row) => shownSdk(row, hideUnsupported));
+  const shown = rows.filter((row) => shownSdk(row, hideUnsupported, unsupportedSdks));
   return {
     states: Object.fromEntries(STATES.map(({ id }) => [id, shown.filter((row) => row.stateId === id).length])),
     cleanup: Object.fromEntries(

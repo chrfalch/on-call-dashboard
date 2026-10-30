@@ -1,6 +1,7 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
 import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
+import { isBot } from './people.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
 
@@ -155,8 +156,9 @@ const CLEANUP = {
   C10: ({ bot }, { now }) =>
     !!bot && (unanswered(bot.lastCommand, bot.botRepliedAfterCommand, now) || unanswered(bot.lastReview, bot.botRepliedAfterReview, now)),
   C11: (item) =>
-    item.type === 'pr' && item.state === 'OPEN' && !item.isDraft &&
-    Array.isArray(item.linkedIssues) && item.linkedIssues.length === 0 && !isInternal(item),
+    item.type === 'pr' && item.state === 'OPEN' && !item.isDraft && !isBot(item.author?.login) &&
+    Array.isArray(item.linkedIssues) && item.linkedIssues.length === 0 && !(item.fixedIssues ?? []).length && !isInternal(item) &&
+    (/\bfix(es|ed)?\b/i.test(item.title) || /\bbug\b/i.test(item.title) || (item.labels ?? []).some((label) => /bug/i.test(label.name))),
 };
 
 // Ids in ascending order. C6 has no rule yet, so it never matches.

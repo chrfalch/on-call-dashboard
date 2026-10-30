@@ -533,40 +533,72 @@ test('C10: not once the bot replied', () => {
 });
 
 test('C11: an open external non-draft PR without a linked issue', () => {
-  assert.ok(filters(pr({ state: 'OPEN', linkedIssues: [] })).includes('C11'));
+  assert.ok(filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', linkedIssues: [] })).includes('C11'));
 });
 
 test('C11: not with a linked issue', () => {
-  assert.ok(!filters(pr({ state: 'OPEN', linkedIssues: [{ number: 123 }] })).includes('C11'));
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', linkedIssues: [{ number: 123 }] })).includes('C11'));
 });
 
 test('C11: not when linked issues are unknown', () => {
-  assert.ok(!filters(pr({ state: 'OPEN', linkedIssues: undefined })).includes('C11'));
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', linkedIssues: undefined })).includes('C11'));
 });
 
 test('C11: not for a draft', () => {
-  assert.ok(!filters(pr({ state: 'OPEN', isDraft: true })).includes('C11'));
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', isDraft: true })).includes('C11'));
 });
 
 test('C11: not for a merged or closed PR', () => {
   for (const state of ['MERGED', 'CLOSED'])
-    assert.ok(!filters(pr({ state })).includes('C11'));
+    assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state })).includes('C11'));
 });
 
 test('C11: not with the internal contributor label', () => {
-  assert.ok(!filters(pr({ state: 'OPEN', labels: labels('contributor: internal') })).includes('C11'));
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', labels: labels('contributor: internal') })).includes('C11'));
 });
 
 test('C11: not for an internal author', () => {
-  assert.ok(!filters(pr({ state: 'OPEN', ...waiting('internal', 3) })).includes('C11'));
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', ...waiting('internal', 3) })).includes('C11'));
 });
 
 test('C11: not for an issue', () => {
-  assert.ok(!filters(issue({ state: 'OPEN', linkedIssues: [] })).includes('C11'));
+  assert.ok(!filters(issue({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', linkedIssues: [] })).includes('C11'));
 });
 
-test('C11: a bot author without a linked issue', () => {
-  assert.ok(filters(pr({ state: 'OPEN', author: { login: 'dependabot[bot]' }, authorAssociation: 'NONE', linkedIssues: [] })).includes('C11'));
+test('C11: not for a bot author without a linked issue', () => {
+  assert.ok(!filters(pr({ title: 'Fix crash', state: 'OPEN', author: { login: 'dependabot[bot]' }, authorAssociation: 'NONE', linkedIssues: [] })).includes('C11'));
+});
+
+test('C11: not with a fixed issue', () => {
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', fixedIssues: [{ number: 1, state: 'OPEN' }] })).includes('C11'));
+});
+
+test('C11: with empty or missing fixed issues', () => {
+  for (const fixedIssues of [[], undefined])
+    assert.ok(filters(pr({ title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', ...(fixedIssues === undefined ? {} : { fixedIssues }) })).includes('C11'));
+});
+
+test('C11: not for a feature title without a bug label', () => {
+  assert.ok(!filters(pr({ title: '[expo-audio] Add volume API', author: { login: 'contributor' }, state: 'OPEN' })).includes('C11'));
+});
+
+test('C11: with a fix or bug word in the title', () => {
+  for (const title of ['[expo-audio] Fix crash on stop', 'Fixes crash', 'Fixed crash', 'Resolve BUG', '[docs] fix typo'])
+    assert.ok(filters(pr({ title, author: { login: 'contributor' }, state: 'OPEN' })).includes('C11'));
+});
+
+test('C11: not for a title with only part of a fix or bug word', () => {
+  for (const title of ['Add prefix support', 'Add debugging support'])
+    assert.ok(!filters(pr({ title, author: { login: 'contributor' }, state: 'OPEN' })).includes('C11'));
+});
+
+test('C11: with a label containing bug regardless of case', () => {
+  for (const name of ['bug', 'type: BUG report'])
+    assert.ok(filters(pr({ title: 'Resolve crash', author: { login: 'contributor' }, state: 'OPEN', labels: labels(name) })).includes('C11'));
+});
+
+test('C11: not for dependabot with a fix title', () => {
+  assert.ok(!filters(pr({ title: 'Fix crash', author: { login: 'dependabot' }, state: 'OPEN' })).includes('C11'));
 });
 
 const noBotReview = { bot: { lastCommand: null, botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false } };
@@ -853,7 +885,7 @@ test('inboxRows: on-call mode lists an assigned item under its cleanup chip only
 });
 
 test('inboxRows: on-call mode leaves an assigned item with a cleanup filter out of every list and count unless includeAssigned', () => {
-  const items = [pr({ number: 1, state: 'OPEN', assignees: assigned })];
+  const items = [pr({ number: 1, title: 'Fix crash', author: { login: 'contributor' }, state: 'OPEN', assignees: assigned })];
   const [row] = rows(items, { includeAssigned: true });
   assert.ok(row.cleanup.includes('C11'));
   assert.deepEqual(keys(items), []);

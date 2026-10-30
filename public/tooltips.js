@@ -105,7 +105,7 @@ export const CLEANUP_TIPS = {
   C8: { meaning: 'Issue waiting for a PR, with no open fix PR and no owner activity for seven days. Also a PR in human review, at least seven days old, whose assignees or requested reviewers have not commented or reviewed in seven days.', source: 'GitHub assignees, review requests, comments, reviews and linked pull requests' },
   C9: { meaning: 'Approved pull request blocked by conflicts, checks or its merge state.', source: 'GitHub review decision, checks and merge state' },
   C10: { meaning: 'Item waiting at least one day for expo-bot to answer a command or review request.', source: '@expo-bot commands and replies' },
-  C11: { meaning: 'Open pull request from an outside contributor that links no issue. Drafts are left out.', source: 'GitHub closing references and the Development sidebar' },
+  C11: { meaning: 'Open, non-draft pull request from an outside human contributor with no linked or fixed issues. Its title must contain the word fix, fixes, fixed or bug, or a label must contain bug (case-insensitive).', source: 'GitHub closing references, the Development sidebar, and the pull request title, labels and author' },
 };
 
 export const ACTION_TIPS = {

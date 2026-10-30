@@ -87,7 +87,10 @@ dependencies, no build step.
   `inboxCounts` give the rows and chip counts for a tab.
   On-call mode keeps assigned items that are closed; open assigned items,
   cleanup chips included, show only with "Include already-assigned items",
-  and `hideUnsupported` drops C4 rows everywhere except under the C4 chip.
+  and `hideUnsupported` drops rows with only unsupported SDK labels
+  everywhere except under the C4 chip. The Close cleanup rules C2, C3, C4
+  and C7 skip parked items, items assigned to someone other than the
+  viewer, issues with an open fix PR, and draft or internal PRs.
   P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
   expo-bot review is done, never for a `github-actions` author; its button
   approves each run in the browser after a confirm.

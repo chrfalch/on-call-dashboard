@@ -705,7 +705,7 @@ const rowOpts = { now: NOW, me: 'me', mode: 'oncall', unsupportedSdks: new Set([
 const rows = (items, over = {}) => inboxRows(items, { ...rowOpts, ...over });
 const keys = (items, over) => rows(items, over).map((row) => row.key);
 const fresh = (over) => ({ ...waiting('team', 1), ...over });
-const mineToo = [{ login: 'me' }];
+const onlyMe = [{ login: 'me' }];
 
 test('inboxRows: open items only, in STATES order, then oldest first', () => {
   const items = [
@@ -723,7 +723,7 @@ test('inboxRows: open items only, in STATES order, then oldest first', () => {
 });
 
 test('inboxRows: a state chip lists only that state, closed included', () => {
-  const items = [issue({ number: 1, assignees: mineToo, state: 'CLOSED' }), issue({ number: 2, assignees: mineToo })];
+  const items = [issue({ number: 1, assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, assignees: onlyMe })];
   assert.deepEqual(keys(items, { mode: 'mine', stateId: 'I10' }), ['issue#1:I10']);
   assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I1']);
 });
@@ -742,8 +742,8 @@ test('inboxRows: a cleanup chip lists only items with that filter', () => {
 
 test('inboxRows: on-call mode keeps on-call states and items with a cleanup filter', () => {
   const draft = pr({ number: 1, ...fresh({ isDraft: true }) });
-  const unsupportedDraft = pr({ number: 2, ...fresh({ isDraft: true, labels: labels('sdk-50') }) });
-  assert.deepEqual(keys([draft, unsupportedDraft]), ['pr#2:P1']);
+  const conflictingDraft = pr({ number: 2, ...fresh({ isDraft: true, reviewDecision: 'APPROVED', mergeable: 'CONFLICTING' }) });
+  assert.deepEqual(keys([draft, conflictingDraft]), ['pr#2:P1']);
 });
 
 test('inboxRows: on-call mode leaves assigned items unless includeAssigned', () => {
@@ -754,8 +754,8 @@ test('inboxRows: on-call mode leaves assigned items unless includeAssigned', () 
 
 test('inboxRows: My Work lists items assigned to me or awaiting my review, in any state', () => {
   const items = [
-    pr({ number: 1, isDraft: true, reviewRequests: mineToo }),
-    issue({ number: 2, labels: labels('Issue accepted'), assignees: mineToo }),
+    pr({ number: 1, isDraft: true, reviewRequests: onlyMe }),
+    issue({ number: 2, labels: labels('Issue accepted'), assignees: onlyMe }),
     issue({ number: 3, assignees: assigned }),
     issue({ number: 4 }),
   ];
@@ -837,4 +837,95 @@ test('inboxRows: hideUnsupported also drops unsupported SDK rows under other cle
   assert.deepEqual(keys(items, { hideUnsupported: true, cleanupId: 'C1' }), ['issue#2:I1']);
   assert.equal(inboxCounts(items, { ...rowOpts, hideUnsupported: true }).cleanup.C1, 1);
   assert.equal(inboxCounts(items, { ...rowOpts, hideUnsupported: true }).cleanup.C4, 1);
+});
+
+// A Close rule must not match an item that has to stay open.
+const meCtx = { ...ctx, me: 'me' };
+const closeRules = {
+  C2: [issue(waiting('reporter', 30))],
+  C3: [issue(verified('pass', daysAgo(7), notReproduced))],
+  C4: [issue({ labels: labels('sdk-50') }), pr({ labels: labels('sdk-50') })],
+  C7: [changesRequested(21)],
+};
+// A guard returns null where it cannot apply: draft and internal are PR-only, a linked fix PR is issue-only.
+const guards = {
+  'labeled ✋ on hold': (item) => ({ labels: [...item.labels, ...labels('✋ on hold')] }),
+  'labeled Issue accepted': (item) => ({ labels: [...item.labels, ...labels('Issue accepted')] }),
+  'assigned to someone else': () => ({ assignees: assigned }),
+  'assigned to me and someone else': () => ({ assignees: [...onlyMe, ...assigned] }),
+  'an open fix PR': (item) => (item.type === 'issue' ? { linkedPrs: [linkedPr('OPEN', true)] } : null),
+  'a draft': (item) => (item.type === 'pr' ? { isDraft: true } : null),
+  'labeled contributor: internal': (item) => (item.type === 'pr' ? { labels: [...item.labels, ...labels('contributor: internal')] } : null),
+  'waiting on internal': (item) => (item.type === 'pr' ? { conversation: { ...item.conversation, waitingOn: 'internal' } } : null),
+};
+// An issue still matches: internal blocks PRs only, and only an open fix PR blocks. C2 needs waitingOn reporter.
+const issueControls = {
+  'labeled contributor: internal': (item) => ({ labels: [...item.labels, ...labels('contributor: internal')] }),
+  'waiting on internal': (item, id) => (id === 'C2' ? null : { conversation: { ...item.conversation, waitingOn: 'internal' } }),
+  'linked to an open PR that is not a fix': () => ({ linkedPrs: [linkedPr('OPEN', false)] }),
+  'linked to a closed fix PR': () => ({ linkedPrs: [linkedPr('CLOSED', true)] }),
+  'linked to a merged fix PR': () => ({ linkedPrs: [linkedPr('MERGED', true)] }),
+};
+
+for (const [id, bases] of Object.entries(closeRules)) {
+  for (const base of bases) {
+    const name = `${id} (${base.type})`;
+
+    test(`${name}: matches the base item`, () => {
+      assert.equal(cleanupAction(base, id).kind, 'close');
+      assert.ok(cleanupFilters(base, meCtx).includes(id));
+    });
+
+    test(`${name}: still matches when assigned to me`, () => {
+      assert.ok(cleanupFilters({ ...base, assignees: onlyMe }, meCtx).includes(id));
+    });
+
+    test(`${name}: not when assigned and the viewer is unknown`, () => {
+      assert.ok(!cleanupFilters({ ...base, assignees: onlyMe }, { ...ctx, me: null }).includes(id));
+      assert.ok(!cleanupFilters({ ...base, assignees: assigned }, { ...ctx, me: null }).includes(id));
+      assert.ok(!cleanupFilters({ ...base, assignees: assigned }, ctx).includes(id));
+    });
+
+    for (const [guard, over] of Object.entries(guards)) {
+      const extra = over(base);
+      if (!extra) continue;
+      test(`${name}: not when ${guard}`, () => {
+        assert.ok(!cleanupFilters({ ...base, ...extra }, meCtx).includes(id));
+      });
+    }
+
+    if (base.type !== 'issue') continue;
+    for (const [control, over] of Object.entries(issueControls)) {
+      const extra = over(base, id);
+      if (!extra) continue;
+      test(`${name}: still matches when ${control}`, () => {
+        assert.ok(cleanupFilters({ ...base, ...extra }, meCtx).includes(id));
+      });
+    }
+  }
+}
+
+test('inboxCounts: a Close chip leaves out an item assigned to someone else and keeps one assigned to me', () => {
+  const items = [
+    issue({ number: 1, ...waiting('reporter', 30), assignees: assigned }),
+    issue({ number: 2, ...waiting('reporter', 30), assignees: onlyMe }),
+  ];
+  assert.equal(inboxCounts(items, { ...rowOpts, includeAssigned: true }).cleanup.C2, 1);
+  assert.deepEqual(keys(items, { includeAssigned: true, cleanupId: 'C2' }), ['issue#2:I4']);
+});
+
+test('inboxRows: hideUnsupported hides a guarded unsupported SDK item, which leaves the C4 chip', () => {
+  const items = [
+    issue({ number: 1, labels: labels('sdk-50', '✋ on hold') }),
+    issue({ number: 2, labels: labels('sdk-50'), assignees: assigned }),
+    issue({ number: 3 }),
+  ];
+  const opts = { includeAssigned: true, hideUnsupported: true };
+  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I1', 'issue#2:I1', 'issue#3:I1']);
+  assert.deepEqual(keys(items, opts), ['issue#3:I1']);
+  assert.deepEqual(keys(items, { ...opts, stateId: 'I1' }), ['issue#3:I1']);
+  assert.deepEqual(keys(items, { ...opts, cleanupId: 'C4' }), []);
+  const counts = inboxCounts(items, { ...rowOpts, ...opts });
+  assert.equal(counts.states.I1, 1);
+  assert.equal(counts.cleanup.C4, 0);
 });

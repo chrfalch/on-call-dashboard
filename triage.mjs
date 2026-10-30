@@ -94,6 +94,18 @@ export function summarize(text) {
   return (out || clean).trim().slice(0, 260);
 }
 
+// The kinds of command an expo-bot comment answers, with the time it answered them. The bot runs each review by
+// editing one sticky comment. Any bot comment ends a work command, so a sandbox outcome on a bot PR does too.
+function botAnswers(c) {
+  const answers = { work: editedAt(c) };
+  if (c.body.includes('<!-- expo-ai-code-reviewer -->')) answers.review = editedAt(c);
+  if (c.body.includes('<!-- expo-sandbox-outcome:') || c.body.startsWith('⚠️ `/verify` failed')) answers.verify = c.createdAt;
+  if (c.body.includes('<!-- expo-triage:complete:v1 -->')) answers.triage = c.createdAt;
+  return answers;
+}
+
+const answerKind = (command) => (['review', 'verify', 'triage'].includes(command) ? command : 'work');
+
 export function analyzeComments(comments, { authorLogin, authorAssociation, createdAt, labels = [] }) {
   let assessment = null;
   let verification = null;
@@ -101,6 +113,7 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   let lastCommand = null;
   let lastReview = null;
   let lastBotReply = null;
+  const lastAnswer = {};
   let lastHuman = null;
   let lastTeamAt = null;
   let lastReporterAt = null;
@@ -116,6 +129,12 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
         const at = editedAt(c);
         if (!lastBotReply || at > lastBotReply.at) {
           lastBotReply = { at, outcome: c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null };
+        }
+        // The bot's PR review entries come with the sticky review comment, which is the answer that counts.
+        if (!c.review) {
+          for (const [kind, answeredAt] of Object.entries(botAnswers(c))) {
+            if (!lastAnswer[kind] || answeredAt > lastAnswer[kind]) lastAnswer[kind] = answeredAt;
+          }
         }
         assessment = parseAssessment(c) ?? assessment;
         const v = parseVerification(c);
@@ -152,9 +171,9 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
     bot: {
       lastCommand,
       lastBotReply,
-      botRepliedAfterCommand: !!(lastCommand && lastBotReply && lastBotReply.at > lastCommand.at),
+      botRepliedAfterCommand: !!(lastCommand && lastAnswer[answerKind(lastCommand.command)] > lastCommand.at),
       lastReview,
-      botRepliedAfterReview: !!(lastReview && lastBotReply && lastBotReply.at > lastReview.at),
+      botRepliedAfterReview: !!(lastReview && lastAnswer.review > lastReview.at),
     },
     triage: assessment || verification || fixPrs.length ? { assessment, verification, fixPrs: [...new Set(fixPrs)] } : null,
     conversation: {

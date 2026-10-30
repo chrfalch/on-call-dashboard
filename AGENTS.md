@@ -50,9 +50,17 @@ dependencies, no build step.
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   expo-bot sometimes answers a command by editing an older comment, so a bot
-  reply's time is the comment's `lastEditedAt` when that is newer. The same
-  edit-aware time dates a sandbox verdict (`verification.at`, the C3 clock),
-  and the verdict with the newest such time wins. "@expo-bot <word>" and
+  reply's time is the comment's `lastEditedAt` when that is newer. A bot answer
+  clears only its own kind of command (`botRepliedAfterCommand`,
+  `botRepliedAfterReview`): `review` needs the sticky
+  `<!-- expo-ai-code-reviewer -->` comment, created or edited after it (not the
+  fork hint, not the bot's PR review entry); `verify` a
+  `<!-- expo-sandbox-outcome:… -->` comment or "⚠️ `/verify` failed"; `triage`
+  a `<!-- expo-triage:complete:v1 -->` comment; any other command any expo-bot
+  comment, at its edit-aware time. Unmarked answers such as "🔍 `/verify`
+  started" answer only those other commands. `lastBotReply` is still the newest
+  expo-bot comment of any kind. The same edit-aware time dates a sandbox
+  verdict (`verification.at`, the C3 clock), and the verdict with the newest such time wins. "@expo-bot <word>" and
   "/<word>" are commands only from the team (`check` counts as `verify`);
   a command is never a reply, whatever its length. `conversation.waitingOn`
   is `internal` for items the team opened; else `reporter` with the "needs
@@ -134,9 +142,10 @@ dependencies, no build step.
   comment, review or assignment. The viewer's comments and reviews on an
   issue's fix PRs count as the viewer's comments on the issue. A commit
   counts only when `lastCommitBy` is known and is not the viewer or a bot. expo-bot's answer counts when the
-  viewer gave the last `review`, `triage` or `verify` command and the answer
-  is newer than the viewer's last comment or review; a later assignment does
-  not hide it. "New issues" and "New PRs" are open
+  viewer gave the last `review`, `triage` or `verify` command, the bot answered
+  it, and the newest expo-bot comment of any kind (`lastBotReply`, which also
+  dates the event) is newer than the viewer's last comment or review; a later
+  assignment does not hide it. "New issues" and "New PRs" are open
   items created in the window with no comment or review from a team member
   (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.

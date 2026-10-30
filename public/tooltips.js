@@ -26,7 +26,7 @@ export const CHIP_TIPS = {
   diffstat: { meaning: 'Lines added and removed.', source: 'GitHub: pull request diff stats' },
   thumbsUp: { meaning: 'Number of 👍 reactions on the issue or pull request.', source: 'GitHub: reactions' },
   comments: { meaning: 'Number of comments.', source: 'GitHub: comment count' },
-  botCommand: { meaning: 'The last @expo-bot command, and whether the bot replied after it.', source: '@expo-bot commands in comments, and the replies from expo-bot' },
+  botCommand: { meaning: 'The last @expo-bot command, and whether the bot answered it. A review needs the bot\'s review comment, a verify its verification result or its "/verify failed" comment, a triage its triage comment; any bot comment answers other commands.', source: '@expo-bot commands in comments, and the replies from expo-bot' },
   waiting: { meaning: 'Who must act next, and for how long.', source: `${REPLIES}. Team means members, owners and collaborators of the repository.` },
   assessment: { meaning: 'The kind of issue and the confidence from the expo-bot triage. Click to open the comment.', source: BOT_TRIAGE },
   verdict: { meaning: 'Result of the expo-bot sandbox verification. Click to open the comment.', source: BOT_SANDBOX },

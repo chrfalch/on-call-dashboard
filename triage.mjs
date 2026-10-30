@@ -144,7 +144,7 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   // Who needs to act next. Issues opened by the team are their own to-dos.
   let waitingOn;
   if (isTeam(authorAssociation)) waitingOn = 'internal';
-  else if (asksForMoreInfo(labels)) waitingOn = 'reporter';
+  else if (asksForMoreInfo(labels) && lastHuman?.role !== 'reporter') waitingOn = 'reporter';
   else if (lastHuman?.role === 'team' && teamAskedReporter) waitingOn = 'reporter';
   else waitingOn = 'team';
 

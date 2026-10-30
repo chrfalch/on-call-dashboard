@@ -384,6 +384,17 @@ test('C1: never with the "needs more info" label', () => {
   assert.ok(!filters(issue({ ...waiting('team', 15), labels: labels('Needs More Info') })).includes('C1'));
 });
 
+test('"needs more info" label: when the reporter spoke last, no C2 and C1 as without the label', () => {
+  const reporterLast = (d) => ({
+    conversation: { waitingOn: 'team', teamReplied: true, since: daysAgo(d), lastHuman: { login: 'reporter1', role: 'reporter', at: daysAgo(d) } },
+  });
+  const labeled = issue({ ...reporterLast(15), labels: needsMoreInfo });
+  assert.ok(!filters(labeled).includes('C2'));
+  assert.ok(filters(labeled).includes('C1'));
+  assert.deepEqual(filters(labeled), filters(issue({ ...reporterLast(15), labels: labels('needs review') })));
+  assert.ok(!filters(issue({ ...reporterLast(6), labels: needsMoreInfo })).includes('C1'));
+});
+
 test('C2: not for a team-opened issue with the "needs more info" label', () => {
   const item = issue({ conversation: { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) }, labels: needsMoreInfo });
   assert.ok(!filters(item).includes('C2'));

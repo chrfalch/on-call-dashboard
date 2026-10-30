@@ -240,12 +240,15 @@ test('the verdict edited or created last wins', () => {
   assert.equal(analyzeComments([verdict('2026-01-02T00:00:00Z', 'problem', null), newer], issue).triage.verification.outcome, 'pass');
 });
 
-test('the "needs more info" label waits on the reporter, but not on team-opened items', () => {
+test('the "needs more info" label waits on the reporter until they answer, but not on team-opened items', () => {
   const report = c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Here is more detail');
   const labeled = { ...issue, labels: [{ name: 'Needs More Info' }] };
-  const r = analyzeComments([report], labeled).conversation;
-  assert.equal(r.waitingOn, 'reporter');
-  assert.equal(r.since, '2026-01-02T00:00:00Z');
+  const answered = analyzeComments([report], labeled).conversation;
+  assert.equal(answered.waitingOn, 'team');
+  assert.equal(answered.since, '2026-01-02T00:00:00Z');
+  const teamLast = analyzeComments([report, c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', 'Thanks, looking.')], labeled).conversation;
+  assert.equal(teamLast.waitingOn, 'reporter');
+  assert.equal(teamLast.since, '2026-01-03T00:00:00Z');
   assert.equal(analyzeComments([], labeled).conversation.waitingOn, 'reporter');
   assert.equal(analyzeComments([report], { ...labeled, authorAssociation: 'MEMBER' }).conversation.waitingOn, 'internal');
   assert.equal(analyzeComments([report], { ...issue, labels: [{ name: 'needs review' }] }).conversation.waitingOn, 'team');

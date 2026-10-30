@@ -56,7 +56,8 @@ dependencies, no build step.
   "/<word>" are commands only from the team (`check` counts as `verify`);
   a command is never a reply, whatever its length. `conversation.waitingOn`
   is `internal` for items the team opened; else `reporter` with the "needs
-  more info" label (any case), or when the last human comment is a team
+  more info" label (any case) unless the item author wrote the last human
+  comment, or when the last human comment is a team
   review or a team comment with a "?" or an `@<author>` mention; else
   `team`. `conversation.lastTeamAt` and `lastReporterAt` are the newest
   team and author comments that are not commands.
@@ -101,7 +102,8 @@ dependencies, no build step.
   and C7 skip parked items, items assigned to someone other than the
   viewer, issues with an open fix PR, and draft or internal PRs.
   The "needs more info" label (any case) turns C1 off and C2 on, 14 days
-  after `conversation.since`, except on items the team opened.
+  after `conversation.since`, except on items the team opened and after the
+  reporter answered.
   C8 "Owner silent" matches I7 issues with no open fix PR and no owner
   activity for 7 days, and open P7 PRs at least 7 days old with at least one
   assignee or requested reviewer login and no comment or review from those

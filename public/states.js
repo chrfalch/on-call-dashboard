@@ -129,14 +129,18 @@ const closeable = (item, { me }) =>
   !hasFixPr(item, 'OPEN') &&
   !(item.type === 'pr' && (item.isDraft || isInternal(item)));
 
+// Caches from before the label rule say 'team' for a labeled item; the label counts until the reporter answers.
+const labelWaitsOnReporter = (item, conv) =>
+  conv.waitingOn === 'team' && conv.lastHuman?.role !== 'reporter' && asksForMoreInfo(item.labels);
+
 const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'team' && !asksForMoreInfo(item.labels) && atLeast(conv.since, 7, now);
+    return item.type === 'issue' && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now);
   },
   C2: (item, ctx) => {
     const conv = conversationOf(item);
-    const waitsOnReporter = conv.waitingOn === 'reporter' || (conv.waitingOn === 'team' && asksForMoreInfo(item.labels));
+    const waitsOnReporter = conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv);
     return item.type === 'issue' && waitsOnReporter && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
   },
   C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),

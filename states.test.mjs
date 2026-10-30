@@ -173,6 +173,16 @@ test('I4: the needs more info label in any case', () => {
   assert.equal(state(issue({ conversation, labels: labels('Needs More Info') })), 'I4');
 });
 
+test('I4: not for an issue the team opened, even with the needs more info label', () => {
+  const conversation = { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) };
+  const item = issue({ triage: { assessment, verification: null, fixPrs: [] }, conversation, labels: labels('needs more info') });
+  assert.equal(state(item), 'I3');
+});
+
+test('I4: an old cache item without a conversation, labeled needs more info', () => {
+  assert.equal(state(issue({ conversation: undefined, labels: labels('needs more info') })), 'I4');
+});
+
 test('I4 beats I3: assessed by the bot while waiting on the reporter', () => {
   assert.equal(state(issue({ triage: { assessment, verification: null, fixPrs: [] }, ...waiting('reporter', 3) })), 'I4');
 });

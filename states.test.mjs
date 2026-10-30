@@ -411,8 +411,69 @@ test('C8: not without ownerLastActivityAt', () => {
 });
 
 test('C8: not with a linked PR', () => {
-  const item = issue({ ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(30), linkedPrs: [linkedPr('OPEN', false)] });
-  assert.equal(state(item), 'I7');
+  const item = issue({ ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(30), linkedPrs: [linkedPr('OPEN', true)] });
+  assert.equal(state(item), 'I8');
+  assert.ok(!filters(item).includes('C8'));
+});
+
+for (const [name, linked] of [['open docs PR', linkedPr('OPEN', false)], ['closed fix PR', linkedPr('CLOSED', true)]]) {
+  test(`C8: owner silent with a linked ${name}`, () => {
+    const item = issue({ ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(7), linkedPrs: [linked] });
+    assert.equal(state(item), 'I7');
+    assert.ok(filters(item).includes('C8'));
+  });
+}
+
+const humanReview = (over = {}) => pr({
+  state: 'OPEN',
+  createdAt: daysAgo(10),
+  author: { login: 'contributor' },
+  bot: { lastReview: { at: daysAgo(9) }, botRepliedAfterReview: true },
+  reviewRequests: [{ login: 'reviewer' }],
+  comments: [],
+  ...over,
+});
+
+test('C8: P7 with a silent reviewer', () => {
+  const item = humanReview();
+  assert.equal(state(item), 'P7');
+  assert.ok(filters(item).includes('C8'));
+});
+
+test('C8: not after a recent reviewer comment', () => {
+  const item = humanReview({ comments: [{ login: 'reviewer', at: daysAgo(2) }] });
+  assert.equal(state(item), 'P7');
+  assert.ok(!filters(item).includes('C8'));
+});
+
+test('C8: not for a PR created three days ago', () => {
+  const item = humanReview({ createdAt: daysAgo(3) });
+  assert.equal(state(item), 'P7');
+  assert.ok(!filters(item).includes('C8'));
+});
+
+test('C8: not for a team review request without an assignee', () => {
+  const item = humanReview({ reviewRequests: [{ name: 'team' }] });
+  assert.equal(state(item), 'P7');
+  assert.ok(!filters(item).includes('C8'));
+});
+
+test('C8: P7 with missing comments', () => {
+  const item = humanReview();
+  delete item.comments;
+  assert.equal(state(item), 'P7');
+  assert.ok(filters(item).includes('C8'));
+});
+
+test('C8: P7 with a silent assignee and no review request', () => {
+  const item = humanReview({ assignees: assigned, reviewRequests: [], latestReviews: [{ state: 'COMMENTED', login: 'reviewer' }] });
+  assert.equal(state(item), 'P7');
+  assert.ok(filters(item).includes('C8'));
+});
+
+test('C8: not after a recent owner review', () => {
+  const item = humanReview({ comments: [{ login: 'reviewer', at: daysAgo(2), review: 'COMMENTED' }] });
+  assert.equal(state(item), 'P7');
   assert.ok(!filters(item).includes('C8'));
 });
 

@@ -102,7 +102,7 @@ export const CLEANUP_TIPS = {
   C4: { meaning: 'Item whose SDK labels are all marked unsupported.', source: 'GitHub sdk-* labels and your unsupported SDK settings' },
   C5: { meaning: 'Unlabeled and unowned issue that fell through normal triage.', source: 'GitHub labels and assignees' },
   C7: { meaning: 'Pull request left with requested changes for at least 21 days.', source: 'GitHub pull request reviews' },
-  C8: { meaning: 'Owned issue with no linked pull request and no owner activity for seven days.', source: 'GitHub assignees, comments and linked pull requests' },
+  C8: { meaning: 'Issue waiting for a PR, with no open fix PR and no owner activity for seven days. Also a PR in human review, at least seven days old, whose assignees or requested reviewers have not commented or reviewed in seven days.', source: 'GitHub assignees, review requests, comments, reviews and linked pull requests' },
   C9: { meaning: 'Approved pull request blocked by conflicts, checks or its merge state.', source: 'GitHub review decision, checks and merge state' },
   C10: { meaning: 'Item waiting at least one day for expo-bot to answer a command or review request.', source: '@expo-bot commands and replies' },
   C11: { meaning: 'Open pull request from an outside contributor that links no issue. Drafts are left out.', source: 'GitHub closing references and the Development sidebar' },

@@ -91,6 +91,10 @@ dependencies, no build step.
   everywhere except under the C4 chip. The Close cleanup rules C2, C3, C4
   and C7 skip parked items, items assigned to someone other than the
   viewer, issues with an open fix PR, and draft or internal PRs.
+  C8 "Owner silent" matches I7 issues with no open fix PR and no owner
+  activity for 7 days, and open P7 PRs at least 7 days old with at least one
+  assignee or requested reviewer login and no comment or review from those
+  owners in the last 7 days. Team review requests do not count as owners.
   P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
   expo-bot review is done, never for a `github-actions` author; its button
   approves each run in the browser after a confirm.

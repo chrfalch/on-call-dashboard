@@ -50,7 +50,16 @@ dependencies, no build step.
   `recs.test.mjs`.
 - `triage.mjs` — pure comment analysis (bot verdicts, team replies, summaries).
   expo-bot sometimes answers a command by editing an older comment, so a bot
-  reply's time is the comment's `lastEditedAt` when that is newer.
+  reply's time is the comment's `lastEditedAt` when that is newer. The same
+  edit-aware time dates a sandbox verdict (`verification.at`, the C3 clock),
+  and the verdict with the newest such time wins. "@expo-bot <word>" and
+  "/<word>" are commands only from the team (`check` counts as `verify`);
+  a command is never a reply, whatever its length. `conversation.waitingOn`
+  is `internal` for items the team opened; else `reporter` with the "needs
+  more info" label (any case), or when the last human comment is a team
+  review or a team comment with a "?" or an `@<author>` mention; else
+  `team`. `conversation.lastTeamAt` and `lastReporterAt` are the newest
+  team and author comments that are not commands.
   Tested by `triage.test.mjs`.
 - `public/people.js` — `isBot` and `isTeam`, which tell who wrote a comment.
   `triage.mjs` re-exports them, so the server and the browser share one copy.
@@ -91,6 +100,8 @@ dependencies, no build step.
   everywhere except under the C4 chip. The Close cleanup rules C2, C3, C4
   and C7 skip parked items, items assigned to someone other than the
   viewer, issues with an open fix PR, and draft or internal PRs.
+  The "needs more info" label (any case) turns C1 off and C2 on, 14 days
+  after `conversation.since`, except on items the team opened.
   C8 "Owner silent" matches I7 issues with no open fix PR and no owner
   activity for 7 days, and open P7 PRs at least 7 days old with at least one
   assignee or requested reviewer login and no comment or review from those

@@ -31,6 +31,7 @@ const SEVERITY_BONUS = { 5: 40, 4: 25, 3: 10, 2: 0, 1: -5 };
 const DAY = 864e5;
 export const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
 export const hasLabel = (item, name) => item.labels.some((l) => l.name === name);
+export const asksForMoreInfo = (labels) => labels.some((l) => l.name.toLowerCase() === 'needs more info');
 export const PARKED = ['Issue accepted', '✋ on hold'];
 export const ASK_FOR_ISSUE = 'Thanks for the PR! We track every change against an issue. Can you link the issue this PR fixes (for example, add "Fixes #123" to the description)? If there is no issue yet, please open one that describes the problem, then link it here.';
 export const PLATFORM_LABEL = /^(Android|iOS|iOS \d+|iPadOS|macOS|tvOS|Platform: web|OS: .*)$/;

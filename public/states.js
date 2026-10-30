@@ -1,6 +1,6 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
-import { ASK_FOR_ISSUE, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
+import { ASK_FOR_ISSUE, asksForMoreInfo, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
 import { isBot } from './people.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
@@ -132,11 +132,12 @@ const closeable = (item, { me }) =>
 const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'team' && atLeast(conv.since, 7, now);
+    return item.type === 'issue' && conv.waitingOn === 'team' && !asksForMoreInfo(item.labels) && atLeast(conv.since, 7, now);
   },
   C2: (item, ctx) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'reporter' && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
+    const waitsOnReporter = conv.waitingOn === 'reporter' || (conv.waitingOn === 'team' && asksForMoreInfo(item.labels));
+    return item.type === 'issue' && waitsOnReporter && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
   },
   C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),
   C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),

@@ -2,13 +2,23 @@
 //  - what expo-bot concluded (triage assessment, sandbox verification, fix PRs)
 //  - who the conversation is waiting on (team vs. reporter)
 
+import { asksForMoreInfo } from './public/inbox.js';
 import { isBot, isTeam } from './public/people.js';
 
 export { BOT_LOGINS, isBot, isTeam } from './public/people.js';
 
 const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
-// Team-only: a reporter's comment can start with a path such as "/Users/…".
 const SLASH_COMMAND_RE = /^\s*\/([a-z-]+)(?![\w/])/i;
+const COMMAND_ALIASES = { check: 'verify' };
+
+// expo-bot obeys only the team, and a reporter's comment can start with a path such as "/Users/…".
+function teamCommand(c) {
+  if (!isTeam(c.authorAssociation)) return null;
+  const name = (c.body.match(COMMAND_RE) ?? c.body.match(SLASH_COMMAND_RE))?.[1].toLowerCase();
+  return name ? COMMAND_ALIASES[name] ?? name : null;
+}
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // "- **Severity:** S2 - Medium: Breakage in …" -> { code: 'S2', label: 'severity: medium' }
 function parseSeverity(body) {
@@ -41,6 +51,8 @@ export function parseAssessment(c) {
   };
 }
 
+const editedAt = (c) => (c.lastEditedAt > c.createdAt ? c.lastEditedAt : c.createdAt);
+
 // expo-bot's sandbox verification comment (<!-- expo-sandbox-outcome:… -->).
 export function parseVerification(c) {
   const outcome = c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1];
@@ -54,7 +66,7 @@ export function parseVerification(c) {
     maintainer: paragraph(afterAttest, 'Maintainer'),
     reporter: paragraph(afterAttest, 'Reporter'),
     url: c.url,
-    at: c.createdAt,
+    at: editedAt(c),
   };
 }
 
@@ -82,7 +94,7 @@ export function summarize(text) {
   return (out || clean).trim().slice(0, 260);
 }
 
-export function analyzeComments(comments, { authorLogin, authorAssociation, createdAt }) {
+export function analyzeComments(comments, { authorLogin, authorAssociation, createdAt, labels = [] }) {
   let assessment = null;
   let verification = null;
   const fixPrs = [];
@@ -90,40 +102,51 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
   let lastReview = null;
   let lastBotReply = null;
   let lastHuman = null;
+  let lastTeamAt = null;
+  let lastReporterAt = null;
+  let teamAskedReporter = false;
   let teamReplies = 0;
+  const mentionsAuthor = authorLogin ? new RegExp(`@${escapeRegExp(authorLogin)}(?![A-Za-z0-9-])`, 'i') : null;
 
   for (const c of comments) {
     const login = c.author?.login;
     if (isBot(login)) {
       if (login === 'expo-bot') {
         // expo-bot answers some commands by editing an older comment, so an edit is a reply too.
-        const at = c.lastEditedAt > c.createdAt ? c.lastEditedAt : c.createdAt;
+        const at = editedAt(c);
         if (!lastBotReply || at > lastBotReply.at) {
           lastBotReply = { at, outcome: c.body.match(/<!-- expo-sandbox-outcome:([a-z-]+) -->/)?.[1] ?? null };
         }
         assessment = parseAssessment(c) ?? assessment;
-        verification = parseVerification(c) ?? verification;
+        const v = parseVerification(c);
+        if (v && (!verification || v.at >= verification.at)) verification = v;
         for (const m of c.body.matchAll(/Opened https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/g)) fixPrs.push(Number(m[1]));
       }
       continue;
     }
-    const cmd = c.body.match(COMMAND_RE) ?? (isTeam(c.authorAssociation) ? c.body.match(SLASH_COMMAND_RE) : null);
-    if (cmd) {
-      lastCommand = { command: cmd[1].toLowerCase(), by: login, at: c.createdAt };
-      if (lastCommand.command === 'review') lastReview = lastCommand;
-      // A bare "@expo-bot verify" or "/verify" is an action, not a reply to the reporter.
-      if (c.body.replace(cmd[0], '').trim().length < 20) continue;
+    const command = teamCommand(c);
+    if (command) {
+      lastCommand = { command, by: login, at: c.createdAt };
+      if (command === 'review') lastReview = lastCommand;
+      // A command is an action, not a reply to the reporter, even with a note attached.
+      continue;
     }
     const role = isTeam(c.authorAssociation) ? 'team' : login === authorLogin ? 'reporter' : 'community';
-    if (role === 'team') teamReplies++;
+    if (role === 'team') {
+      teamReplies++;
+      lastTeamAt = c.createdAt;
+      teamAskedReporter = !!c.review || c.body.includes('?') || !!mentionsAuthor?.test(c.body);
+    }
+    if (login === authorLogin) lastReporterAt = c.createdAt;
     lastHuman = { login, role, at: c.createdAt };
   }
 
   // Who needs to act next. Issues opened by the team are their own to-dos.
   let waitingOn;
   if (isTeam(authorAssociation)) waitingOn = 'internal';
-  else if (!lastHuman || lastHuman.role !== 'team') waitingOn = 'team';
-  else waitingOn = 'reporter';
+  else if (asksForMoreInfo(labels)) waitingOn = 'reporter';
+  else if (lastHuman?.role === 'team' && teamAskedReporter) waitingOn = 'reporter';
+  else waitingOn = 'team';
 
   return {
     bot: {
@@ -138,6 +161,8 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       waitingOn,
       since: lastHuman?.at ?? createdAt,
       lastHuman,
+      lastTeamAt,
+      lastReporterAt,
       teamReplied: teamReplies > 0,
     },
   };

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
 import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf } from './public/states.js';
+import { analyzeComments } from './triage.mjs';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
 const daysAgo = (d) => new Date(NOW - d * 864e5).toISOString();
@@ -349,6 +350,44 @@ test('C3: not when the write-up does not say "not reproduced"', () => {
 
 test('C3: not when the outcome is not "pass"', () => {
   assert.ok(!filters(issue(verified('problem', daysAgo(7), notReproduced))).includes('C3'));
+});
+
+test('C3: the clock starts at the last edit of the verdict', () => {
+  const editedAgo = (d) => {
+    const comment = {
+      author: { login: 'expo-bot' },
+      authorAssociation: 'NONE',
+      createdAt: daysAgo(30),
+      lastEditedAt: daysAgo(d),
+      url: 'https://x/verdict',
+      body: `<!-- expo-sandbox-outcome:pass -->\n\n${notReproduced}`,
+    };
+    const { triage } = analyzeComments([comment], { authorLogin: 'reporter1', authorAssociation: 'NONE', createdAt: daysAgo(40) });
+    return issue({ triage });
+  };
+  assert.ok(!filters(editedAgo(6)).includes('C3'));
+  assert.ok(filters(editedAgo(7)).includes('C3'));
+});
+
+const needsMoreInfo = labels('needs more info');
+
+test('C2: the "needs more info" label counts after 14 days, even when the team spoke last without a question', () => {
+  assert.ok(filters(issue({ ...waiting('team', 15), labels: needsMoreInfo })).includes('C2'));
+  assert.ok(filters(issue({ ...waiting('team', 15), labels: labels('Needs More Info') })).includes('C2'));
+  assert.ok(!filters(issue({ ...waiting('team', 13), labels: needsMoreInfo })).includes('C2'));
+  assert.ok(!filters(issue({ ...waiting('team', 30), labels: [...needsMoreInfo, ...labels('✋ on hold')] })).includes('C2'));
+  assert.ok(!filters(pr({ ...waiting('team', 30), labels: needsMoreInfo })).includes('C2'));
+});
+
+test('C1: never with the "needs more info" label', () => {
+  assert.ok(!filters(issue({ ...waiting('team', 15), labels: needsMoreInfo })).includes('C1'));
+  assert.ok(!filters(issue({ ...waiting('team', 15), labels: labels('Needs More Info') })).includes('C1'));
+});
+
+test('C2: not for a team-opened issue with the "needs more info" label', () => {
+  const item = issue({ conversation: { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) }, labels: needsMoreInfo });
+  assert.ok(!filters(item).includes('C2'));
+  assert.ok(!filters(item).includes('C1'));
 });
 
 test('C4: every SDK label is unsupported', () => {

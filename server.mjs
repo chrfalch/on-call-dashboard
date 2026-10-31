@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dropOldClosed, KEEP_CLOSED_DAYS } from './closed-items.mjs';
+import { lastPushAt } from './commits.mjs';
 import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
 import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
@@ -35,7 +36,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 19;
+const CACHE_VERSION = 20;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -93,7 +94,7 @@ const COMMON = `
   comments(last: 30) { totalCount nodes { author { login } authorAssociation createdAt lastEditedAt url body } }
 `;
 // 15368 is the GitHub Actions app. Without the filter, other apps' suites push its suites out of the page.
-const ACTIONS_SUITES = 'checkSuites(first: 40, filterBy: { appId: 15368 }) { nodes { conclusion workflowRun { databaseId } } }';
+const ACTIONS_SUITES = 'checkSuites(first: 40, filterBy: { appId: 15368 }) { nodes { conclusion createdAt workflowRun { databaseId } } }';
 const PR_FIELDS = `
   ... on PullRequest {
     ${COMMON}
@@ -220,8 +221,7 @@ function normalize(n) {
       mergedAt: n.mergedAt,
       baseRefName: n.baseRefName,
       checks: n.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
-      // Committer date, not push time (GitHub deprecated pushedDate): a commit made before the review and pushed after it is missed.
-      lastCommitAt: n.commits.nodes[0]?.commit.committedDate ?? null,
+      lastCommitAt: lastPushAt(n.commits.nodes[0]?.commit),
       lastCommitBy: n.commits.nodes[0]?.commit.author?.user?.login ?? null,
       // statusCheckRollup reports SUCCESS while these runs wait for a maintainer to approve them.
       ciApprovalRunIds: (n.commits.nodes[0]?.commit.checkSuites?.nodes ?? [])

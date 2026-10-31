@@ -21,8 +21,10 @@ dependencies, no build step.
   Each item keeps `comments` ({login, association, at}, and `review` with the
   review state for a PR review) from the last 30 comments and the PR's latest
   reviews, and `assignedEvents` ({login, at}, the last 10 assignments). A PR
-  also keeps `lastCommitBy`, the login of the last commit's author (null
-  when GitHub does not know the user), and `ciApprovalRunIds`, the REST ids of
+  also keeps `lastCommitAt`, the push time of the last commit (the later of
+  its commit date and its first GitHub Actions check suite), `lastCommitBy`,
+  the login of the last commit's author (null when GitHub does not know the
+  user), and `ciApprovalRunIds`, the REST ids of
   the GitHub Actions runs on the last commit that wait for a maintainer to
   approve them (check suites with conclusion `ACTION_REQUIRED`;
   `statusCheckRollup` still says SUCCESS for these).
@@ -75,6 +77,8 @@ dependencies, no build step.
   `triage.mjs` re-exports them, so the server and the browser share one copy.
 - `sync-runner.mjs` — runs one sync at a time; `runAndWait` waits for a
   follow-up sync when one is already running. Tested by `sync-runner.test.mjs`.
+- `commits.mjs` — pure helper (`lastPushAt`): the push time of a PR's last
+  commit. Tested by `commits.test.mjs`.
 - `closed-items.mjs` — pure retention helper (`dropOldClosed`): keeps closed
   items for 7 days after `closedAt`. Tested by `closed-items.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the

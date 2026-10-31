@@ -6,8 +6,8 @@ import { applyPlan, hasPending, promptHash, recAction, recDisagrees, recFor, rec
 import { cleanupAction, stateAction } from './public/states.js';
 import { recKey } from './recommend.mjs';
 
-const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z' };
-const pr = { type: 'pr', number: 34, url: 'https://github.com/expo/expo/pull/34', updatedAt: '2026-10-26T11:00:00Z' };
+const issue = { type: 'issue', number: 12, url: 'https://github.com/expo/expo/issues/12', updatedAt: '2026-10-26T10:00:00Z', labels: [] };
+const pr = { type: 'pr', number: 34, url: 'https://github.com/expo/expo/pull/34', updatedAt: '2026-10-26T11:00:00Z', labels: [] };
 const row = (item, stateId = 'I4', cleanup = ['C2']) => ({ item, stateId, cleanup, key: `${item.type}#${item.number}:${stateId}` });
 const rec = (action, over = {}) => ({ action, who: 'on-call', why: 'Because.', draft: null, confidence: 70, ...over });
 

@@ -356,6 +356,12 @@ test('buttons: a given state is used instead of computing it', () => {
   assert.equal(sinceButtons(issue(), { me: ME, now: NOW, stateId: 'I4' }).action, null);
 });
 
+test('buttons: Close on a fix-merged issue only when it is mine or nobody else has it', () => {
+  const merged = { linkedPrs: [{ number: 10, state: 'MERGED', fix: true }] };
+  assert.equal(sinceButtons(issue({ ...merged, assignees: [{ login: ME }] }), { me: ME, now: NOW }).action?.kind, 'close');
+  assert.equal(sinceButtons(issue({ ...merged, assignees: [{ login: 'colleague' }] }), { me: ME, now: NOW }).action, null);
+});
+
 test('buttons: the state action when it is one click', () => {
   const [row] = groups([issue()]).issues;
   assert.deepEqual(row.action, { kind: 'command', label: 'Ask bot to triage', body: '@expo-bot triage' });

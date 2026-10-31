@@ -116,11 +116,14 @@ export function stateLabel(item, stateId, prs) {
 
 const openAction = { kind: 'open', label: 'Open' };
 
-export function stateAction(item, stateId, { now = Date.now() } = {}) {
+export function stateAction(item, stateId, { now = Date.now(), me = null } = {}) {
   if (ENDED.includes(stateId)) return null;
   if (stateId === 'I1') return { kind: 'command', label: 'Ask bot to triage', body: '@expo-bot triage' };
   if (stateId === 'I3') return { kind: 'command', label: 'Ask bot to verify', body: '@expo-bot verify' };
-  if (stateId === 'I5' || stateId === 'I9') return { kind: 'close', label: 'Close…' };
+  if (stateId === 'I5' || stateId === 'I9') {
+    const closes = closeable(item, { me }) && !(stateId === 'I5' && verdictOutdated(item));
+    return closes ? { kind: 'close', label: 'Close…' } : openAction;
+  }
   if (stateId === 'I6' && needsSeverityFix(item)) {
     return { kind: 'apply-severity', label: `Apply ${item.triage.assessment.severity.label}` };
   }
@@ -147,7 +150,16 @@ const closeable = (item, { me }) =>
   !PARKED.some((l) => hasLabel(item, l)) &&
   (item.assignees ?? []).every((person) => !!me && person.login === me) &&
   !hasFixPr(item, 'OPEN') &&
-  !(item.type === 'pr' && (item.isDraft || isInternal(item)));
+  !item.isDraft &&
+  !isInternal(item);
+
+// A reporter reply or a verify still waiting for the bot can overturn a "not reproduced" verdict.
+const verdictOutdated = (item) => {
+  const { lastCommand, botRepliedAfterCommand } = item.bot ?? {};
+  return conversationOf(item).lastReporterAt > item.triage?.verification?.at || (lastCommand?.command === 'verify' && !botRepliedAfterCommand);
+};
+
+const authorAnsweredLast = (item) => conversationOf(item).lastHuman?.role === 'reporter';
 
 const CLEANUP = {
   C1: (item, { now }) => {
@@ -158,10 +170,14 @@ const CLEANUP = {
   C2: (item, ctx) => {
     const conv = conversationOf(item);
     const waitsOnReporter = conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv);
-    return item.type === 'issue' && waitsOnReporter && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
+    const reproduced = item.triage?.verification?.outcome === 'problem';
+    return item.type === 'issue' && waitsOnReporter && !reproduced && atLeast(conv.since, 14, ctx.now) && closeable(item, ctx);
   },
-  C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),
-  C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),
+  C3: (item, ctx) =>
+    item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && !verdictOutdated(item) && closeable(item, ctx),
+  C4: (item, ctx) =>
+    isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx) &&
+    !(item.type === 'pr' && (item.reviewDecision === 'APPROVED' || authorAnsweredLast(item))),
   C5: (item, ctx) => item.type === unlabeledUnowned.scope && unlabeledUnowned.match(item, ctx),
   C7: (item, ctx) => stateOf(item) === 'P4' && atLeast(requestedAt(item), 21, ctx.now) && closeable(item, ctx),
   C8: (item, { now }) => {

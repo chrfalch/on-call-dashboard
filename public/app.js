@@ -1079,7 +1079,7 @@ function renderInbox() {
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
 }
 
-const taskAction = (t) => filters.cleanup ? cleanupAction(t.item, filters.cleanup) : stateAction(t.item, t.stateId, { now: Date.now() });
+const taskAction = (t) => filters.cleanup ? cleanupAction(t.item, filters.cleanup) : stateAction(t.item, t.stateId, { now: Date.now(), me: me?.login });
 const taskCommand = (action) => ({ ...action, command: action.body.match(/@expo-bot\s+(\S+)/)?.[1] });
 
 function taskActionButton(t) {

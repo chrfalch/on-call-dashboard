@@ -53,7 +53,7 @@ const teamActed = (item) => (item.comments ?? []).some((c) => isTeam(c.associati
 
 // `action` is the state's one-click action; Assign when nobody owns the item, Open when someone else does; Unassign when I am assigned.
 export function sinceButtons(item, { me = null, now = Date.now(), stateId = stateOf(item) } = {}) {
-  const action = stateAction(item, stateId, { now });
+  const action = stateAction(item, stateId, { now, me });
   const assigned = item.assignees.length > 0;
   return {
     action: action?.kind === 'open' ? null : action,

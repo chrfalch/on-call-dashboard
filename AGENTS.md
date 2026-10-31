@@ -154,12 +154,27 @@ dependencies, no build step.
   `includeInternal` is set; "My items" keeps them.
   Activity never comes from `updatedAt`.
   Shared by browser and Node; tested by `since.test.mjs`.
+- `public/filters.js` — the pure Inbox filter panel: `PANEL_DEFAULTS` (its
+  keys and defaults), `matchesFilters` (search, severity, labels, PR-only
+  filters that never drop an issue, conversation, bot, assignee, and `user`
+  as author, assignee or either, both case-insensitive), `activeFilterChips`
+  (one removable chip per active filter, with the keys its × resets),
+  `activeFilterCount` (the keys that have a chip), `normalizeFilters` (for
+  the URL hash: bad numbers and an unknown `userRole` become the defaults)
+  and `severityMismatch`.
+  Shared by browser and Node; tested by `filters.test.mjs`.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
   actions. The Inbox is the only page; the header shows the total open issues
   and PRs without filters. The Inbox has two tabs, "On-call inbox" and "My
   Work". Workflow state chips, in an Issues group and a PRs group, and
   Cleanup chips sit beside the trend tiles. The "Since last time" section
-  sits below the tiles. The agent runs only when the user
+  sits below the tiles. A collapsible "Filters (n)" panel sits between the
+  state chips and the list; it filters the rows and the chip counts, not the
+  Since section or the tiles. Closed, it shows only the active-filter chips
+  and "Clear filters", which keeps the state and cleanup chips. Switching
+  between the two tabs keeps the panel filters. Assignee and
+  label chips on Inbox rows toggle the filter (Alt-click excludes a label);
+  `/` opens the panel and focuses the search. The agent runs only when the user
   clicks "Ask agent…" on an open row, with the standard prompt or their own
   question; the answer shows on that row. The list-page code (`renderViews` and the Runbook
   view cards) stays but is not reachable.
@@ -187,4 +202,6 @@ dependencies, no build step.
   `hideUnsupportedSdks=0` and the "Since last time" tab
   (`sinceTab=<mine|issues|prs>`, default `issues`) and list visibility
   (`sinceOpen=1`, default hidden) and internal contributors
-  (`sinceInternal=1`, default off), lives in the URL hash.
+  (`sinceInternal=1`, default off), the filter panel's open state
+  (`filtersOpen=1`, default closed) and its user filter (`user=<login>`,
+  `userRole=<author|assignee>`, default either), lives in the URL hash.

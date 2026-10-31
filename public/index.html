@@ -87,6 +87,132 @@
         <label class="checkbox-wrap" id="inbox-others-wrap" title="Uncheck to skip items that already have an owner"><input type="checkbox" id="inbox-others" /> Include already-assigned items</label>
         <label class="checkbox-wrap"><input type="checkbox" id="inbox-hidden" /> Show done</label>
       </div>
+      <section class="filter-panel" aria-label="Filters">
+        <div class="filter-panel-header">
+          <button class="cmd-toggle" id="filters-toggle" aria-controls="filter-panel-body" aria-expanded="false">▸ Filters</button>
+          <div id="active-filters" class="active-filters"></div>
+          <button class="clear-link" id="clear-filters" hidden>✕ Clear filters</button>
+        </div>
+        <div class="filter-panel-body" id="filter-panel-body" hidden>
+          <div class="filter-bar">
+            <div class="search-wrap">
+              <svg class="octicon search-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
+              <input id="search" type="search" placeholder="Filter by title, #number or author… (press /)" autocomplete="off" />
+            </div>
+            <label class="select-wrap" title="Show only items with at least this severity label">
+              <span>Severity ≥</span>
+              <select id="min-severity">
+                <option value="0">Any</option>
+                <option value="1">trivial</option>
+                <option value="2">low</option>
+                <option value="3">medium</option>
+                <option value="4">high</option>
+                <option value="5">critical</option>
+              </select>
+            </label>
+            <label class="checkbox-wrap" title="When a severity threshold is set, also keep items that have no severity label yet">
+              <input type="checkbox" id="include-unrated" /> incl. unrated
+            </label>
+          </div>
+          <div class="pr-filters" id="pr-filters">
+            <span class="filter-scope">PRs only</span>
+            <label class="checkbox-wrap"><input type="checkbox" id="hide-drafts" /> Hide drafts</label>
+            <label class="select-wrap"><span>Checks</span>
+              <select id="checks">
+                <option value="">Any</option>
+                <option value="SUCCESS">Passing</option>
+                <option value="FAILURE">Failing</option>
+                <option value="PENDING">Pending</option>
+              </select>
+            </label>
+            <label class="select-wrap"><span>Review</span>
+              <select id="review">
+                <option value="">Any</option>
+                <option value="REVIEW_REQUIRED">Review required</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CHANGES_REQUESTED">Changes requested</option>
+              </select>
+            </label>
+            <label class="select-wrap"><span>Mergeable</span>
+              <select id="mergeable">
+                <option value="">Any</option>
+                <option value="MERGEABLE">No conflicts</option>
+                <option value="CONFLICTING">Has conflicts</option>
+              </select>
+            </label>
+            <label class="select-wrap" title="Issues linked via “Fixes #123” or the Development sidebar"><span>Linked issue</span>
+              <select id="linked">
+                <option value="">Any</option>
+                <option value="none">No linked issue</option>
+                <option value="some">Has linked issue</option>
+              </select>
+            </label>
+          </div>
+          <div class="common-filters">
+            <label class="select-wrap" title="Based on whether the last human comment came from the team (org members) or someone else"><span>Waiting on</span>
+              <select id="waiting">
+                <option value="">Any</option>
+                <option value="team">Team (any)</option>
+                <option value="never">Team, never replied</option>
+                <option value="owe">Team, we owe a reply</option>
+                <option value="reporter">Reporter</option>
+                <option value="internal">Opened by team</option>
+              </select>
+            </label>
+            <label class="select-wrap" title="Days since the last human comment (or since opened)"><span>Idle ≥</span>
+              <select id="idle">
+                <option value="0">Any</option>
+                <option value="3">3 days</option>
+                <option value="7">7 days</option>
+                <option value="14">14 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+              </select>
+            </label>
+            <label class="select-wrap" title="expo-bot's triage assessment and sandbox verification"><span>Bot verdict</span>
+              <select id="verdict">
+                <option value="">Any</option>
+                <option value="problem">Reproduced</option>
+                <option value="blocked">Blocked</option>
+                <option value="pass">Passed</option>
+                <option value="unverified">Not verified yet</option>
+                <option value="mismatch">Bot severity ≠ label</option>
+                <option value="fixpr">Bot opened a fix PR</option>
+              </select>
+            </label>
+            <label class="select-wrap"><span>@expo-bot</span>
+              <select id="bot-filter">
+                <option value="">Any</option>
+                <option value="never">Never requested</option>
+                <option value="requested">Requested</option>
+                <option value="pending">Requested, no reply yet</option>
+              </select>
+            </label>
+            <label class="select-wrap"><span>Assignee</span>
+              <select id="assignee-filter">
+                <option value="">Any</option>
+                <option value="none">Unassigned</option>
+                <option value="any">Assigned</option>
+              </select>
+            </label>
+            <label class="select-wrap" title="Show items this person opened, is assigned to, or either"><span>User</span>
+              <input id="filter-user" type="search" placeholder="GitHub login" autocomplete="off" spellcheck="false" />
+              <select id="filter-user-role" aria-label="User role">
+                <option value="either">Author or assignee</option>
+                <option value="author">Author</option>
+                <option value="assignee">Assignee</option>
+              </select>
+            </label>
+          </div>
+          <div class="filter-facets">
+            <div class="facet-search-wrap">
+              <input id="facet-search" type="search" placeholder="Filter labels…" />
+            </div>
+            <p class="hint">Click a label to filter. <kbd>Alt</kbd>/<kbd>⌥</kbd>-click to exclude.</p>
+            <div id="facets"></div>
+          </div>
+        </div>
+      </section>
       <ol id="inbox-list" class="Box inbox-list"></ol>
       <div id="inbox-more" class="more"></div>
     </section>
@@ -95,24 +221,6 @@
     <div class="presets" id="presets"></div>
 
     <div class="filter-bar">
-      <div class="search-wrap">
-        <svg class="octicon search-icon" viewBox="0 0 16 16" width="16" height="16"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
-        <input id="search" type="search" placeholder="Filter by title, #number or author… (press /)" autocomplete="off" />
-      </div>
-      <label class="select-wrap" title="Show only items with at least this severity label">
-        <span>Severity ≥</span>
-        <select id="min-severity">
-          <option value="0">Any</option>
-          <option value="1">trivial</option>
-          <option value="2">low</option>
-          <option value="3">medium</option>
-          <option value="4">high</option>
-          <option value="5">critical</option>
-        </select>
-      </label>
-      <label class="checkbox-wrap" title="When a severity threshold is set, also keep items that have no severity label yet">
-        <input type="checkbox" id="include-unrated" /> incl. unrated
-      </label>
       <label class="select-wrap">
         <span>Sort</span>
         <select id="sort">
@@ -127,90 +235,6 @@
       </label>
     </div>
 
-    <div class="pr-filters" id="pr-filters">
-      <label class="checkbox-wrap"><input type="checkbox" id="hide-drafts" checked /> Hide drafts</label>
-      <label class="select-wrap"><span>Checks</span>
-        <select id="checks">
-          <option value="">Any</option>
-          <option value="SUCCESS">Passing</option>
-          <option value="FAILURE">Failing</option>
-          <option value="PENDING">Pending</option>
-        </select>
-      </label>
-      <label class="select-wrap"><span>Review</span>
-        <select id="review">
-          <option value="">Any</option>
-          <option value="REVIEW_REQUIRED">Review required</option>
-          <option value="APPROVED">Approved</option>
-          <option value="CHANGES_REQUESTED">Changes requested</option>
-        </select>
-      </label>
-      <label class="select-wrap"><span>Mergeable</span>
-        <select id="mergeable">
-          <option value="">Any</option>
-          <option value="MERGEABLE">No conflicts</option>
-          <option value="CONFLICTING">Has conflicts</option>
-        </select>
-      </label>
-      <label class="select-wrap" title="Issues linked via “Fixes #123” or the Development sidebar"><span>Linked issue</span>
-        <select id="linked">
-          <option value="">Any</option>
-          <option value="none">No linked issue</option>
-          <option value="some">Has linked issue</option>
-        </select>
-      </label>
-    </div>
-    <div class="common-filters">
-      <label class="select-wrap" title="Based on whether the last human comment came from the team (org members) or someone else"><span>Waiting on</span>
-        <select id="waiting">
-          <option value="">Any</option>
-          <option value="team">Team (any)</option>
-          <option value="never">Team, never replied</option>
-          <option value="owe">Team, we owe a reply</option>
-          <option value="reporter">Reporter</option>
-          <option value="internal">Opened by team</option>
-        </select>
-      </label>
-      <label class="select-wrap" title="Days since the last human comment (or since opened)"><span>Idle ≥</span>
-        <select id="idle">
-          <option value="0">Any</option>
-          <option value="3">3 days</option>
-          <option value="7">7 days</option>
-          <option value="14">14 days</option>
-          <option value="30">30 days</option>
-          <option value="90">90 days</option>
-        </select>
-      </label>
-      <label class="select-wrap" title="expo-bot's triage assessment and sandbox verification"><span>Bot verdict</span>
-        <select id="verdict">
-          <option value="">Any</option>
-          <option value="problem">Reproduced</option>
-          <option value="blocked">Blocked</option>
-          <option value="pass">Passed</option>
-          <option value="unverified">Not verified yet</option>
-          <option value="mismatch">Bot severity ≠ label</option>
-          <option value="fixpr">Bot opened a fix PR</option>
-        </select>
-      </label>
-      <label class="select-wrap"><span>@expo-bot</span>
-        <select id="bot-filter">
-          <option value="">Any</option>
-          <option value="never">Never requested</option>
-          <option value="requested">Requested</option>
-          <option value="pending">Requested, no reply yet</option>
-        </select>
-      </label>
-      <label class="select-wrap"><span>Assignee</span>
-        <select id="assignee-filter">
-          <option value="">Any</option>
-          <option value="none">Unassigned</option>
-          <option value="any">Assigned</option>
-        </select>
-      </label>
-    </div>
-
-    <div id="active-filters" class="active-filters"></div>
-
     <div class="layout">
       <section class="Box list-box">
         <div class="Box-header">
@@ -224,14 +248,6 @@
         <ul id="list" class="list"></ul>
         <div id="more" class="more"></div>
       </section>
-
-      <aside class="sidebar">
-        <div class="facet-search-wrap">
-          <input id="facet-search" type="search" placeholder="Filter labels…" />
-        </div>
-        <p class="hint">Click a label to filter. <kbd>Alt</kbd>/<kbd>⌥</kbd>-click to exclude.</p>
-        <div id="facets"></div>
-      </aside>
     </div>
     </div>
   </main>

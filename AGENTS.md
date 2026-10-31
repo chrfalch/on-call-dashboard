@@ -109,7 +109,12 @@ dependencies, no build step.
   and `hideUnsupported` drops rows with only unsupported SDK labels
   everywhere except under the C4 chip. The Close cleanup rules C2, C3, C4
   and C7 skip parked items, items assigned to someone other than the
-  viewer, issues with an open fix PR, and draft or internal PRs.
+  viewer, issues with an open fix PR, internal items and draft PRs. The I5
+  and I9 state actions skip the same items and open them instead. C2 skips
+  issues the bot reproduced. C3 and the I5 Close skip a verdict that the
+  reporter wrote after, or that a verify still waiting for the bot may
+  replace. C4 skips approved PRs and PRs whose author wrote the last human
+  comment.
   The "needs more info" label (any case) turns C1 off and C2 on, 14 days
   after `conversation.since`, except on items the team opened and after the
   reporter answered.

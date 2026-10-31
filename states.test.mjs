@@ -409,6 +409,25 @@ test('C3: the clock starts at the last edit of the verdict', () => {
   assert.ok(filters(editedAgo(7)).includes('C3'));
 });
 
+const notReproducedFor = (over = {}) => issue({ ...verified('pass', daysAgo(10), notReproduced), ...over });
+const reporterAt = (at) => ({ conversation: { waitingOn: 'team', teamReplied: true, since: at, lastReporterAt: at } });
+
+test('C3: not when the reporter wrote after the verdict', () => {
+  assert.ok(!filters(notReproducedFor(reporterAt(daysAgo(2)))).includes('C3'));
+  assert.ok(filters(notReproducedFor(reporterAt(daysAgo(12)))).includes('C3'));
+});
+
+test('C3: not while a newer verify waits for the bot', () => {
+  assert.ok(!filters(notReproducedFor(botAsked('verify', daysAgo(2)))).includes('C3'));
+  assert.ok(filters(notReproducedFor({ bot: { ...botAsked('verify', daysAgo(2)).bot, botRepliedAfterCommand: true } })).includes('C3'));
+  assert.ok(filters(notReproducedFor(botAsked('triage', daysAgo(2)))).includes('C3'));
+});
+
+test('C2: not when the bot reproduced the issue', () => {
+  assert.ok(!filters(issue({ ...waiting('reporter', 30), ...verified('problem', daysAgo(20)) })).includes('C2'));
+  assert.ok(filters(issue({ ...waiting('reporter', 30), ...verified('pass', daysAgo(20)) })).includes('C2'));
+});
+
 const needsMoreInfo = labels('needs more info');
 
 test('C2: the "needs more info" label counts after 14 days, even when the team spoke last without a question', () => {
@@ -451,6 +470,27 @@ test('C4: not when one SDK label is still supported', () => {
 
 test('C4: not without SDK labels', () => {
   assert.ok(!filters(issue()).includes('C4'));
+});
+
+const unsupportedPr = (over = {}) => pr({ labels: labels('sdk-50'), author: { login: 'contributor' }, ...over });
+const prTalk = (...comments) =>
+  analyzeComments(comments, { authorLogin: 'contributor', authorAssociation: 'NONE', createdAt: daysAgo(20) }).conversation;
+const teamComment = (at, body) => ({ author: { login: 'me' }, authorAssociation: 'MEMBER', createdAt: at, url: 'https://x/team', body });
+const authorComment = (at) => ({ author: { login: 'contributor' }, authorAssociation: 'NONE', createdAt: at, url: 'https://x/author', body: 'Rebased.' });
+
+test('C4: a PR with only unsupported SDK labels', () => {
+  assert.ok(filters(unsupportedPr()).includes('C4'));
+  assert.ok(filters(unsupportedPr({ conversation: prTalk(teamComment(daysAgo(5), 'Can you rebase?')) })).includes('C4'));
+});
+
+test('C4: not on an approved PR', () => {
+  assert.ok(!filters(unsupportedPr({ reviewDecision: 'APPROVED' })).includes('C4'));
+  assert.ok(filters(issue({ labels: labels('sdk-50'), reviewDecision: 'APPROVED' })).includes('C4'));
+});
+
+test('C4: not on a PR whose author answered last', () => {
+  const conversation = prTalk(teamComment(daysAgo(5), 'Can you rebase?'), authorComment(daysAgo(2)));
+  assert.ok(!filters(unsupportedPr({ conversation })).includes('C4'));
 });
 
 test('C5: no triage label and no owner', () => {
@@ -937,6 +977,23 @@ test('stateAction: I5 and I9 close', () => {
   assert.equal(action(issue(), 'I9').kind, 'close');
 });
 
+test('stateAction: I5 opens instead of closing when the verdict is out of date', () => {
+  assert.equal(action(notReproducedFor(reporterAt(daysAgo(2))), 'I5').kind, 'open');
+  assert.equal(action(notReproducedFor(botAsked('verify', daysAgo(2))), 'I5').kind, 'open');
+  assert.equal(action(notReproducedFor(), 'I5').kind, 'close');
+});
+
+test('stateAction: I5 and I9 open instead of closing an item that must stay open', () => {
+  const merged = { linkedPrs: [linkedPr('MERGED', true)] };
+  assert.equal(action(notReproducedFor({ labels: labels('✋ on hold') }), 'I5').kind, 'open');
+  assert.equal(action(issue({ linkedPrs: [linkedPr('MERGED', true), { ...linkedPr('OPEN', true), number: 11 }] }), 'I9').kind, 'open');
+  assert.equal(action(issue({ ...merged, labels: labels('contributor: internal') }), 'I9').kind, 'open');
+  assert.equal(action(issue({ ...merged, assignees: onlyMe }), 'I9').kind, 'open');
+  assert.equal(stateAction(issue({ ...merged, assignees: onlyMe }), 'I9', { now: NOW, me: 'me' }).kind, 'close');
+  assert.equal(stateAction(issue({ ...merged, assignees: assigned }), 'I9', { now: NOW, me: 'me' }).kind, 'open');
+  assert.equal(action(issue(merged), 'I9').kind, 'close');
+});
+
 test('stateAction: I6 applies the severity when the label is wrong', () => {
   const triage = { assessment: { ...assessment, severity: { label: 'severity: 3' } }, verification: null, fixPrs: [] };
   assert.equal(action(issue({ triage }), 'I6').kind, 'apply-severity');
@@ -1139,7 +1196,8 @@ const closeRules = {
   C4: [issue({ labels: labels('sdk-50') }), pr({ labels: labels('sdk-50') })],
   C7: [changesRequested(21)],
 };
-// A guard returns null where it cannot apply: draft and internal are PR-only, a linked fix PR is issue-only.
+// A guard returns null where it cannot apply: a draft is PR-only, a linked fix PR is issue-only,
+// and C2 never matches an issue waiting on internal, so that guard would pass without closeable.
 const guards = {
   'labeled ✋ on hold': (item) => ({ labels: [...item.labels, ...labels('✋ on hold')] }),
   'labeled Issue accepted': (item) => ({ labels: [...item.labels, ...labels('Issue accepted')] }),
@@ -1147,13 +1205,11 @@ const guards = {
   'assigned to me and someone else': () => ({ assignees: [...onlyMe, ...assigned] }),
   'an open fix PR': (item) => (item.type === 'issue' ? { linkedPrs: [linkedPr('OPEN', true)] } : null),
   'a draft': (item) => (item.type === 'pr' ? { isDraft: true } : null),
-  'labeled contributor: internal': (item) => (item.type === 'pr' ? { labels: [...item.labels, ...labels('contributor: internal')] } : null),
-  'waiting on internal': (item) => (item.type === 'pr' ? { conversation: { ...item.conversation, waitingOn: 'internal' } } : null),
-};
-// An issue still matches: internal blocks PRs only, and only an open fix PR blocks. C2 needs waitingOn reporter.
-const issueControls = {
   'labeled contributor: internal': (item) => ({ labels: [...item.labels, ...labels('contributor: internal')] }),
   'waiting on internal': (item, id) => (id === 'C2' ? null : { conversation: { ...item.conversation, waitingOn: 'internal' } }),
+};
+// An issue still matches: only an open fix PR blocks.
+const issueControls = {
   'linked to an open PR that is not a fix': () => ({ linkedPrs: [linkedPr('OPEN', false)] }),
   'linked to a closed fix PR': () => ({ linkedPrs: [linkedPr('CLOSED', true)] }),
   'linked to a merged fix PR': () => ({ linkedPrs: [linkedPr('MERGED', true)] }),
@@ -1179,7 +1235,7 @@ for (const [id, bases] of Object.entries(closeRules)) {
     });
 
     for (const [guard, over] of Object.entries(guards)) {
-      const extra = over(base);
+      const extra = over(base, id);
       if (!extra) continue;
       test(`${name}: not when ${guard}`, () => {
         assert.ok(!cleanupFilters({ ...base, ...extra }, meCtx).includes(id));
@@ -1188,10 +1244,8 @@ for (const [id, bases] of Object.entries(closeRules)) {
 
     if (base.type !== 'issue') continue;
     for (const [control, over] of Object.entries(issueControls)) {
-      const extra = over(base, id);
-      if (!extra) continue;
       test(`${name}: still matches when ${control}`, () => {
-        assert.ok(cleanupFilters({ ...base, ...extra }, meCtx).includes(id));
+        assert.ok(cleanupFilters({ ...base, ...over() }, meCtx).includes(id));
       });
     }
   }

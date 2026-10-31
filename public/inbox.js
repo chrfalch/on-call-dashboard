@@ -70,11 +70,10 @@ export const needsSeverityFix = (item) => {
 export function reReviewReasons(item) {
   if (item.reviewDecision !== 'CHANGES_REQUESTED') return [];
   const since = item.changesRequestedAt;
-  const lastHuman = conversationOf(item).lastHuman;
   // GitHub drops a reviewer from reviewRequests when they review, so finding them there again means a re-request.
   const reRequested = (item.reviewRequests ?? []).some((r) => item.changesRequestedBy?.includes(r.login));
   return [
-    since && lastHuman?.role === 'reporter' && lastHuman.at > since && 'author replied',
+    since && conversationOf(item).lastReporterAt > since && 'author replied',
     since && item.lastCommitAt > since && 'author pushed',
     reRequested && 'review re-requested',
   ].filter(Boolean);

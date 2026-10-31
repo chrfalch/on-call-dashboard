@@ -72,20 +72,35 @@ function issueState(item) {
   return 'I3';
 }
 
+const reproducedAt = ({ triage, lastCommitAt }) => {
+  const verification = triage?.verification;
+  return verification?.outcome === 'problem' && lastCommitAt && verification.at > lastCommitAt ? verification.at : null;
+};
+// A later comment by the PR author answers the team; a community comment does not. An equal time is
+// the author's own comment, when the author is on the team.
+const teamAskedAt = (item) => {
+  const { lastTeamAt, lastReporterAt } = conversationOf(item);
+  return lastTeamAt && item.lastCommitAt && lastTeamAt > item.lastCommitAt && !(lastReporterAt >= lastTeamAt) ? lastTeamAt : null;
+};
+const requestedAt = (item) => reproducedAt(item) ?? teamAskedAt(item) ?? item.changesRequestedAt ?? null;
+
 // A red build is a cleanup signal (C9), not a workflow step. CI runs waiting for approval are a
 // workflow step (P11), reached only after the bot review, so a person reads that review before approving.
 function prState(item) {
   if (item.state === 'CLOSED') return 'P10';
   if (item.state === 'MERGED') return 'P9';
   if (item.isDraft) return 'P1';
+  if (reproducedAt(item)) return 'P4';
+  const { lastReview, botRepliedAfterReview } = item.bot ?? {};
+  if (lastReview && botRepliedAfterReview && (item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
   if (item.reviewDecision === 'APPROVED') return 'P8';
+  if (teamAskedAt(item)) return 'P4';
   if (reReviewReasons(item).length) return 'P5';
   if (item.reviewDecision === 'CHANGES_REQUESTED') return 'P4';
-  if (item.bot?.lastReview && !item.bot.botRepliedAfterReview) return 'P3';
-  if (!item.bot?.lastReview) return 'P2';
-  if ((item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
-  if ((item.reviewRequests ?? []).length || (item.latestReviews ?? []).length) return 'P7';
-  return 'P6';
+  if (lastReview && !botRepliedAfterReview) return 'P3';
+  if ((item.reviewRequests ?? []).length || hasLabel(item, 'ready for human')) return 'P7';
+  if (!lastReview) return 'P2';
+  return (item.latestReviews ?? []).length ? 'P7' : 'P6';
 }
 
 export const stateOf = (item) => (item.type === 'pr' ? prState(item) : issueState(item));
@@ -116,7 +131,7 @@ export function stateAction(item, stateId, { now = Date.now() } = {}) {
   }
   if (stateId === 'P2') return { kind: 'command', label: 'Ask bot to review', body: '@expo-bot review' };
   if (stateId === 'P11') return { kind: 'approve-ci', label: 'Approve and run', runIds: item.ciApprovalRunIds };
-  if (stateId === 'P4' && item.changesRequestedAt && days(item.changesRequestedAt, now) >= 7) {
+  if (stateId === 'P4' && atLeast(requestedAt(item), 7, now)) {
     return { kind: 'nudge', label: 'Nudge author' };
   }
   return openAction;
@@ -147,7 +162,7 @@ const CLEANUP = {
   C3: (item, ctx) => item.type === 'issue' && notReproduced(item) && atLeast(item.triage.verification.at, 7, ctx.now) && closeable(item, ctx),
   C4: (item, ctx) => isUnsupportedSdk(item, ctx.unsupportedSdks) && closeable(item, ctx),
   C5: (item, ctx) => item.type === unlabeledUnowned.scope && unlabeledUnowned.match(item, ctx),
-  C7: (item, ctx) => stateOf(item) === 'P4' && atLeast(item.changesRequestedAt, 21, ctx.now) && closeable(item, ctx),
+  C7: (item, ctx) => stateOf(item) === 'P4' && atLeast(requestedAt(item), 21, ctx.now) && closeable(item, ctx),
   C8: (item, { now }) => {
     const stateId = stateOf(item);
     if (stateId === 'I7') return atLeast(item.ownerLastActivityAt, 7, now);

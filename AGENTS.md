@@ -119,7 +119,17 @@ dependencies, no build step.
   owners in the last 7 days. Team review requests do not count as owners.
   P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
   expo-bot review is done, never for a `github-actions` author; its button
-  approves each run in the browser after a confirm.
+  approves each run in the browser after a confirm. P11 wins over approved,
+  changes requested and "Author answered"; only a draft and a problem that
+  expo-bot reproduced after the last commit come first.
+  P4 "Changes requested" also covers a PR where expo-bot reproduced a
+  problem after the last commit, and a PR where the team commented after
+  the last commit and the PR author has not commented since (a team
+  author's own comment is not a request); a community comment is no
+  answer, and it does not undo "author replied" for P5.
+  C7 and the P4 "Nudge author" button count from the time of that request.
+  P7 also covers a PR with a requested reviewer or the "ready for human"
+  label before the expo-bot review is asked.
   Shared by browser and Node; tested by `states.test.mjs`.
 - `public/trends.js` — pure math for the trend tiles (`weekStart`,
   `weekTrend`): cumulative opened and closed counts per local day since

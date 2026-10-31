@@ -63,7 +63,7 @@ const changesRequested = (d = 2, over = {}) => pr({
   conversation: { waitingOn: 'reporter', teamReplied: true, lastHuman: { role: 'team', at: daysAgo(d) }, since: daysAgo(d) },
   ...over,
 });
-const authorReplied = (d) => ({ conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(d) }, since: daysAgo(d) } });
+const authorReplied = (d) => ({ conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(d) }, lastReporterAt: daysAgo(d), since: daysAgo(d) } });
 
 test('I10: a closed issue', () => {
   assert.equal(state(issue({ state: 'CLOSED', linkedPrs: [linkedPr('MERGED', true)] })), 'I10');
@@ -275,8 +275,8 @@ test('P2, never I1, for a PR that needs bot triage', () => {
   assert.equal(state(item), 'P2');
 });
 
-test('P2 beats P7: a reviewer is requested, but no bot review asked', () => {
-  assert.equal(state(pr({ labels: routed, reviewRequests: [{ login: 'reviewer' }] })), 'P2');
+test('P7 beats P2: a reviewer is requested, but no bot review asked', () => {
+  assert.equal(state(pr({ labels: routed, reviewRequests: [{ login: 'reviewer' }] })), 'P7');
 });
 
 test('P7: bot reviewed and a reviewer is requested', () => {
@@ -700,16 +700,125 @@ test('P11: another bot author still needs the bot review first', () => {
   assert.equal(state(awaitingCi({ author: { login: 'dependabot' }, ...noBotReview })), 'P2');
 });
 
-test('P11: earlier states win', () => {
-  assert.equal(state(awaitingCi({ reviewDecision: 'CHANGES_REQUESTED', changesRequestedAt: daysAgo(2), changesRequestedBy: ['me'], lastCommitAt: daysAgo(3) })), 'P4');
-  assert.equal(state(changesRequested(5, { lastCommitAt: daysAgo(1), ciApprovalRunIds: [101] })), 'P5');
-  assert.equal(state(awaitingCi({ reviewDecision: 'APPROVED' })), 'P8');
+test('P11 beats requested changes, P5 and P8; a draft still wins', () => {
+  assert.equal(state(awaitingCi({ reviewDecision: 'CHANGES_REQUESTED', changesRequestedAt: daysAgo(2), changesRequestedBy: ['me'], lastCommitAt: daysAgo(3) })), 'P11');
+  assert.equal(state(changesRequested(5, { lastCommitAt: daysAgo(1), ciApprovalRunIds: [101] })), 'P11');
+  assert.equal(state(awaitingCi({ reviewDecision: 'APPROVED' })), 'P11');
   assert.equal(state(awaitingCi({ isDraft: true })), 'P1');
 });
 
 test('P11: not without waiting runs', () => {
   assert.equal(state(awaitingCi({ ciApprovalRunIds: [] })), 'P6');
   assert.equal(state(awaitingCi({ ciApprovalRunIds: undefined })), 'P6');
+});
+
+const talk = (over) => ({ conversation: { waitingOn: 'reporter', teamReplied: true, since: daysAgo(1), ...over } });
+const teamAsked = (over = {}) => pr({ ...botReview(true), author: { login: 'contributor' }, lastCommitAt: daysAgo(3), ...talk({ lastTeamAt: daysAgo(2) }), ...over });
+const reproduced = (at, lastCommitAt) => ({ ...verified('problem', at), lastCommitAt });
+
+test('rule E beats P11: the bot reproduced a problem after the last commit', () => {
+  assert.equal(state(awaitingCi(reproduced(daysAgo(1), daysAgo(2)))), 'P4');
+});
+
+test('rule E: a later unrelated bot answer does not hide it', () => {
+  const laterAnswer = { bot: { ...botReview(true, daysAgo(2)).bot, commandAnswer: { at: daysAgo(1), outcome: null } } };
+  assert.equal(state(awaitingCi({ ...reproduced(daysAgo(3), daysAgo(4)), ...laterAnswer })), 'P4');
+});
+
+test('rule E: not when the last commit came after the verification', () => {
+  assert.equal(state(awaitingCi(reproduced(daysAgo(2), daysAgo(1)))), 'P11');
+});
+
+test('P4: not when the last team comment is the team author\'s own', () => {
+  const ownComment = talk({ lastTeamAt: daysAgo(2), lastReporterAt: daysAgo(2) });
+  assert.equal(state(teamAsked(ownComment)), 'P6');
+});
+
+test('P4: a team comment after the author\'s last comment asks again', () => {
+  assert.equal(state(teamAsked(talk({ lastTeamAt: daysAgo(1), lastReporterAt: daysAgo(2) }))), 'P4');
+});
+
+test('P8 beats a team comment after the last commit', () => {
+  assert.equal(state(teamAsked({ reviewDecision: 'APPROVED' })), 'P8');
+});
+
+test('P4: the team commented after the last commit', () => {
+  assert.equal(state(teamAsked()), 'P4');
+});
+
+test('P4 from a team comment ends when the author comments', () => {
+  assert.equal(state(teamAsked(talk({ lastTeamAt: daysAgo(2), lastReporterAt: daysAgo(1) }))), 'P6');
+});
+
+test('P4 from a team comment stays after a community comment', () => {
+  const item = teamAsked(talk({ lastTeamAt: daysAgo(2), lastHuman: { login: 'someone', role: 'community', at: daysAgo(1) } }));
+  assert.equal(state(item), 'P4');
+});
+
+test('P4 from a team comment beats P5: the team commented after the author pushed', () => {
+  const item = changesRequested(5, { lastCommitAt: daysAgo(3), ...talk({ lastTeamAt: daysAgo(2) }) });
+  assert.equal(state(item), 'P4');
+});
+
+test('P5: a community comment after the author reply does not undo it', () => {
+  const item = changesRequested(10, {
+    lastCommitAt: daysAgo(11),
+    ...talk({ lastTeamAt: daysAgo(5), lastReporterAt: daysAgo(3), lastHuman: { login: 'someone', role: 'community', at: daysAgo(1) } }),
+  });
+  assert.equal(state(item), 'P5');
+});
+
+test('without lastCommitAt, neither rule E nor a team comment gives P4', () => {
+  assert.equal(state(teamAsked({ ...verified('problem', daysAgo(1)), lastCommitAt: null })), 'P6');
+});
+
+test('equal times never give P4', () => {
+  const at = daysAgo(2);
+  assert.equal(state(teamAsked({ lastCommitAt: at, ...talk({ lastTeamAt: at }) })), 'P6');
+  assert.equal(state(awaitingCi(reproduced(at, at))), 'P11');
+});
+
+const readyForHuman = labels('ready for human');
+
+test('P3 beats P7: the "ready for human" label while the bot still reviews', () => {
+  assert.equal(state(pr({ ...botReview(false), labels: readyForHuman })), 'P3');
+});
+
+test('P7 beats P2: the "ready for human" label without a bot review', () => {
+  assert.equal(state(pr({ labels: readyForHuman })), 'P7');
+});
+
+test('C7: counts from the team comment, not from old requested changes', () => {
+  const item = changesRequested(60, { lastCommitAt: daysAgo(61), ...talk({ lastTeamAt: daysAgo(1) }) });
+  assert.equal(state(item), 'P4');
+  assert.ok(!filters(item).includes('C7'));
+});
+
+test('C7: counts from the verification for rule E', () => {
+  const item = awaitingCi(reproduced(daysAgo(21), daysAgo(22)));
+  assert.equal(state(item), 'P4');
+  assert.ok(filters(item).includes('C7'));
+});
+
+test('stateAction: the P4 nudge counts from the request time', () => {
+  const recent = changesRequested(30, { lastCommitAt: daysAgo(31), ...talk({ lastTeamAt: daysAgo(2) }) });
+  assert.equal(stateAction(recent, 'P4', { now: NOW }).kind, 'open');
+  assert.equal(stateAction(awaitingCi(reproduced(daysAgo(8), daysAgo(9))), 'P4', { now: NOW }).kind, 'nudge');
+  assert.equal(stateAction(teamAsked({ lastCommitAt: daysAgo(8), ...talk({ lastTeamAt: daysAgo(7) }) }), 'P4', { now: NOW }).kind, 'nudge');
+});
+
+test('C8: a PR in P7 only through a review request or the "ready for human" label', () => {
+  const noBot = { bot: { lastReview: null, botRepliedAfterReview: false } };
+  const requested = humanReview(noBot);
+  assert.equal(state(requested), 'P7');
+  assert.ok(filters(requested).includes('C8'));
+  const labeled = humanReview({ ...noBot, reviewRequests: [], labels: readyForHuman });
+  assert.equal(state(labeled), 'P7');
+  // C8 owners are assignees and requested reviewers; the label names no one.
+  assert.ok(!filters(labeled).includes('C8'));
+  const labeledAssigned = humanReview({ ...noBot, reviewRequests: [], labels: readyForHuman, assignees: assigned });
+  assert.equal(state(labeledAssigned), 'P7');
+  assert.ok(filters(labeledAssigned).includes('C8'));
 });
 
 test('no cleanup filter for CI approval', () => {

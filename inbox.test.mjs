@@ -385,7 +385,7 @@ const changesRequested = (over = {}) => pr({
   conversation: { waitingOn: 'reporter', teamReplied: true, lastHuman: { role: 'team', at: reviewedAt }, since: reviewedAt },
   ...over,
 });
-const authorReplied = { conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(1) }, since: daysAgo(1) } };
+const authorReplied = { conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(1) }, lastReporterAt: daysAgo(1), since: daysAgo(1) } };
 const authorPushed = { lastCommitAt: daysAgo(1) };
 const mine = { me: 'me', mode: 'mine' };
 const texts = (t) => t.reasons.map((r) => r.text);
@@ -466,7 +466,7 @@ test('author replied, pushed and re-requested my review -> re-review, as on #450
     reviewDecision: 'CHANGES_REQUESTED',
     changesRequestedAt: '2026-10-27T13:58:00Z',
     lastCommitAt: '2026-10-28T09:01:00Z',
-    conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: '2026-10-27T22:51:38Z' }, since: '2026-10-27T22:51:38Z' },
+    conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: '2026-10-27T22:51:38Z' }, lastReporterAt: '2026-10-27T22:51:38Z', since: '2026-10-27T22:51:38Z' },
     changesRequestedBy: ['chrfalch'],
     reviewRequests: [{ login: 'chrfalch' }],
     assignees: [{ login: 'chrfalch' }],

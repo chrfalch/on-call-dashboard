@@ -1082,7 +1082,7 @@ function renderInbox() {
 }
 
 const taskAction = (t) =>
-  filters.cleanup ? cleanupAction(t.item, filters.cleanup, { now: Date.now() }) : stateAction(t.item, t.stateId, { now: Date.now() });
+  filters.cleanup ? cleanupAction(t.item, filters.cleanup, { now: Date.now() }) : stateAction(t.item, t.stateId, { now: Date.now(), me: me?.login });
 const taskCommand = (action) => ({ ...action, command: parseCommand(action.body)?.command });
 
 function taskActionButton(t) {

@@ -9,6 +9,7 @@ import { findItem, parseItemNumber } from './quick-open.js';
 import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
+import { activeFilterChips, activeFilterCount, matchesFilters, matchesQuery, normalizeFilters, PANEL_DEFAULTS, severityMismatch } from './filters.js';
 
 const $ = (sel) => document.querySelector(sel);
 const PAGE = 100;
@@ -25,37 +26,31 @@ const DEFAULT_FILTERS = {
   cleanup: '',
   inboxOthers: true,
   inboxHidden: false,
-  q: '',
-  minSeverity: 0,
-  includeUnrated: false,
   sort: 'severity',
-  include: [],
-  exclude: [],
-  hideDrafts: true,
-  checks: '',
-  review: '',
-  mergeable: '',
-  linked: '',
-  bot: '',
-  assignee: '',
-  waiting: '',
-  idleDays: 0,
-  verdict: '',
-  staleDays: 0,
-  newerThanDays: 0,
+  ...PANEL_DEFAULTS,
+  filtersOpen: false,
   view: '',
   hideUnsupportedSdks: true,
   sinceTab: 'issues',
   sinceOpen: false,
   sinceInternal: false,
 };
-const KEPT_ON_CLEAR = ['tab', 'sort', 'hideUnsupportedSdks', 'sinceTab', 'sinceOpen', 'sinceInternal'];
 
 let data = { items: [], labels: [] };
 let filters = readHash();
 let shown = PAGE;
 let selected = new Set();
 let facetQuery = '';
+// Typed text filters after a short pause. Any render applies it first, so another
+// control's render never puts the old value back into the box.
+const pendingText = new Map();
+function flushText() {
+  for (const [key, { timer, value }] of pendingText) {
+    clearTimeout(timer);
+    filters[key] = value;
+  }
+  pendingText.clear();
+}
 const collapsedGroups = new Set(JSON.parse(localStorage.getItem('collapsedGroups') || '["Package","SDK / RN","Upstream","Project","Other"]'));
 // Stores the unsupported set, so a new SDK label starts out supported.
 const unsupportedSdks = parseUnsupportedSdks(localStorage.getItem('unsupportedSdks'));
@@ -93,7 +88,7 @@ function readHash() {
   f.tab = 'inbox';
   if (!activeView(f)) f.view = '';
   if (f.state && !STATE_CHIPS.some((state) => state.id === f.state)) f.state = '';
-  return f;
+  return normalizeFilters(f);
 }
 
 function writeHash() {
@@ -210,68 +205,6 @@ const icons = {
 
 // ---------- filtering ----------
 
-function matches(item, f, { ignoreLabels = false } = {}) {
-  if (item.type !== f.tab) return false;
-  if (f.minSeverity === -1) {
-    if (item.severity !== 0) return false;
-  } else if (f.minSeverity > 0) {
-    if (item.severity < f.minSeverity && !(f.includeUnrated && item.severity === 0)) return false;
-  }
-  if (f.newerThanDays && Date.now() - new Date(item.createdAt) > f.newerThanDays * 864e5) return false;
-  if (f.staleDays && Date.now() - new Date(item.updatedAt) < f.staleDays * 864e5) return false;
-  if (!matchesQuery(item, f.q)) return false;
-  if (!ignoreLabels) {
-    const names = new Set(item.labels.map((l) => l.name));
-    if (!f.include.every((l) => names.has(l))) return false;
-    if (f.exclude.some((l) => names.has(l))) return false;
-  }
-  if (item.type === 'pr') {
-    if (f.hideDrafts && item.isDraft) return false;
-    if (f.checks && item.checks !== f.checks) return false;
-    if (f.review && item.reviewDecision !== f.review) return false;
-    if (f.mergeable && item.mergeable !== f.mergeable) return false;
-    // linkedIssues is undefined until the server has re-synced with the new field.
-    if (f.linked && item.linkedIssues) {
-      if (f.linked === 'none' && item.linkedIssues.length) return false;
-      if (f.linked === 'some' && !item.linkedIssues.length) return false;
-    }
-  }
-  if (f.bot) {
-    const c = item.bot.lastCommand;
-    if (f.bot === 'never' && c) return false;
-    if (f.bot === 'requested' && !c) return false;
-    if (f.bot === 'pending' && (!c || item.bot.botRepliedAfterCommand)) return false;
-  }
-  const conv = item.conversation;
-  if (f.waiting && conv) {
-    const ok =
-      f.waiting === 'never' ? conv.waitingOn === 'team' && !conv.teamReplied
-      : f.waiting === 'owe' ? conv.waitingOn === 'team' && conv.teamReplied
-      : conv.waitingOn === f.waiting;
-    if (!ok) return false;
-  }
-  if (f.idleDays && conv && Date.now() - new Date(conv.since) < f.idleDays * 864e5) return false;
-  if (f.verdict) {
-    const t = item.triage;
-    if (f.verdict === 'unverified' ? t?.verification : f.verdict === 'mismatch' ? !severityMismatch(item) : f.verdict === 'fixpr' ? !t?.fixPrs.length : t?.verification?.outcome !== f.verdict)
-      return false;
-  }
-  if (f.assignee === 'none' && item.assignees.length) return false;
-  if (f.assignee === 'any' && !item.assignees.length) return false;
-  if (f.assignee.startsWith('user:')) {
-    const login = f.assignee.slice(5) === '@me' ? me?.login : f.assignee.slice(5);
-    if (!item.assignees.some((a) => a.login === login)) return false;
-  }
-  return true;
-}
-
-function matchesQuery(item, query) {
-  if (!query) return true;
-  const q = query.toLowerCase().trim();
-  const hay = `${item.title} ${item.author.login}`.toLowerCase();
-  return String(item.number) === q.replace(/^#/, '') || q.split(/\s+/).every((w) => hay.includes(w));
-}
-
 function sortItems(items) {
   const by = {
     severity: (a, b) => b.severity - a.severity || b.updatedAt.localeCompare(a.updatedAt),
@@ -290,15 +223,18 @@ function shownItems() {
   return data.items.filter((i) => isOpen(i) && (!filters.hideUnsupportedSdks || !isUnsupportedSdk(i, unsupportedSdks)));
 }
 
+const filterContext = () => ({ now: Date.now(), me: me?.login });
+
 function visibleItems() {
   const view = activeView();
   if (view) return applyView(view, shownItems().filter((i) => matchesQuery(i, filters.q)), { now: Date.now() });
-  return sortItems(shownItems().filter((i) => matches(i, filters)));
+  return sortItems(shownItems().filter((i) => matchesFilters(i, filters, filterContext())));
 }
 
 // ---------- rendering ----------
 
 function render() {
+  flushText();
   writeHash();
   syncControls();
   const inInbox = filters.tab === 'inbox';
@@ -306,6 +242,7 @@ function render() {
   $('#browse').hidden = inInbox;
   renderInbox();
   renderSdkFilter();
+  renderFilterPanel();
 
   const visible = visibleItems();
   const tabCount = (type) => data.items.filter((i) => i.type === type && isOpen(i)).length;
@@ -313,11 +250,8 @@ function render() {
   $('#count-pr').textContent = tabCount('pr');
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab && t.dataset.mode === filters.inboxMode));
   if (inInbox) return;
-  $('#pr-filters').hidden = filters.tab !== 'pr';
 
   renderViews();
-  renderActiveFilters();
-  renderFacets();
 
   // Drop selections that are no longer visible.
   const visibleNums = new Set(visible.map((i) => i.number));
@@ -427,11 +361,6 @@ function waitingHtml(i) {
   return `<span class="waiting team" ${title}>${icons.reply} we owe a reply · ${dur}</span>`;
 }
 
-function severityMismatch(item) {
-  const s = item.triage?.assessment?.severity;
-  return !!s && !item.labels.some((l) => l.name === s.label);
-}
-
 const expanded = new Set();
 
 // brief: the Inbox row, where the state's button applies severity and the summary waits for recommendations.
@@ -506,25 +435,30 @@ function renderActiveFilters() {
     return;
   }
   const colorOf = Object.fromEntries(data.labels.map((l) => [l.name, l.color]));
-  const chips = [
-    ...filters.include.map((n) => labelHtml({ name: n, color: colorOf[n] }, { removable: true })),
-    ...filters.exclude.map((n) => labelHtml({ name: n, color: colorOf[n] }, { removable: true })),
-  ];
   const filterTip = tipAttr(CHIP_TIPS.activeFilter);
-  if (filters.newerThanDays) chips.push(`<span class="muted" ${filterTip}>created in last ${filters.newerThanDays}d</span>`);
-  if (filters.staleDays) chips.push(`<span class="muted" ${filterTip}>no activity for ${filters.staleDays}d+</span>`);
-  if (filters.minSeverity === -1) chips.push(`<span class="muted" ${filterTip}>no severity label</span>`);
-  $('#active-filters').innerHTML = chips.length || isFiltered() ? chips.join('') + `<button class="clear-link" id="clear-filters">✕ Clear filters</button>` : '';
+  $('#active-filters').innerHTML = activeFilterChips(filters)
+    .map(({ id, text, label }) =>
+      label
+        ? labelHtml({ name: label.name, color: colorOf[label.name] }, { removable: true })
+        : `<span class="filter-chip" ${filterTip}>${esc(text)}<button class="chip-remove" data-filter-reset="${esc(id)}" aria-label="Remove filter: ${esc(text)}">×</button></span>`)
+    .join('');
 }
 
-function isFiltered() {
-  return Object.entries(DEFAULT_FILTERS).some(([k, v]) => !KEPT_ON_CLEAR.includes(k) && JSON.stringify(filters[k]) !== JSON.stringify(v));
+function renderFilterPanel() {
+  const open = filters.filtersOpen;
+  const n = activeFilterCount(filters);
+  $('#filters-toggle').textContent = `${open ? '▾' : '▸'} Filters${n ? ` (${n})` : ''}`;
+  $('#filters-toggle').setAttribute('aria-expanded', String(open));
+  $('#clear-filters').hidden = !n;
+  $('#filter-panel-body').hidden = !open;
+  renderActiveFilters();
+  if (open) renderFacets();
 }
 
 function renderFacets() {
   // Counts are computed against the current filters *except* labels, plus the
   // currently-included labels, so they show how many results each label would leave.
-  const base = shownItems().filter((i) => matches(i, filters, { ignoreLabels: true }));
+  const base = shownItems().filter((i) => matchesFilters(i, filters, { ...filterContext(), ignoreLabels: true }));
   const pool = base.filter((i) => {
     const names = new Set(i.labels.map((l) => l.name));
     return filters.include.every((l) => names.has(l)) && !filters.exclude.some((l) => names.has(l));
@@ -556,7 +490,8 @@ function renderFacets() {
 }
 
 function syncControls() {
-  $('#search').value !== filters.q && document.activeElement !== $('#search') && ($('#search').value = filters.q);
+  // render() flushes typed text first, so a differing value here comes from a reset.
+  $('#search').value !== filters.q && ($('#search').value = filters.q);
   $('#min-severity').value = String(Math.max(0, filters.minSeverity));
   $('#include-unrated').checked = filters.includeUnrated;
   $('#include-unrated').parentElement.style.visibility = filters.minSeverity > 0 ? 'visible' : 'hidden';
@@ -572,16 +507,18 @@ function syncControls() {
   $('#verdict').value = filters.verdict;
   renderAssigneeOptions();
   $('#assignee-filter').value = filters.assignee;
+  $('#filter-user').value !== filters.user && ($('#filter-user').value = filters.user);
+  $('#filter-user-role').value = filters.userRole;
   const viewActive = !!activeView();
   for (const control of document.querySelectorAll(':is(.filter-bar, .pr-filters, .common-filters) :is(select, input[type="checkbox"])')) control.disabled = viewActive;
-  $('.sidebar').inert = viewActive;
+  $('.filter-facets').inert = viewActive;
 }
 
 function renderAssigneeOptions() {
   const counts = new Map();
-  for (const i of shownItems()) if (i.type === filters.tab) for (const a of i.assignees) counts.set(a.login, (counts.get(a.login) || 0) + 1);
+  for (const i of shownItems()) for (const a of i.assignees) counts.set(a.login, (counts.get(a.login) || 0) + 1);
   const users = [...counts].sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
-  // Keep a filtered-on user selectable even if they have nothing on this tab.
+  // Keep a filtered-on user selectable even if they have nothing open.
   const current = filters.assignee.startsWith('user:') ? filters.assignee.slice(5) : null;
   if (current && current !== '@me' && !counts.has(current)) users.push([current, 0]);
   $('#assignee-filter').innerHTML = [
@@ -1105,7 +1042,7 @@ function renderInbox() {
   $('#inbox-mode-desc').textContent = MODES[mode];
   $('#inbox-others-wrap').hidden = mode !== 'oncall';
 
-  const items = data.items;
+  const items = data.items.filter((i) => matchesFilters(i, filters, { now, me: me?.login }));
   const visibleOptions = { ...options, hidden: filters.inboxHidden ? undefined : hidden };
   const counts = inboxCounts(items, visibleOptions);
   const chips = (defs, key, tips, separator = '') => defs.map((def) => {
@@ -1129,11 +1066,14 @@ function renderInbox() {
     <div class="trend-caption">${done.issues} issues · ${done.prs} PRs</div>
     ${trendChart(doneDays, ['done'], `Done per day since Monday: ${doneDays.map((d) => d.done).join(', ')}`)}`;
 
-  const prs = new Map(items.filter((i) => i.type === 'pr').map((pr) => [pr.number, pr]));
+  const prs = new Map(data.items.filter((i) => i.type === 'pr').map((pr) => [pr.number, pr]));
   $('#inbox-list').innerHTML = inboxVisible.length
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx, prs)).join('')
     : `<li class="empty">${
-        !data.items.length ? 'Loading from GitHub…' : mode === 'mine' && !me ? 'Sign in to see the items assigned to you.' : 'Inbox zero 🎉 Nothing left in this view.'
+        !data.items.length ? 'Loading from GitHub…'
+        : mode === 'mine' && !me ? 'Sign in to see the items assigned to you.'
+        : activeFilterCount(filters) ? 'Nothing in this view matches the filters.'
+        : 'Inbox zero 🎉 Nothing left in this view.'
       }</li>`;
   $('#inbox-more').innerHTML =
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
@@ -1186,7 +1126,7 @@ function taskHtml(t, idx, prs) {
       </div>
       <div class="row-main">
         <div class="meta">${inboxMeta(item).filter(Boolean).join(' ')}</div>
-        <div class="task-labels">${item.assignees.map((a) => assigneeChipHtml(a, { filterable: false })).join('')}${item.labels.map((l) => labelHtml(l, { filterable: false })).join('')}</div>
+        <div class="task-labels">${item.assignees.map((a) => assigneeChipHtml(a)).join('')}${item.labels.map((l) => labelHtml(l)).join('')}</div>
         ${item.type === 'issue' ? triageHtml(item, { fixPrs: false, brief: true }) : ''}
       </div>
       ${recHtml(t)}
@@ -1242,6 +1182,7 @@ function inboxClick(e) {
   const cleanup = t.closest('[data-inbox-cleanup]');
   if (cleanup) { filters.cleanup = filters.cleanup === cleanup.dataset.inboxCleanup ? '' : cleanup.dataset.inboxCleanup; filters.state = ''; inboxShown = 25; return render(); }
   if (t.id === 'inbox-more-btn') { inboxShown += 25; return render(); }
+  if (t.id === 'filters-toggle') { filters.filtersOpen = !filters.filtersOpen; return render(); }
   const done = t.closest('[data-task-done]');
   if (done) return markDone(findTask(done.dataset.taskDone));
   const close = t.closest('[data-task-close]');
@@ -1570,7 +1511,7 @@ document.addEventListener('click', (e) => {
   if (!t.closest('#sdk-menu')) $('#sdk-menu').open = false;
   const viewButton = t.closest('[data-view]');
   if (viewButton) return selectView(viewButton.dataset.view);
-  if (t.closest('[data-task] .AssigneeChip, [data-task] .IssueLabel, [data-since] .AssigneeChip, [data-since] .IssueLabel')) return e.preventDefault();
+  if (t.closest('[data-task] .triage .IssueLabel, [data-since] .AssigneeChip, [data-since] .IssueLabel')) return e.preventDefault();
   const chip = t.closest('.AssigneeChip');
   if (chip) {
     e.preventDefault();
@@ -1595,7 +1536,7 @@ document.addEventListener('click', (e) => {
   const tab = t.closest('.tab');
   if (tab) {
     e.preventDefault();
-    filters = { ...filters, tab: 'inbox', inboxMode: tab.dataset.mode, state: '', cleanup: '', view: '', include: [], exclude: [], checks: '', review: '', mergeable: '', linked: '', bot: '', waiting: '', idleDays: 0, verdict: '', staleDays: 0, newerThanDays: 0 };
+    filters = { ...filters, tab: 'inbox', inboxMode: tab.dataset.mode, state: '', cleanup: '', view: '' };
     selected.clear();
     shown = PAGE;
     inboxShown = 25;
@@ -1614,7 +1555,14 @@ document.addEventListener('click', (e) => {
     return renderFacets();
   }
   if (t.id === 'more-btn') { shown += PAGE; return render(); }
-  if (t.id === 'clear-filters') { filters = { ...DEFAULT_FILTERS, ...Object.fromEntries(KEPT_ON_CLEAR.map((k) => [k, filters[k]])) }; return render(); }
+  const filterReset = t.closest('[data-filter-reset]');
+  if (filterReset) {
+    flushText();
+    const chip = activeFilterChips(filters).find(({ id }) => id === filterReset.dataset.filterReset);
+    if (chip) filters = { ...filters, ...chip.reset };
+    return render();
+  }
+  if (t.id === 'clear-filters') { flushText(); filters = { ...filters, ...PANEL_DEFAULTS }; return render(); }
   const details = t.closest('[data-details]');
   if (details) {
     const n = Number(details.dataset.details);
@@ -1657,11 +1605,14 @@ function bulkPost(action) {
 $('#bulk-btn').addEventListener('click', () => bulkPost(ACTIONS[filters.tab]));
 $('#bulk-triage-btn').addEventListener('click', () => bulkPost(TRIAGE));
 
-let searchTimer;
-$('#search').addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { filters.q = e.target.value; shown = PAGE; render(); }, 120);
-});
+const bindText = (id, key) =>
+  $(id).addEventListener('input', (e) => {
+    clearTimeout(pendingText.get(key)?.timer);
+    const { value } = e.target;
+    pendingText.set(key, { value, timer: setTimeout(() => { flushText(); shown = PAGE; render(); }, 120) });
+  });
+bindText('#search', 'q');
+bindText('#filter-user', 'user');
 $('#facet-search').addEventListener('input', (e) => { facetQuery = e.target.value; renderFacets(); });
 
 const bind = (id, key, parse = (v) => v) =>
@@ -1683,6 +1634,7 @@ bind('#assignee-filter', 'assignee');
 bind('#waiting', 'waiting');
 bind('#idle', 'idleDays', Number);
 bind('#verdict', 'verdict');
+bind('#filter-user-role', 'userRole');
 bind('#hide-unsupported-sdks', 'hideUnsupportedSdks');
 $('#sdk-list').addEventListener('change', (e) => {
   if (e.target.checked) unsupportedSdks.delete(e.target.value);
@@ -1716,6 +1668,7 @@ document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
   if (e.key === '/' && !typing) {
     e.preventDefault();
+    if (!filters.filtersOpen) { filters.filtersOpen = true; render(); }
     $('#search').focus();
   }
   if (e.key === 'g' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey && !document.querySelector('dialog[open]')) {
@@ -1750,7 +1703,7 @@ $('#quick-open-dialog form').addEventListener('submit', (e) => {
   window.open(item.url, '_blank', 'noopener');
 });
 $('#quick-open-cancel').addEventListener('click', () => $('#quick-open-dialog').close());
-window.addEventListener('hashchange', () => { filters = readHash(); render(); });
+window.addEventListener('hashchange', () => { flushText(); filters = readHash(); render(); });
 darkMode.addEventListener('change', render);
 
 const STATIC_TIPS = {

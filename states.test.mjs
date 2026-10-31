@@ -321,8 +321,28 @@ test('C1: not when the issue is the team\'s own to-do', () => {
   assert.ok(!filters(issue({ conversation: { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) } })).includes('C1'));
 });
 
-test('C1: issues only', () => {
-  assert.ok(!filters(pr(waiting('team', 7))).includes('C1'));
+test('C1: a PR whose author replied 8 days ago', () => {
+  assert.ok(filters(pr(authorReplied(8))).includes('C1'));
+});
+
+test('C1: a PR with a community reply 8 days ago', () => {
+  const conversation = { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'community', at: daysAgo(8) }, since: daysAgo(8) };
+  assert.ok(filters(pr({ conversation })).includes('C1'));
+});
+
+test('C1: not on a draft PR', () => {
+  assert.ok(!filters(pr({ ...authorReplied(8), isDraft: true })).includes('C1'));
+});
+
+test('C1: not on a closed or merged PR', () => {
+  assert.ok(!filters(pr({ ...authorReplied(8), state: 'CLOSED' })).includes('C1'));
+  assert.ok(!filters(pr({ ...authorReplied(8), state: 'MERGED' })).includes('C1'));
+});
+
+test('C1: not on a PR after a team review that requested changes', () => {
+  const review = { author: { login: 'me' }, authorAssociation: 'MEMBER', createdAt: daysAgo(8), url: 'https://x/pr', body: '(review: CHANGES_REQUESTED)', review: 'CHANGES_REQUESTED' };
+  const { conversation } = analyzeComments([review], { authorLogin: 'contributor', authorAssociation: 'NONE', createdAt: daysAgo(20) });
+  assert.ok(!filters(pr({ conversation })).includes('C1'));
 });
 
 test('C2: reporter silent 14 days', () => {

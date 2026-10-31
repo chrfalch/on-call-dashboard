@@ -152,7 +152,8 @@ const closeable = (item, { me }) =>
 const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
-    return item.type === 'issue' && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now);
+    const applies = item.type === 'issue' || (item.type === 'pr' && isOpen(item) && !item.isDraft);
+    return applies && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now);
   },
   C2: (item, ctx) => {
     const conv = conversationOf(item);

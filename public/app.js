@@ -8,6 +8,7 @@ import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
 import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
+import { parseCommand } from './bot-command.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
 import { activeFilterChips, activeFilterCount, matchesFilters, matchesQuery, normalizeFilters, PANEL_DEFAULTS, severityMismatch } from './filters.js';
 
@@ -1079,8 +1080,9 @@ function renderInbox() {
     inboxVisible.length > inboxShown ? `<button class="btn btn-sm" id="inbox-more-btn">Show 25 more (${inboxVisible.length - inboxShown} remaining)</button>` : '';
 }
 
-const taskAction = (t) => filters.cleanup ? cleanupAction(t.item, filters.cleanup) : stateAction(t.item, t.stateId, { now: Date.now() });
-const taskCommand = (action) => ({ ...action, command: action.body.match(/@expo-bot\s+(\S+)/)?.[1] });
+const taskAction = (t) =>
+  filters.cleanup ? cleanupAction(t.item, filters.cleanup, { now: Date.now() }) : stateAction(t.item, t.stateId, { now: Date.now() });
+const taskCommand = (action) => ({ ...action, command: parseCommand(action.body)?.command });
 
 function taskActionButton(t) {
   const action = taskAction(t);
@@ -1155,9 +1157,14 @@ async function doTask(t, action, closeTemplate) {
   if (!t || !action || busy.has(t.item.number)) return;
   if (action.kind === 'command') {
     if (!requireToken()) return;
-    const command = taskCommand(action);
-    await postCommand([t.item.number], command);
-    if (isPosted(t.item.number, command)) markDone(t);
+    const post = async (body) => {
+      const command = taskCommand({ ...action, body });
+      if (!command.command) return postComment(t.item, body);
+      await postCommand([t.item.number], command);
+      if (isPosted(t.item.number, command)) markDone(t);
+    };
+    if (action.edit) openCommentDialog(t.item, action.body, post);
+    else await post(action.body);
   } else if (action.kind === 'apply-severity') {
     await applySeverity(t.item);
     if (!severityMismatch(t.item)) markDone(t);
@@ -1345,11 +1352,11 @@ function applyRec(t) {
   } else if (plan.kind === 'github') window.open(plan.url, '_blank', 'noopener');
 }
 
-let commentItem = null;
+let sendComment = null;
 
-function openCommentDialog(item, body) {
+function openCommentDialog(item, body, send = (text) => postComment(item, text)) {
   if (!requireToken()) return;
-  commentItem = item;
+  sendComment = send;
   $('#comment-title').textContent = `Comment on #${item.number}`;
   $('#comment-body').value = body;
   // Escape closes without a button, which would keep the previous returnValue.
@@ -1358,7 +1365,8 @@ function openCommentDialog(item, body) {
 }
 
 $('#comment-dialog').addEventListener('close', () => {
-  if ($('#comment-dialog').returnValue === 'send') postComment(commentItem, $('#comment-body').value.trim());
+  const body = $('#comment-body').value.trim();
+  if ($('#comment-dialog').returnValue === 'send' && body) sendComment(body);
 });
 
 async function postComment(item, body) {

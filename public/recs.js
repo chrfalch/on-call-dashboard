@@ -2,6 +2,7 @@
 // recommendation does. Rec text is untrusted model output, so a plan only ever takes the
 // draft from it; command bodies, close reasons and URLs come from ACTIONS and the item.
 import { ACTIONS } from './actions.js';
+import { parseCommand } from './bot-command.js';
 
 // 32-bit FNV-1a of the UTF-8 bytes. The server stores and queues recs by key, so the key
 // must change with the prompt; this only needs to tell prompts apart, not resist forgery.
@@ -64,7 +65,7 @@ export function recDisagrees(rowAction, rec, item) {
   if (!action || !rowAction) return null;
   const plan = applyPlan(rec, item);
   const disagrees =
-    rowAction.kind === 'command' ? plan.kind === 'close' || (plan.kind === 'command' && plan.body !== rowAction.body)
+    rowAction.kind === 'command' ? plan.kind === 'close' || (plan.kind === 'command' && parseCommand(plan.body)?.command !== parseCommand(rowAction.body)?.command)
     : Object.hasOwn(STEP_OF, rowAction.kind) && plan.kind !== STEP_OF[rowAction.kind];
   return disagrees ? { task: rowAction.label, agent: action.label } : null;
 }

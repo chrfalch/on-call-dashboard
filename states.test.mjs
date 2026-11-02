@@ -985,6 +985,36 @@ test('cleanupAction: C10 re-posts the review when that is what the bot owes', ()
   assert.equal(cleanupAction(pr({ bot }), 'C10').body, '@expo-bot review');
 });
 
+test('cleanupAction: C10 re-posts the full request text in an editable draft', () => {
+  const lastCommand = { ...command('change', daysAgo(2)), text: '@expo-bot change rename the prop to foo' };
+  const bot = { lastCommand, botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false };
+  assert.deepEqual(cleanupAction(issue({ bot }), 'C10', { now: NOW }), { kind: 'command', label: 'Ask bot again', body: '@expo-bot change rename the prop to foo', edit: true });
+});
+
+test('cleanupAction: C10 re-posts the overdue review, not a newer command that is under a day old', () => {
+  const lastReview = { ...command('review', daysAgo(3)), text: '@expo-bot review focus on iOS' };
+  const bot = { lastCommand: command('rebase', hoursAgo(2)), botRepliedAfterCommand: false, lastReview, botRepliedAfterReview: false };
+  assert.equal(cleanupAction(pr({ bot }), 'C10', { now: NOW }).body, '@expo-bot review focus on iOS');
+});
+
+test('cleanupAction: C10 re-posts the newer of two overdue requests', () => {
+  const lastReview = { ...command('review', daysAgo(5)), text: '@expo-bot review' };
+  const lastCommand = { ...command('verify', daysAgo(2)), text: '/verify on Android' };
+  const bot = { lastCommand, botRepliedAfterCommand: false, lastReview, botRepliedAfterReview: false };
+  assert.equal(cleanupAction(pr({ bot }), 'C10', { now: NOW }).body, '/verify on Android');
+});
+
+test('cleanupAction: C10 opens the item when no request is a day old', () => {
+  const bot = { lastCommand: command('verify', hoursAgo(5)), botRepliedAfterCommand: false, lastReview: command('review', hoursAgo(20)), botRepliedAfterReview: false };
+  assert.equal(cleanupAction(pr({ bot }), 'C10', { now: NOW }).kind, 'open');
+});
+
+test('cleanupAction: C10 without the request text falls back to the command word', () => {
+  const review = { lastCommand: command('review', daysAgo(2)), botRepliedAfterCommand: true, lastReview: command('review', daysAgo(2)), botRepliedAfterReview: false };
+  assert.equal(cleanupAction(pr({ bot: review }), 'C10', { now: NOW }).body, '@expo-bot review');
+  assert.equal(cleanupAction(issue(botAsked('change', daysAgo(2))), 'C10', { now: NOW }).body, '@expo-bot change');
+});
+
 test('cleanupAction: C11 asks the author to link an issue', () => {
   assert.deepEqual(cleanupAction(pr(), 'C11'), { kind: 'comment', label: 'Ask for an issue', body: ASK_FOR_ISSUE });
 });

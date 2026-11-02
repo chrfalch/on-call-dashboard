@@ -4,19 +4,12 @@
 
 import { asksForMoreInfo } from './public/inbox.js';
 import { isBot, isTeam } from './public/people.js';
+import { parseCommand } from './public/bot-command.js';
 
 export { BOT_LOGINS, isBot, isTeam } from './public/people.js';
 
-const COMMAND_RE = /@expo-bot\s+\/?([a-z-]+)/i;
-const SLASH_COMMAND_RE = /^\s*\/([a-z-]+)(?![\w/])/i;
-const COMMAND_ALIASES = { check: 'verify' };
-
-// expo-bot obeys only the team, and a reporter's comment can start with a path such as "/Users/…".
-function teamCommand(c) {
-  if (!isTeam(c.authorAssociation)) return null;
-  const name = (c.body.match(COMMAND_RE) ?? c.body.match(SLASH_COMMAND_RE))?.[1].toLowerCase();
-  return name ? COMMAND_ALIASES[name] ?? name : null;
-}
+// expo-bot obeys only the team.
+const teamCommand = (c) => (isTeam(c.authorAssociation) ? parseCommand(c.body) : null);
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -138,10 +131,10 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       }
       continue;
     }
-    const command = teamCommand(c);
-    if (command) {
-      lastCommand = { command, by: login, at: c.createdAt };
-      if (command === 'review') lastReview = lastCommand;
+    const request = teamCommand(c);
+    if (request) {
+      lastCommand = { command: request.command, by: login, at: c.createdAt, text: request.text };
+      if (request.command === 'review') lastReview = lastCommand;
       // A command is an action, not a reply to the reporter, even with a note attached.
       continue;
     }

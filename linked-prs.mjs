@@ -6,6 +6,15 @@ import { isBot, isTeam } from './triage.mjs';
 
 const prFacts = ({ number, title, state, mergedAt, baseRefName }) => ({ number, title, state, mergedAt, baseRefName });
 
+// Ten comments keep the issue query small; a team comment on any linked PR answers the issue (cleanup C1).
+export const PR_COMMENTS = 'comments(last: 10) { nodes { createdAt authorAssociation author { login } } }';
+
+// `comments` are nodes of PR_COMMENTS.
+export const lastTeamCommentAt = (comments) =>
+  comments.filter((c) => isTeam(c.authorAssociation) && !isBot(c.author?.login)).map((c) => c.createdAt).sort().at(-1) ?? null;
+
+const fromCached = ({ login, association, at }) => ({ author: { login }, authorAssociation: association, createdAt: at });
+
 // `node` is an issue with `timelineItems` of those two event types; `repo` is "owner/name".
 // GitHub compares owner and name without case, so this does too.
 export function linkedPrs(node, repo) {
@@ -17,7 +26,7 @@ export function linkedPrs(node, repo) {
     const fix = !!event.subject || event.willCloseTarget === true;
     const seen = byNumber.get(pr.number);
     if (seen) seen.fix ||= fix;
-    else byNumber.set(pr.number, { ...prFacts(pr), fix });
+    else byNumber.set(pr.number, { ...prFacts(pr), fix, lastTeamCommentAt: lastTeamCommentAt(pr.comments.nodes) });
   }
   return [...byNumber.values()];
 }
@@ -78,7 +87,9 @@ export function commentRefs(comments, { repo, number }) {
 function known(number, items, resolved) {
   const item = items.get(number);
   if (!item) return resolved.get(number);
-  return item.type === 'pr' ? { number, title: item.title, state: item.state ?? 'OPEN', mergedAt: item.mergedAt ?? null, baseRefName: item.baseRefName } : null;
+  if (item.type !== 'pr') return null;
+  const comments = item.comments.filter((c) => !c.review).map(fromCached);
+  return { number, title: item.title, state: item.state ?? 'OPEN', mergedAt: item.mergedAt ?? null, baseRefName: item.baseRefName, lastTeamCommentAt: lastTeamCommentAt(comments) };
 }
 
 export function refsToResolve(issues, items, resolved) {
@@ -92,7 +103,7 @@ export function refsToResolve(issues, items, resolved) {
 export const refsQuery = (numbers) => `
 query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
-${numbers.map((n) => `    n${n}: issueOrPullRequest(number: ${n}) { __typename ... on PullRequest { number title state mergedAt baseRefName } }`).join('\n')}
+${numbers.map((n) => `    n${n}: issueOrPullRequest(number: ${n}) { __typename ... on PullRequest { number title state mergedAt baseRefName ${PR_COMMENTS} } }`).join('\n')}
   }
 }`;
 
@@ -101,7 +112,7 @@ export const readRefs = (repository) =>
   new Map(
     Object.entries(repository)
       .filter(([, node]) => node)
-      .map(([alias, node]) => [Number(alias.slice(1)), node.__typename === 'PullRequest' ? prFacts(node) : null])
+      .map(([alias, node]) => [Number(alias.slice(1)), node.__typename === 'PullRequest' ? { ...prFacts(node), lastTeamCommentAt: lastTeamCommentAt(node.comments.nodes) } : null])
   );
 
 // Issues and merged PRs never change, so they need no second lookup. A closed PR can reopen.

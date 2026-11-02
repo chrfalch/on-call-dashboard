@@ -78,6 +78,13 @@ test('on-call: bot review done and no reviewer requested -> ready for human revi
   assert.equal(one(pr({ ...reviewed, checks: 'FAILURE' })), undefined);
 });
 
+test('PR tasks count the sticky expo-bot review as done, though nobody asked for it', () => {
+  const unasked = { bot: { lastCommand: null, botRepliedAfterCommand: false, lastReview: null, botRepliedAfterReview: false, reviewDone: true } };
+  assert.equal(one(pr(unasked)).kind, 'human-review');
+  const askedAgain = { bot: { lastCommand: reviewCmd, botRepliedAfterCommand: false, lastReview: reviewCmd, botRepliedAfterReview: false, reviewDone: false } };
+  assert.equal(one(pr(askedAgain)), undefined);
+});
+
 test('PR tasks follow the last review command, not the newest command', () => {
   const verified = { bot: { lastCommand: { command: 'verify', at: daysAgo(1) }, botRepliedAfterCommand: true, lastReview: null, botRepliedAfterReview: false } };
   assert.equal(one(pr(verified)).kind, 'bot-review');

@@ -27,7 +27,12 @@ dependencies, no build step.
   user), and `ciApprovalRunIds`, the REST ids of
   the GitHub Actions runs on the last commit that wait for a maintainer to
   approve them (check suites with conclusion `ACTION_REQUIRED`;
-  `statusCheckRollup` still says SUCCESS for these).
+  `statusCheckRollup` still says SUCCESS for these). An issue keeps
+  `linkedPrs`, its linked PRs; each one has `lastTeamCommentAt`, the newest
+  team comment that is not a bot's, or null. The timeline and the lookup of
+  PRs named in comments read the PR's last 10 comments (`PR_COMMENTS`); a PR
+  already in the cache uses its cached comments, without reviews. Merged PRs
+  named in comments are looked up once, so their time does not update.
   After each sync it fetches the issues and PRs created or closed in the last
   9 days (raw timestamps for the trend tiles) into
   `.cache/trends-<owner>-<name>.json`. Recommendations run
@@ -61,7 +66,10 @@ dependencies, no build step.
   a `<!-- expo-triage:complete:v1 -->` comment; any other command any expo-bot
   comment, at its edit-aware time. Unmarked answers such as "🔍 `/verify`
   started" answer only those other commands. `commandAnswer` is that answer to
-  the last command, `{at, outcome}` with its sandbox outcome, or null. The
+  the last command, `{at, outcome}` with its sandbox outcome, or null.
+  `bot.reviewDone` is true when the sticky review comment exists and no
+  review command is newer: expo-bot also reviews unasked. A verify or triage
+  answer is never a review. The
   same edit-aware time dates a sandbox verdict (`verification.at`, the C3
   clock), and the verdict with the newest such time wins. "@expo-bot <word>"
   and "/<word>" are commands only from the team (`check` counts as `verify`);
@@ -90,9 +98,9 @@ dependencies, no build step.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the
   GraphQL timeline mapping, the PR numbers that team comments name and the
   helpers that look them up and merge them in, and the state update when a PR
-  closes or merges. `withFixedIssues` recomputes `fixedIssues`, the reverse link
-  from a PR to the cached issues it fixes, shown on PR rows. Tested by
-  `linked-prs.test.mjs`.
+  closes or merges, which keeps `lastTeamCommentAt`. `withFixedIssues`
+  recomputes `fixedIssues`, the reverse link from a PR to the cached issues it
+  fixes, shown on PR rows. Tested by `linked-prs.test.mjs`.
 - `public/inbox.js` — pure task ranking for the Inbox tab (`computeTasks`,
   `isHidden`, `listedTasks`). Items with only unsupported SDK labels get one
   `unsupported-sdk` close task, listed only under its chip. Items without a
@@ -122,7 +130,14 @@ dependencies, no build step.
   viewer, issues with an open fix PR, and draft or internal PRs.
   The "needs more info" label (any case) turns C1 off and C2 on, 14 days
   after `conversation.since`, except on items the team opened and after the
-  reporter answered.
+  reporter answered. C1 skips an issue with an open fix PR, and an issue with
+  a team comment on any linked PR (`lastTeamCommentAt`) newer than
+  `conversation.since`; the issue's state does not change.
+  I7 "Waiting for PR" also covers an assigned issue with no verdict; I5 and
+  I4 come first, and it wins over I3, I2 and I1. I7 is not an on-call state,
+  so such an issue leaves the On-call inbox, also with "Include
+  already-assigned items", unless a cleanup chip keeps it, and its row has no
+  bot button.
   C8 "Owner silent" matches I7 issues with no open fix PR and no owner
   activity for 7 days, and open P7 PRs at least 7 days old with at least one
   assignee or requested reviewer login and no comment or review from those
@@ -130,6 +145,8 @@ dependencies, no build step.
   C10's button re-sends the full text of the newest bot request unanswered
   for a day, in an editable dialog; text without a command posts as a plain
   comment.
+  The expo-bot review is done when the bot answered the last review command,
+  or with `bot.reviewDone`; without either, P2 asks for it.
   P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
   expo-bot review is done, never for a `github-actions` author; its button
   approves each run in the browser after a confirm. P11 wins over approved,

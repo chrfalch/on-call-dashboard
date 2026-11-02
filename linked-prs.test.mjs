@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
+import { commentRefs, lastingRefs, lastTeamCommentAt, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
 
 const REPO = 'expo/expo';
 const prNode = (number, over = {}) => ({
@@ -11,10 +11,11 @@ const prNode = (number, over = {}) => ({
   mergedAt: '2026-10-20T00:00:00Z',
   baseRefName: 'main',
   repository: { nameWithOwner: REPO },
+  comments: { nodes: [] },
   ...over,
 });
 const timeline = (...nodes) => ({ timelineItems: { nodes } });
-const entry = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', fix: false, ...over });
+const entry = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', fix: false, lastTeamCommentAt: null, ...over });
 
 test('linkedPrs takes PRs from cross-references and connected events', () => {
   const node = timeline({ source: prNode(1) }, { subject: prNode(2, { state: 'OPEN', mergedAt: null, baseRefName: 'stack/feature' }) });
@@ -66,6 +67,33 @@ test('linkedPrs marks a PR as a fix when any of its events does, in either order
   for (const events of [[mention, closing], [closing, mention], [mention, { subject: prNode(1) }], [{ subject: prNode(1) }, mention]]) {
     assert.deepEqual(linkedPrs(timeline(...events), REPO), [entry(1, { fix: true })]);
   }
+});
+
+const prComment = (login, authorAssociation, createdAt) => ({ author: login && { login }, authorAssociation, createdAt });
+
+test('linkedPrs keeps the time of the newest team comment on each PR, not a bot, outside or deleted author', () => {
+  const comments = [
+    prComment('teammate', 'MEMBER', '2026-10-01T00:00:00Z'),
+    prComment('owner', 'OWNER', '2026-10-05T00:00:00Z'),
+    prComment('helper', 'COLLABORATOR', '2026-10-03T00:00:00Z'),
+    prComment('expo-bot', 'MEMBER', '2026-10-07T00:00:00Z'),
+    prComment('reporter', 'NONE', '2026-10-08T00:00:00Z'),
+    prComment('contributor', 'CONTRIBUTOR', '2026-10-09T00:00:00Z'),
+    prComment(null, 'MEMBER', '2026-10-10T00:00:00Z'),
+  ];
+  const node = timeline({ source: prNode(1, { comments: { nodes: comments } }) }, { source: prNode(2, { comments: { nodes: comments.slice(3) } }) });
+  assert.deepEqual(linkedPrs(node, REPO), [entry(1, { lastTeamCommentAt: '2026-10-05T00:00:00Z' }), entry(2)]);
+});
+
+test('lastTeamCommentAt reads GitHub comment nodes, null without a team comment', () => {
+  assert.equal(lastTeamCommentAt([prComment('teammate', 'MEMBER', '2026-10-01T00:00:00Z'), prComment('reporter', 'NONE', '2026-10-02T00:00:00Z')]), '2026-10-01T00:00:00Z');
+  assert.equal(lastTeamCommentAt([]), null);
+});
+
+test('updateLinkedPrs keeps the last team comment time when the PR closes', () => {
+  const items = new Map([[10, { number: 10, type: 'issue', linkedPrs: [entry(1, { state: 'OPEN', mergedAt: null, lastTeamCommentAt: '2026-10-05T00:00:00Z' })] }]]);
+  const out = updateLinkedPrs(items, { number: 1, state: 'CLOSED', mergedAt: null });
+  assert.deepEqual(out.get(10).linkedPrs, [entry(1, { state: 'CLOSED', mergedAt: null, lastTeamCommentAt: '2026-10-05T00:00:00Z' })]);
 });
 
 test('updateLinkedPrs copies a PR state onto every issue that links it', () => {
@@ -154,8 +182,8 @@ test('commentRefs keeps the first comment that names each number, in order of me
   assert.deepEqual(refs(comments), [{ number: 2, by: by() }, { number: 1, by: by() }, { number: 3, by: by('later', 'OWNER') }]);
 });
 
-const facts = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', ...over });
-const openPr = { number: 100, type: 'pr', title: 'PR 100', baseRefName: 'feature' };
+const facts = (number, over = {}) => ({ number, title: `PR ${number}`, state: 'MERGED', mergedAt: '2026-10-20T00:00:00Z', baseRefName: 'main', lastTeamCommentAt: null, ...over });
+const openPr = { number: 100, type: 'pr', title: 'PR 100', baseRefName: 'feature', comments: [] };
 const openIssue = { number: 101, type: 'issue', linkedPrs: [] };
 const ref = (number, login) => ({ number, by: by(login) });
 
@@ -168,10 +196,11 @@ test('refsToResolve lists numbers that are neither open items nor resolved, once
 
 test('refsQuery asks for each number under an alias that readRefs reads back', () => {
   const query = refsQuery([49351, 7]);
-  assert.match(query, /n49351: issueOrPullRequest\(number: 49351\) \{ __typename \.\.\. on PullRequest \{ number title state mergedAt baseRefName \} \}/);
+  assert.match(query, /n49351: issueOrPullRequest\(number: 49351\) \{ __typename \.\.\. on PullRequest \{ number title state mergedAt baseRefName comments\(last: 10\) \{ nodes \{ createdAt authorAssociation author \{ login \} \} \} \} \}/);
   assert.match(query, /n7: issueOrPullRequest\(number: 7\)/);
-  const repository = { n49351: { __typename: 'PullRequest', ...facts(49351) }, n7: { __typename: 'Issue' }, n9: null };
-  assert.deepEqual(readRefs(repository), new Map([[49351, facts(49351)], [7, null]]));
+  const comments = { nodes: [prComment('teammate', 'MEMBER', '2026-10-21T00:00:00Z'), prComment('expo-bot', 'MEMBER', '2026-10-22T00:00:00Z')] };
+  const repository = { n49351: { __typename: 'PullRequest', ...facts(49351), comments }, n7: { __typename: 'Issue' }, n9: null };
+  assert.deepEqual(readRefs(repository), new Map([[49351, facts(49351, { lastTeamCommentAt: '2026-10-21T00:00:00Z' })], [7, null]]));
 });
 
 test('lastingRefs keeps issues and merged PRs, but not open or closed PRs, which can reopen', () => {
@@ -191,7 +220,19 @@ test('withCommentLinks takes open PRs from the items, drops issues and unknown n
   const items = new Map([[100, openPr], [101, openIssue]]);
   const resolved = new Map([[10, facts(10)], [100, facts(100, { state: 'CLOSED', mergedAt: null })], [103, null]]);
   const issue = { number: 1, type: 'issue', linkedPrs: [entry(10)], commentRefs: [ref(10), ref(100, 'a'), ref(101), ref(103), ref(999)] };
-  assert.deepEqual(withCommentLinks(issue, items, resolved).linkedPrs, [entry(10, { fix: true }), { number: 100, title: 'PR 100', state: 'OPEN', mergedAt: null, baseRefName: 'feature', via: 'comment', by: by('a'), fix: true }]);
+  assert.deepEqual(withCommentLinks(issue, items, resolved).linkedPrs, [entry(10, { fix: true }), { number: 100, title: 'PR 100', state: 'OPEN', mergedAt: null, baseRefName: 'feature', lastTeamCommentAt: null, via: 'comment', by: by('a'), fix: true }]);
+});
+
+test('withCommentLinks carries the last team comment time of a cached PR, from its comments without reviews or bots', () => {
+  const comments = [
+    { login: 'teammate', association: 'MEMBER', at: '2026-10-21T00:00:00Z' },
+    { login: 'reviewer', association: 'MEMBER', at: '2026-10-23T00:00:00Z', review: 'APPROVED' },
+    { login: 'expo-bot', association: 'MEMBER', at: '2026-10-24T00:00:00Z' },
+    { login: 'author', association: 'CONTRIBUTOR', at: '2026-10-25T00:00:00Z' },
+  ];
+  const issue = { number: 22124, type: 'issue', linkedPrs: [], commentRefs: [ref(100)] };
+  const [link] = withCommentLinks(issue, new Map([[100, { ...openPr, comments }]]), new Map()).linkedPrs;
+  assert.equal(link.lastTeamCommentAt, '2026-10-21T00:00:00Z');
 });
 
 test('withCommentLinks replaces the comment links it added before', () => {
@@ -234,6 +275,11 @@ test('mergeCommentLinks lets the timeline win, but a team comment link makes it 
   const cached = [entry(1, { via: 'comment', by: by(), fix: true }), entry(2, { via: 'comment', by: by('expo-bot', 'MEMBER') })];
   assert.deepEqual(mergeCommentLinks([entry(1), entry(2)], cached), [entry(1, { fix: true }), entry(2)]);
   assert.deepEqual(mergeCommentLinks([entry(1, { fix: true })], [entry(1, { via: 'comment', by: by('expo-bot', 'MEMBER') })]), [entry(1, { fix: true })]);
+});
+
+test('mergeCommentLinks keeps the fresh timeline time of the last team comment', () => {
+  const cached = [entry(1, { via: 'comment', by: by(), fix: true, lastTeamCommentAt: '2026-10-01T00:00:00Z' })];
+  assert.deepEqual(mergeCommentLinks([entry(1, { lastTeamCommentAt: '2026-10-05T00:00:00Z' })], cached), [entry(1, { fix: true, lastTeamCommentAt: '2026-10-05T00:00:00Z' })]);
 });
 
 test('updateLinkedPrs keeps whether a PR is a fix', () => {

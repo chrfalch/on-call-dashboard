@@ -166,6 +166,28 @@ test('a verify answer does not answer a review; an edit of the sticky review com
   assert.deepEqual(edited.bot.commandAnswer, { at: '2026-01-02T02:00:00Z', outcome: null });
 });
 
+test('the sticky review comment is a done review, though nobody asked for one', () => {
+  const sticky = c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', REVIEW_ANSWER);
+  const { bot } = analyzeComments([sticky], issue);
+  assert.equal(bot.reviewDone, true);
+  assert.equal(bot.lastReview, null);
+});
+
+test('a review command after the sticky review comment waits until the bot edits it', () => {
+  const sticky = c('expo-bot', 'NONE', '2026-01-01T00:00:00Z', REVIEW_ANSWER);
+  const review = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot review');
+  assert.equal(analyzeComments([sticky, review], issue).bot.reviewDone, false);
+  assert.equal(analyzeComments([{ ...sticky, lastEditedAt: '2026-01-02T02:00:00Z' }, review], issue).bot.reviewDone, true);
+});
+
+test('a verify or triage answer is no review', () => {
+  const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify');
+  const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);
+  const triaged = c('expo-bot', 'NONE', '2026-01-02T02:00:00Z', TRIAGE_ANSWER);
+  assert.equal(analyzeComments([verify, outcome, triaged], issue).bot.reviewDone, false);
+  assert.equal(analyzeComments([], issue).bot.reviewDone, false);
+});
+
 test('the answer to a command carries the sandbox outcome of that same comment', () => {
   const verify = c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '@expo-bot verify');
   const outcome = c('expo-bot', 'NONE', '2026-01-02T01:00:00Z', VERIFY_ANSWER);

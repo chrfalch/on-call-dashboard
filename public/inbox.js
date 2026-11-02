@@ -66,6 +66,9 @@ export const needsSeverityFix = (item) => {
   return !!severity && !hasLabel(item, severity.label);
 };
 
+// The sticky expo-bot review counts unasked; a verify or rebase answer never counts as a review.
+export const botReviewDone = ({ bot }) => !!bot?.reviewDone || !!(bot?.lastReview && bot.botRepliedAfterReview);
+
 // Why a PR with requested changes is ready for another look; empty while the author has not acted.
 export function reReviewReasons(item) {
   if (item.reviewDecision !== 'CHANGES_REQUESTED') return [];
@@ -120,13 +123,11 @@ function candidates(item, now) {
     const clean = item.mergeable === 'MERGEABLE';
     if (green && clean && item.reviewDecision === 'APPROVED') out.push({ kind: 'merge', base: 70 });
     if (green && clean && item.reviewDecision === 'REVIEW_REQUIRED' && conv.waitingOn !== 'reporter') {
-      // Only a review command counts; a later verify or rebase must not hide or fake the review.
-      if (!item.bot?.lastReview) out.push({ kind: 'bot-review', base: 50 });
-      else if (item.bot.botRepliedAfterReview) {
+      if (botReviewDone(item)) {
         out.push({ kind: 'review', base: 55, reasons: ['bot review done'] });
         // A requested reviewer owns the review; on-call only routes the rest.
         if (!(item.reviewRequests ?? []).length) out.push({ kind: 'human-review', base: 54, reasons: ['bot review done', 'no reviewer requested'] });
-      }
+      } else if (!item.bot?.lastReview) out.push({ kind: 'bot-review', base: 50 });
     }
     if (item.reviewDecision === 'APPROVED' && (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE')) {
       const reasons = [item.mergeable === 'CONFLICTING' ? 'approved but conflicting' : 'approved but checks failing'];

@@ -1,6 +1,6 @@
 // Workflow states: where each issue or PR stands (`stateOf`) and which cleanup filters it meets.
 // Pure functions only (no DOM), so it can be unit-tested with node.
-import { ASK_FOR_ISSUE, asksForMoreInfo, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
+import { ASK_FOR_ISSUE, asksForMoreInfo, botReviewDone, conversationOf, days, hasLabel, needsBotTriage, needsSeverityFix, notReproduced, PARKED, reReviewReasons } from './inbox.js';
 import { isBot } from './people.js';
 import { isUnsupportedSdk } from './sdk.js';
 import { VIEWS } from './views.js';
@@ -65,6 +65,7 @@ function issueState(item) {
   if (notReproduced(item)) return 'I5';
   const conv = conversationOf(item);
   if (conv.waitingOn === 'reporter' || labelWaitsOnReporter(item, conv)) return 'I4';
+  if (assigned(item)) return 'I7';
   if (assessment && (!verification || verification.outcome === 'blocked')) return 'I3';
   const command = item.bot?.lastCommand?.command;
   if ((command === 'triage' || command === 'verify') && !item.bot.botRepliedAfterCommand) return 'I2';
@@ -92,14 +93,15 @@ function prState(item) {
   if (item.isDraft) return 'P1';
   if (reproducedAt(item)) return 'P4';
   const { lastReview, botRepliedAfterReview } = item.bot ?? {};
-  if (lastReview && botRepliedAfterReview && (item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
+  const reviewDone = botReviewDone(item);
+  if (reviewDone && (item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
   if (item.reviewDecision === 'APPROVED') return 'P8';
   if (teamAskedAt(item)) return 'P4';
   if (reReviewReasons(item).length) return 'P5';
   if (item.reviewDecision === 'CHANGES_REQUESTED') return 'P4';
   if (lastReview && !botRepliedAfterReview) return 'P3';
   if ((item.reviewRequests ?? []).length || hasLabel(item, 'ready for human')) return 'P7';
-  if (!lastReview) return 'P2';
+  if (!reviewDone) return 'P2';
   return (item.latestReviews ?? []).length ? 'P7' : 'P6';
 }
 
@@ -153,7 +155,9 @@ const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
     const applies = item.type === 'issue' || (item.type === 'pr' && isOpen(item) && !item.isDraft);
-    return applies && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now);
+    const answeredOnPr = (item.linkedPrs ?? []).some((pr) => pr.lastTeamCommentAt > conv.since);
+    return applies && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now) &&
+      !hasFixPr(item, 'OPEN') && !answeredOnPr;
   },
   C2: (item, ctx) => {
     const conv = conversationOf(item);

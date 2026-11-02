@@ -8,6 +8,7 @@ import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dropOldClosed, KEEP_CLOSED_DAYS } from './closed-items.mjs';
 import { lastPushAt } from './commits.mjs';
+import { pages } from './paging.mjs';
 import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
 import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, PR_COMMENTS, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
@@ -62,7 +63,10 @@ const agent = {
 };
 
 // `allowNotFound`: a number that is neither an issue nor a PR fails only its own field, so keep the rest.
-async function gql(query, variables = {}, { allowNotFound = false } = {}, attempt = 0) {
+// `timeoutRetries`: a caller that can split a slow page gives up on a timeout sooner.
+const isTimeout = (status) => status === 502 || status === 504;
+
+async function gql(query, variables = {}, { allowNotFound = false, timeoutRetries = 5 } = {}, attempt = 0) {
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: { authorization: `bearer ${TOKEN}`, 'content-type': 'application/json' },
@@ -71,12 +75,12 @@ async function gql(query, variables = {}, { allowNotFound = false } = {}, attemp
   const json = await res.json().catch(() => ({}));
   const errors = allowNotFound ? json.errors?.filter((e) => e.type !== 'NOT_FOUND') : json.errors;
   if (!res.ok || errors?.length || !json.data) {
-    if (attempt < 5) {
+    if (attempt < (isTimeout(res.status) ? timeoutRetries : 5)) {
       log(`GraphQL retry ${attempt + 1} (${res.status}): ${JSON.stringify(json.errors || json.message || '').slice(0, 200)}`);
       await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
-      return gql(query, variables, { allowNotFound }, attempt + 1);
+      return gql(query, variables, { allowNotFound, timeoutRetries }, attempt + 1);
     }
-    throw new Error(`GraphQL ${res.status}: ${JSON.stringify(json.errors || json).slice(0, 500)}`);
+    throw Object.assign(new Error(`GraphQL ${res.status}: ${JSON.stringify(json.errors || json).slice(0, 500)}`), { status: res.status });
   }
   return json.data;
 }
@@ -132,9 +136,9 @@ query($cursor: String, $owner: String!, $name: String!, $first: Int!) {
 
 // Same shape as LIST_QUERY but across all states, for incremental syncs.
 const RECENT_QUERY = (kind) => `
-query($cursor: String, $owner: String!, $name: String!) {
+query($cursor: String, $owner: String!, $name: String!, $first: Int!) {
   repository(owner: $owner, name: $name) {
-    ${kind}(first: 15, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
+    ${kind}(first: $first, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
       pageInfo { hasNextPage endCursor }
       nodes { ${ITEM_FIELDS(kind)} }
     }
@@ -274,20 +278,26 @@ async function fetchAllLabels() {
   return out;
 }
 
+// PR pages are heavy (reviews, checks, comments, check suites); 30 per page took ~10 s
+// with check suites and hit GitHub's timeout (502). 15 usually fits, but a few PRs take
+// 4-5 s each, so a page that times out is split. Retry once while it can still be split.
+function listPages(kind, query, size) {
+  const fetchPage = async (cursor, first) => {
+    const d = await gql(query, { cursor, owner: OWNER, name: NAME, first }, { timeoutRetries: first > 1 ? 1 : 5 });
+    return d.repository[kind];
+  };
+  const onSplit = (first) => log(`  ${kind}: page timed out, retrying with ${first}`);
+  return pages(fetchPage, { size, isTimeout: (error) => isTimeout(error.status), onSplit });
+}
+
 async function fetchAll(kind, states = 'OPEN', updatedSince = null) {
   const out = [];
-  let cursor = null;
-  do {
-    // PR pages are heavy (reviews, checks, comments, check suites); 30 per page took ~10 s
-    // with check suites and hit GitHub's timeout (502). 15 stays well under it.
-    const d = await gql(LIST_QUERY(kind, states), { cursor, owner: OWNER, name: NAME, first: kind === 'pullRequests' ? 15 : 50 });
-    const conn = d.repository[kind];
+  for await (const conn of listPages(kind, LIST_QUERY(kind, states), kind === 'pullRequests' ? 15 : 50)) {
     const nodes = updatedSince ? conn.nodes.filter((node) => node.updatedAt >= updatedSince) : conn.nodes;
     out.push(...nodes.map(normalize));
-    const reachedCutoff = updatedSince && conn.nodes.some((node) => node.updatedAt < updatedSince);
-    cursor = !reachedCutoff && conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
     log(`  ${kind}: ${out.length}/${conn.totalCount}`);
-  } while (cursor);
+    if (updatedSince && conn.nodes.some((node) => node.updatedAt < updatedSince)) break;
+  }
   return out;
 }
 
@@ -324,10 +334,7 @@ async function incrementalSync() {
   let n = 0;
   const issues = [];
   for (const kind of ['issues', 'pullRequests']) {
-    let cursor = null;
-    while (true) {
-      const d = await gql(RECENT_QUERY(kind), { cursor, owner: OWNER, name: NAME });
-      const conn = d.repository[kind];
+    for await (const conn of listPages(kind, RECENT_QUERY(kind), 15)) {
       let reachedCutoff = false;
       for (const node of conn.nodes) {
         if (node.updatedAt < cutoff) {
@@ -344,8 +351,7 @@ async function incrementalSync() {
         if (kind === 'pullRequests' && node.state !== 'OPEN') state.items = updateLinkedPrs(state.items, node);
         state.items.set(node.number, item);
       }
-      if (reachedCutoff || !conn.pageInfo.hasNextPage) break;
-      cursor = conn.pageInfo.endCursor;
+      if (reachedCutoff) break;
     }
   }
   // After the PR pass, so PRs opened since the last sync are already in state.items.

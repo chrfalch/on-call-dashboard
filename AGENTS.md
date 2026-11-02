@@ -18,6 +18,8 @@ dependencies, no build step.
   `POST /api/refresh` (`?wait=1` answers after a sync that started after the
   request), `POST /api/recommendations`, static files from `public/`.
   Keeps closed issues and PRs for 7 days after they close.
+  Both syncs page through `paging.mjs`: a page that times out (502 or 504)
+  is retried once, then fetched again at half its size.
   Each item keeps `comments` ({login, association, at}, and `review` with the
   review state for a PR review) from the last 30 comments and the PR's latest
   reviews, and `assignedEvents` ({login, at}, the last 10 assignments). A PR
@@ -93,6 +95,10 @@ dependencies, no build step.
   follow-up sync when one is already running. Tested by `sync-runner.test.mjs`.
 - `commits.mjs` — pure helper (`lastPushAt`): the push time of a PR's last
   commit. Tested by `commits.test.mjs`.
+- `paging.mjs` — pure async generator (`pages`) over a GraphQL connection.
+  When a page times out, it asks for the same cursor again with half as many
+  items, down to one, then goes back to the full size. Tested by
+  `paging.test.mjs`.
 - `closed-items.mjs` — pure retention helper (`dropOldClosed`): keeps closed
   items for 7 days after `closedAt`. Tested by `closed-items.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the

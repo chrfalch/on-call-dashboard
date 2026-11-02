@@ -65,7 +65,9 @@ dependencies, no build step.
   same edit-aware time dates a sandbox verdict (`verification.at`, the C3
   clock), and the verdict with the newest such time wins. "@expo-bot <word>"
   and "/<word>" are commands only from the team (`check` counts as `verify`);
-  a command is never a reply, whatever its length. `conversation.waitingOn`
+  a command is never a reply, whatever its length. `bot.lastCommand` (and
+  `bot.lastReview`) keeps `text`, the comment from the command to its end.
+  `conversation.waitingOn`
   is `internal` for items the team opened; else `reporter` with the "needs
   more info" label (any case) unless the item author wrote the last human
   comment, or when the last human comment is a team
@@ -75,6 +77,10 @@ dependencies, no build step.
   Tested by `triage.test.mjs`.
 - `public/people.js` — `isBot` and `isTeam`, which tell who wrote a comment.
   `triage.mjs` re-exports them, so the server and the browser share one copy.
+- `public/bot-command.js` — `parseCommand`, the one expo-bot command parser
+  for the server and the browser: the command word (lowercase, `check` as
+  `verify`) and the text from the command to the end, or null. Tested by
+  `bot-command.test.mjs`.
 - `sync-runner.mjs` — runs one sync at a time; `runAndWait` waits for a
   follow-up sync when one is already running. Tested by `sync-runner.test.mjs`.
 - `commits.mjs` — pure helper (`lastPushAt`): the push time of a PR's last
@@ -121,6 +127,9 @@ dependencies, no build step.
   activity for 7 days, and open P7 PRs at least 7 days old with at least one
   assignee or requested reviewer login and no comment or review from those
   owners in the last 7 days. Team review requests do not count as owners.
+  C10's button re-sends the full text of the newest bot request unanswered
+  for a day, in an editable dialog; text without a command posts as a plain
+  comment.
   P11 "CI awaits approval" is an open PR with `ciApprovalRunIds` once the
   expo-bot review is done, never for a `github-actions` author; its button
   approves each run in the browser after a confirm. P11 wins over approved,

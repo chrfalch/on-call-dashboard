@@ -77,7 +77,7 @@ test('bot comments and bare @expo-bot commands are not replies', () => {
 test('a bare slash command from the team is a command, not a reply', () => {
   const report = c('reporter1', 'NONE', '2026-01-02T00:00:00Z', 'Still broken on SDK 55');
   const r = analyzeComments([report, c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '  /verify')], issue);
-  assert.deepEqual(r.bot.lastCommand, { command: 'verify', by: 'kudo', at: '2026-01-03T00:00:00Z' });
+  assert.deepEqual(r.bot.lastCommand, { command: 'verify', by: 'kudo', at: '2026-01-03T00:00:00Z', text: '/verify' });
   assert.equal(r.conversation.waitingOn, 'team');
   assert.equal(r.conversation.teamReplied, false);
   assert.equal(r.conversation.since, '2026-01-02T00:00:00Z');
@@ -88,6 +88,18 @@ test('a slash command with a long note is still a command, not a reply', () => {
   assert.equal(r.bot.lastCommand.command, 'verify');
   assert.equal(r.conversation.waitingOn, 'team');
   assert.equal(r.conversation.teamReplied, false);
+});
+
+test('lastCommand keeps the request text from the mention to the end of the comment', () => {
+  const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', 'Thanks!\n@expo-bot change rename the prop to foo\n')], issue);
+  assert.equal(r.bot.lastCommand.command, 'change');
+  assert.equal(r.bot.lastCommand.text, '@expo-bot change rename the prop to foo');
+});
+
+test('lastCommand keeps the text of a slash command and its note', () => {
+  const r = analyzeComments([c('kudo', 'MEMBER', '2026-01-02T00:00:00Z', '  /check please ')], issue);
+  assert.equal(r.bot.lastCommand.command, 'verify');
+  assert.equal(r.bot.lastCommand.text, '/check please');
 });
 
 test('a leading slash from a non-team member is a normal comment', () => {
@@ -119,7 +131,7 @@ test('lastReview tracks the newest review command, not other commands', () => {
   const rebase = c('kudo', 'MEMBER', '2026-01-03T00:00:00Z', '@expo-bot rebase');
 
   const reviewed = analyzeComments([review, reply, rebase], issue);
-  assert.deepEqual(reviewed.bot.lastReview, { command: 'review', by: 'kudo', at: '2026-01-02T00:00:00Z' });
+  assert.deepEqual(reviewed.bot.lastReview, { command: 'review', by: 'kudo', at: '2026-01-02T00:00:00Z', text: '@expo-bot review' });
   assert.equal(reviewed.bot.botRepliedAfterReview, true);
   assert.equal(reviewed.bot.lastCommand.command, 'rebase');
   assert.equal(reviewed.bot.botRepliedAfterCommand, false);

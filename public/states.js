@@ -186,17 +186,19 @@ const CLEANUP = {
 // Ids in ascending order. C6 has no rule yet, so it never matches.
 export const cleanupFilters = (item, ctx) => Object.keys(CLEANUP).filter((id) => CLEANUP[id](item, ctx));
 
-export function cleanupAction(item, id) {
+export function cleanupAction(item, id, { now = Date.now() } = {}) {
   if (id === 'C1') return { kind: 'open', label: 'Reply' };
   if (['C2', 'C3', 'C4', 'C7'].includes(id)) return { kind: 'close', label: 'Close…' };
   if (id === 'C11') return { kind: 'comment', label: 'Ask for an issue', body: ASK_FOR_ISSUE };
   if (id !== 'C10') return openAction;
   const { bot = {} } = item;
-  const command = !bot.botRepliedAfterCommand && bot.lastCommand;
-  const review = !bot.botRepliedAfterReview && bot.lastReview;
-  const latest = !command || (review?.at ?? '') > (command.at ?? '') ? review : command;
-  const body = latest === review ? '@expo-bot review' : `@expo-bot ${latest?.command}`;
-  return latest ? { kind: 'command', label: 'Ask bot again', body } : openAction;
+  const command = unanswered(bot.lastCommand, bot.botRepliedAfterCommand, now) && bot.lastCommand;
+  const review = unanswered(bot.lastReview, bot.botRepliedAfterReview, now) && bot.lastReview;
+  const latest = !command || (review && review.at > command.at) ? review : command;
+  if (!latest) return openAction;
+  // The lastCommand that app.js postCommand writes before the next sync has no `text`.
+  const body = latest.text ?? (latest === review ? '@expo-bot review' : `@expo-bot ${latest.command}`);
+  return { kind: 'command', label: 'Ask bot again', body, edit: true };
 }
 
 const assigned = (item) => (item.assignees ?? []).length > 0;

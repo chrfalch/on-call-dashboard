@@ -201,6 +201,20 @@ test('recDisagrees: a command button disagrees with a rec that posts a different
   assert.equal(recDisagrees(again, rec('request-review'), pr), null);
 });
 
+test('recDisagrees: a retry with a note agrees with a rec for the same command word', () => {
+  for (const body of ['@expo-bot review focus on iOS', '/review focus on iOS']) {
+    assert.equal(recDisagrees({ kind: 'command', label: 'Ask bot again', body, edit: true }, rec('request-review'), pr), null, body);
+  }
+  const again = { kind: 'command', label: 'Ask bot again', body: '@expo-bot change rename the prop', edit: true };
+  assert.deepEqual(recDisagrees(again, rec('request-review'), pr), { task: 'Ask bot again', agent: 'Ask bot to review' });
+});
+
+test('recDisagrees: command words match whatever their case or form', () => {
+  for (const body of ['@expo-bot Review', '@expo-bot /review', '/review please']) {
+    assert.equal(recDisagrees({ kind: 'command', label: 'Ask bot again', body, edit: true }, rec('request-review'), pr), null, body);
+  }
+});
+
 test('recDisagrees: a command button disagrees with a rec that closes', () => {
   const triage = stateAction(issue, 'I1');
   assert.deepEqual(recDisagrees(triage, rec('close'), issue), { task: triage.label, agent: 'Close' });

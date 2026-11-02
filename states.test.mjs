@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
-import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf } from './public/states.js';
+import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf, stateTone } from './public/states.js';
 import { withCommentLinks } from './linked-prs.mjs';
 import { analyzeComments } from './triage.mjs';
 
@@ -91,6 +91,27 @@ test('stateLabel: I8 is plain when the fix PR is not cached or no map is given',
   const item = issue({ linkedPrs: [linkedPr('OPEN', true)] });
   assert.equal(stateLabel(item, 'I8', new Map()), 'Fix in progress');
   assert.equal(stateLabel(item, 'I8'), 'Fix in progress');
+});
+
+test('stateLabel: P8 says ready to merge only when nothing blocks the merge', () => {
+  const approved = (fields) => pr({ reviewDecision: 'APPROVED', ...fields });
+  assert.equal(stateLabel(approved(), 'P8'), 'Ready to merge');
+  assert.equal(stateLabel(approved({ mergeable: 'CONFLICTING' }), 'P8'), 'Approved · merge conflict');
+  assert.equal(stateLabel(approved({ checks: 'FAILURE' }), 'P8'), 'Approved · checks failing');
+  assert.equal(stateLabel(approved({ mergeStateStatus: 'BLOCKED' }), 'P8'), 'Approved · blocked');
+  assert.equal(stateLabel(approved({ mergeStateStatus: 'BEHIND' }), 'P8'), 'Approved · behind');
+  assert.equal(stateLabel(approved({ mergeable: 'CONFLICTING', checks: 'FAILURE' }), 'P8'), 'Approved · merge conflict');
+});
+
+test('stateTone: P8 turns from success to attention when a blocker exists', () => {
+  assert.equal(stateTone(pr({ reviewDecision: 'APPROVED' }), 'P8'), 'success');
+  assert.equal(stateTone(pr({ reviewDecision: 'APPROVED', mergeStateStatus: 'BEHIND' }), 'P8'), 'attention');
+  assert.equal(stateTone(pr({ checks: 'FAILURE' }), 'P1'), STATES.find((s) => s.id === 'P1').tone);
+});
+
+test('stateLabel: I8 names the blocker of an approved fix PR', () => {
+  const prs = new Map([[10, pr({ number: 10, reviewDecision: 'APPROVED', checks: 'FAILURE' })]]);
+  assert.equal(stateLabel(issue({ linkedPrs: [linkedPr('OPEN', true)] }), 'I8', prs), 'Fix in progress · approved · checks failing');
 });
 
 test('stateLabel: other states are plain', () => {

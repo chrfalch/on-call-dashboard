@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
 import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf } from './public/states.js';
+import { withCommentLinks } from './linked-prs.mjs';
 import { analyzeComments } from './triage.mjs';
 
 const NOW = new Date('2026-10-26T12:00:00Z').getTime();
@@ -223,6 +224,32 @@ test('I3 is the fallback: an open issue with no state field and no other signal'
   assert.equal(state(item), 'I3');
 });
 
+test('I7: an assignee alone, with no verdict and the team to answer', () => {
+  assert.equal(state(issue({ labels: routed, assignees: assigned })), 'I7');
+});
+
+test('I7 beats I3: assigned, assessed by the bot but not verified', () => {
+  assert.equal(state(issue({ triage: { assessment, verification: null, fixPrs: [] }, assignees: assigned })), 'I7');
+});
+
+test('I7 beats I2: assigned while the bot triages', () => {
+  assert.equal(state(issue({ labels: routed, ...botAsked('triage', hoursAgo(1)), assignees: assigned })), 'I7');
+});
+
+test('I7 beats I1: assigned, though the bot never triaged it', () => {
+  const item = issue({ assignees: assigned });
+  assert.ok(needsBotTriage(item));
+  assert.equal(state(item), 'I7');
+});
+
+test('I4 beats an assignee: assigned while waiting on the reporter', () => {
+  assert.equal(state(issue({ ...waiting('reporter', 3), assignees: assigned })), 'I4');
+});
+
+test('I5 beats an assignee: assigned, and the bot could not reproduce', () => {
+  assert.equal(state(issue({ ...verified('pass', daysAgo(1), 'not reproduced.'), assignees: assigned })), 'I5');
+});
+
 test('P10: a closed, unmerged PR', () => {
   assert.equal(state(pr({ state: 'CLOSED', reviewDecision: 'APPROVED' })), 'P10');
 });
@@ -319,6 +346,35 @@ test('C1: a first response owed for 7 days', () => {
 
 test('C1: not when the issue is the team\'s own to-do', () => {
   assert.ok(!filters(issue({ conversation: { waitingOn: 'internal', teamReplied: false, since: daysAgo(30) } })).includes('C1'));
+});
+
+test('C1: not while an open fix PR is linked', () => {
+  assert.ok(!filters(issue({ ...waiting('team', 10), linkedPrs: [linkedPr('OPEN', true)] })).includes('C1'));
+});
+
+test('C1: an open PR that only mentions the issue does not hide it', () => {
+  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [linkedPr('OPEN', false)] })).includes('C1'));
+});
+
+test('C1: not after a team comment on any linked PR, newer than the issue\'s last human comment', () => {
+  const answered = issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('CLOSED', false), lastTeamCommentAt: daysAgo(3) }] });
+  assert.ok(!filters(answered).includes('C1'));
+  assert.equal(state(answered), state(issue(waiting('team', 10))), 'the state does not change');
+  assert.equal(answered.conversation.waitingOn, 'team');
+});
+
+test('C1: not after a team comment on a PR linked only because a comment names it, as #48843 on #22124', () => {
+  const named = { number: 48843, type: 'pr', title: 'Fix it', state: 'OPEN', baseRefName: 'main', comments: [{ login: 'chrfalch', association: 'MEMBER', at: daysAgo(3) }] };
+  const commentRefs = [{ number: 48843, by: { login: 'expo-bot', association: 'MEMBER' } }];
+  const item = withCommentLinks(issue({ ...waiting('team', 10), linkedPrs: [], commentRefs }), new Map([[48843, named]]), new Map());
+  assert.equal(item.linkedPrs[0].via, 'comment');
+  assert.equal(item.linkedPrs[0].lastTeamCommentAt, daysAgo(3));
+  assert.ok(!filters(item).includes('C1'));
+});
+
+test('C1: a team comment on a linked PR older than the issue\'s last human comment is no answer', () => {
+  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('MERGED', false), lastTeamCommentAt: daysAgo(12) }] })).includes('C1'));
+  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('CLOSED', false), lastTeamCommentAt: null }] })).includes('C1'));
 });
 
 test('C1: a PR whose author replied 8 days ago', () => {
@@ -488,6 +544,12 @@ test('C7: not once the author answered', () => {
 
 test('C8: accepted and assigned, owner idle 7 days', () => {
   const item = issue({ ...verified('problem'), assignees: assigned, ownerLastActivityAt: daysAgo(7) });
+  assert.equal(state(item), 'I7');
+  assert.ok(filters(item).includes('C8'));
+});
+
+test('C8: assigned with no verdict, owner idle 7 days', () => {
+  const item = issue({ labels: routed, assignees: assigned, ownerLastActivityAt: daysAgo(7) });
   assert.equal(state(item), 'I7');
   assert.ok(filters(item).includes('C8'));
 });
@@ -700,6 +762,30 @@ test('P11: CI runs wait for approval after the bot review, instead of P6', () =>
 
 test('P11: CI runs wait for approval after the bot review, instead of P7', () => {
   assert.equal(state(awaitingCi({ reviewRequests: [{ login: 'reviewer' }] })), 'P11');
+});
+
+const stickyReview = (over = {}) => ({
+  author: { login: 'expo-bot' }, authorAssociation: 'NONE', createdAt: daysAgo(2), url: 'https://x/sticky', body: '<!-- expo-ai-code-reviewer -->\n## AI code review', ...over,
+});
+const botOf = (comments) => analyzeComments(comments, { authorLogin: 'contributor', authorAssociation: 'NONE', createdAt: daysAgo(10) }).bot;
+
+test('P11: the sticky expo-bot review counts as the bot review, though nobody asked for it', () => {
+  assert.equal(state(awaitingCi({ bot: botOf([stickyReview()]) })), 'P11');
+});
+
+test('P6, not P2: the sticky expo-bot review counts without a review command', () => {
+  assert.equal(state(pr({ bot: botOf([stickyReview()]) })), 'P6');
+});
+
+test('P3: a review command after the sticky expo-bot review waits for the bot again', () => {
+  const review = { author: { login: 'kudo' }, authorAssociation: 'MEMBER', createdAt: daysAgo(1), url: 'https://x/review', body: '@expo-bot review' };
+  assert.equal(state(awaitingCi({ bot: botOf([stickyReview(), review]) })), 'P3');
+});
+
+test('P2: a verify answer is no bot review', () => {
+  const verify = { author: { login: 'kudo' }, authorAssociation: 'MEMBER', createdAt: daysAgo(2), url: 'https://x/verify', body: '@expo-bot verify' };
+  const outcome = { ...stickyReview({ createdAt: daysAgo(1) }), body: '<!-- expo-sandbox-outcome:pass -->\n**Outcome: pass**' };
+  assert.equal(state(awaitingCi({ bot: botOf([verify, outcome]) })), 'P2');
 });
 
 test('P11: not before the bot review is asked', () => {
@@ -1045,9 +1131,9 @@ test('inboxRows: open items only, in STATES order, then oldest first', () => {
 });
 
 test('inboxRows: a state chip lists only that state, closed included', () => {
-  const items = [issue({ number: 1, assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, assignees: onlyMe })];
+  const items = [issue({ number: 1, assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, ...waiting('reporter', 1), assignees: onlyMe })];
   assert.deepEqual(keys(items, { mode: 'mine', stateId: 'I10' }), ['issue#1:I10']);
-  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I1']);
+  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I4']);
 });
 
 test('inboxRows: on-call closed chips list closed items without a cleanup filter', () => {
@@ -1069,9 +1155,9 @@ test('inboxRows: on-call mode keeps on-call states and items with a cleanup filt
 });
 
 test('inboxRows: on-call mode leaves assigned items unless includeAssigned', () => {
-  const items = [issue({ number: 1, ...fresh({ assignees: assigned }) })];
+  const items = [issue({ number: 1, ...waiting('reporter', 1), assignees: assigned })];
   assert.deepEqual(keys(items), []);
-  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I1']);
+  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I4']);
 });
 
 test('inboxRows: My Work lists items assigned to me or awaiting my review, in any state', () => {
@@ -1239,11 +1325,11 @@ test('inboxCounts: a Close chip leaves out an item assigned to someone else and 
 test('inboxRows: hideUnsupported hides a guarded unsupported SDK item, which leaves the C4 chip', () => {
   const items = [
     issue({ number: 1, labels: labels('sdk-50', '✋ on hold') }),
-    issue({ number: 2, labels: labels('sdk-50'), assignees: assigned }),
+    issue({ number: 2, labels: labels('sdk-50'), ...waiting('reporter', 1), assignees: assigned }),
     issue({ number: 3 }),
   ];
   const opts = { includeAssigned: true, hideUnsupported: true };
-  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I1', 'issue#2:I1', 'issue#3:I1']);
+  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I1', 'issue#3:I1', 'issue#2:I4']);
   assert.deepEqual(keys(items, opts), ['issue#3:I1']);
   assert.deepEqual(keys(items, { ...opts, stateId: 'I1' }), ['issue#3:I1']);
   assert.deepEqual(keys(items, { ...opts, cleanupId: 'C4' }), []);

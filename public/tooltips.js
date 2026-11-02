@@ -78,7 +78,7 @@ export const STATE_TIPS = {
   I4: { meaning: 'Issue waiting for more information from the reporter.', source: REPLIES },
   I5: { meaning: 'Issue that expo-bot could not reproduce.', source: BOT_SANDBOX },
   I6: { meaning: 'Issue that expo-bot reproduced and that needs an owner.', source: `${BOT_SANDBOX} and GitHub assignees` },
-  I7: { meaning: 'Accepted or reproduced issue waiting for a fix pull request.', source: 'GitHub labels, assignees and linked pull requests' },
+  I7: { meaning: 'Accepted, reproduced or assigned issue waiting for a fix pull request.', source: 'GitHub labels, assignees and linked pull requests' },
   I8: { meaning: 'Issue with an open linked fix pull request.', source: 'GitHub linked pull requests' },
   I9: { meaning: 'Issue whose linked fix pull request has merged.', source: 'GitHub linked pull requests' },
   I10: { meaning: 'Closed issue.', source: 'GitHub issue state' },

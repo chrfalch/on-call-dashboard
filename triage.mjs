@@ -165,6 +165,8 @@ export function analyzeComments(comments, { authorLogin, authorAssociation, crea
       botRepliedAfterCommand: !!commandAnswer,
       lastReview,
       botRepliedAfterReview: !!(lastReview && lastAnswer.review?.at > lastReview.at),
+      // The bot also posts its sticky review unasked; only a newer review command makes it pending again.
+      reviewDone: !!lastAnswer.review && !(lastReview?.at >= lastAnswer.review.at),
     },
     triage: assessment || verification || fixPrs.length ? { assessment, verification, fixPrs: [...new Set(fixPrs)] } : null,
     conversation: {

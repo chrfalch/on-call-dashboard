@@ -634,7 +634,7 @@ async function postCommand(numbers, action = null) {
         ...item.bot,
         lastCommand,
         botRepliedAfterCommand: false,
-        ...(posted.command === 'review' && { lastReview: lastCommand, botRepliedAfterReview: false }),
+        ...(posted.command === 'review' && { lastReview: lastCommand, botRepliedAfterReview: false, reviewDone: false }),
       };
       return { item, action: posted };
     })
@@ -929,6 +929,7 @@ async function refresh(force = false) {
     if (command === 'review' && (!item.bot.lastReview || item.bot.lastReview.at < at)) {
       item.bot.lastReview = posted;
       item.bot.botRepliedAfterReview = false;
+      item.bot.reviewDone = false;
     }
   }
   $('#repo-link').href = `https://github.com/${d.repo}`;

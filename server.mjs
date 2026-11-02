@@ -10,7 +10,7 @@ import { dropOldClosed, KEEP_CLOSED_DAYS } from './closed-items.mjs';
 import { lastPushAt } from './commits.mjs';
 import { isOpen } from './public/states.js';
 import { analyzeComments, botReview, ownerLastActivityAt } from './triage.mjs';
-import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
+import { commentRefs, lastingRefs, linkedPrs, mergeCommentLinks, PR_COMMENTS, readRefs, refsQuery, refsToResolve, updateLinkedPrs, withCommentLinks, withFixedIssues } from './linked-prs.mjs';
 import { createSyncRunner } from './sync-runner.mjs';
 import { buildPrompt, capQueue, claudeArgs, isCurrentRecKey, ITEM_CHANGED, loadRecs, parseRecommendation, pruneFailures, pruneRecs, recKey, RECS_VERSION, recStep, requestError, respond, storedResult, validateTasks } from './recommend.mjs';
 
@@ -36,7 +36,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 21;
+const CACHE_VERSION = 22;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -106,7 +106,7 @@ const PR_FIELDS = `
     commits(last: 1) { nodes { commit { committedDate author { user { login } } statusCheckRollup { state } ${ACTIONS_SUITES} } } }
     ${ASSIGNED_EVENTS}
   }`;
-const LINKED_PR = '__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } }';
+const LINKED_PR = `__typename ... on PullRequest { number title state mergedAt baseRefName repository { nameWithOwner } ${PR_COMMENTS} }`;
 const LINKED_PRS = `timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], last: 100) {
   nodes { ... on CrossReferencedEvent { willCloseTarget source { ${LINKED_PR} } } ... on ConnectedEvent { subject { ${LINKED_PR} } } }
 }`;

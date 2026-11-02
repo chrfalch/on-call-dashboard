@@ -6,7 +6,7 @@ import { weekTrend } from './trends.js';
 import { dayKey, parseLog, addDone, doneCounts, weekDone } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
-import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, cleanupAction, inboxRows, inboxCounts } from './states.js';
+import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, stateTone, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseCommand } from './bot-command.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
@@ -1122,7 +1122,7 @@ function taskHtml(t, idx, prs) {
     <div class="task-rank">${icon}</div>
     <div class="task-body">
       <div class="task-head">
-        <span class="kind-badge tone-${esc(def.tone)}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(stateLabel(item, t.stateId, prs))}</span>
+        <span class="kind-badge tone-${esc(stateTone(item, t.stateId))}" ${tipAttr(STATE_TIPS[t.stateId])}>${icons[def.icon]}${esc(stateLabel(item, t.stateId, prs))}</span>
         <a class="row-title" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
         ${cleanup}
         ${fixLinksHtml(item)}

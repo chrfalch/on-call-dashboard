@@ -109,11 +109,26 @@ export const stateOf = (item) => (item.type === 'pr' ? prState(item) : issueStat
 
 const openFixPr = (item) => (item.linkedPrs ?? []).find((linked) => linked.state === 'OPEN' && linked.fix === true);
 const labelOf = (stateId) => STATES.find((state) => state.id === stateId).label;
+const toneOf = (stateId) => STATES.find((state) => state.id === stateId).tone;
+
+function mergeBlocker(item) {
+  if (item.mergeable === 'CONFLICTING') return 'merge conflict';
+  if (item.checks === 'FAILURE') return 'checks failing';
+  if (item.mergeStateStatus === 'BLOCKED') return 'blocked';
+  if (item.mergeStateStatus === 'BEHIND') return 'behind';
+  return null;
+}
+
+export function stateTone(item, stateId) {
+  return stateId === 'P8' && mergeBlocker(item) ? 'attention' : toneOf(stateId);
+}
 
 // `prs` maps a PR number to its cached item, so a fix in progress can show where its PR stands.
 export function stateLabel(item, stateId, prs) {
+  const blocker = stateId === 'P8' && mergeBlocker(item);
+  if (blocker) return `Approved · ${blocker}`;
   const pr = stateId === 'I8' && prs?.get(openFixPr(item)?.number);
-  return pr ? `${labelOf(stateId)} · ${labelOf(stateOf(pr)).toLowerCase()}` : labelOf(stateId);
+  return pr ? `${labelOf(stateId)} · ${stateLabel(pr, stateOf(pr)).toLowerCase()}` : labelOf(stateId);
 }
 
 const openAction = { kind: 'open', label: 'Open' };
@@ -192,9 +207,7 @@ const CLEANUP = {
     return owners.size > 0 && atLeast(item.createdAt, 7, now) &&
       !(item.comments ?? []).some((comment) => owners.has(comment.login) && days(comment.at, now) < 7);
   },
-  C9: (item) =>
-    item.reviewDecision === 'APPROVED' &&
-    (item.mergeable === 'CONFLICTING' || item.checks === 'FAILURE' || ['BLOCKED', 'BEHIND'].includes(item.mergeStateStatus)),
+  C9: (item) => item.reviewDecision === 'APPROVED' && !!mergeBlocker(item),
   C10: ({ bot }, { now }) =>
     !!bot && (unanswered(bot.lastCommand, bot.botRepliedAfterCommand, now) || unanswered(bot.lastReview, bot.botRepliedAfterReview, now)),
   C11: (item) =>

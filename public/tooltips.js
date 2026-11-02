@@ -90,7 +90,7 @@ export const STATE_TIPS = {
   P11: { meaning: 'Pull request with GitHub Actions runs that wait for a maintainer to approve them, after the expo-bot review. Never for pull requests by github-actions.', source: 'GitHub Actions check suites on the last commit and expo-bot replies' },
   P6: { meaning: 'Pull request ready for a human reviewer.', source: 'GitHub pull request reviews and expo-bot replies' },
   P7: { meaning: 'Pull request with human review activity, a requested reviewer or the "ready for human" label.', source: 'GitHub reviews, requested reviewers and labels' },
-  P8: { meaning: 'Approved pull request ready to merge.', source: 'GitHub pull request review decision' },
+  P8: { meaning: 'Approved pull request. It is ready to merge unless the badge names a blocker: a merge conflict, failing checks, or a blocked or behind branch.', source: 'GitHub pull request review decision, mergeability, checks and merge state' },
   P9: { meaning: 'Merged pull request.', source: 'GitHub pull request state' },
   P10: { meaning: 'Pull request closed without merging.', source: 'GitHub pull request state' },
 };

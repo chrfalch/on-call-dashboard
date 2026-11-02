@@ -126,7 +126,10 @@ dependencies, no build step.
   `cleanupFilters` gives the cleanup filters it meets (`CLEANUP_FILTERS`).
   `stateAction` and `cleanupAction` give the button for a row, and
   `stateLabel` its badge text; for I8 it adds the state of the open fix PR,
-  such as "Fix in progress · changes requested". `inboxRows` and
+  such as "Fix in progress · changes requested". For P8 it says "Ready to
+  merge" only when no C9 blocker exists; else it names the first blocker,
+  such as "Approved · merge conflict", and `stateTone` turns the badge from
+  success to attention. `inboxRows` and
   `inboxCounts` give the rows and chip counts for a tab.
   On-call mode keeps assigned items that are closed; open assigned items,
   cleanup chips included, show only with "Include already-assigned items",

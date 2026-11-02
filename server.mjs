@@ -67,11 +67,19 @@ const agent = {
 const isTimeout = (status) => status === 502 || status === 504;
 
 async function gql(query, variables = {}, { allowNotFound = false, timeoutRetries = 5 } = {}, attempt = 0) {
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: { authorization: `bearer ${TOKEN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  });
+  let res;
+  try {
+    // GitHub ends a query after about 10 s, so a request still open after 30 s has hung.
+    res = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: { authorization: `bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    // No HTTP answer: retry a network failure like any other failure, and a hang like a timeout.
+    res = { ok: false, status: error.name === 'TimeoutError' ? 504 : 0, json: async () => ({ message: error.message }) };
+  }
   const json = await res.json().catch(() => ({}));
   const errors = allowNotFound ? json.errors?.filter((e) => e.type !== 'NOT_FOUND') : json.errors;
   if (!res.ok || errors?.length || !json.data) {

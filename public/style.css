@@ -402,7 +402,6 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 
 /* Start here */
 .start-here { margin-top: 16px; }
-.start-here .since-title { margin-bottom: 4px; }
 .start-here-empty { margin: 0; font-size: 13px; }
 
 /* Since last time */

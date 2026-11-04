@@ -35,6 +35,7 @@ const DEFAULT_FILTERS = {
   sinceTab: 'issues',
   sinceOpen: false,
   sinceInternal: false,
+  startHereInternal: false,
 };
 
 let data = { items: [], labels: [] };
@@ -1492,10 +1493,11 @@ function saveStartHereDone(done) {
 }
 
 function renderStartHere() {
-  startHereVisible = startHereRows(data.items, { me: me?.login, skipped: sinceSkipped, done: startHereDone });
+  startHereVisible = startHereRows(data.items, { me: me?.login, skipped: sinceSkipped, done: startHereDone, includeInternal: filters.startHereInternal });
   $('#start-here').hidden = !data.items.length;
   const empty = me ? 'Nothing here yet. Issues and PRs you comment on, review or own show up here.' : 'Add your GitHub token to see the issues and PRs you comment on, review or own.';
-  $('#start-here').innerHTML = `<h2 class="since-title">Start here <span class="counter">${startHereVisible.length}</span></h2>
+  const internalToggle = `<label class="checkbox-wrap since-internal" title="Check to include items opened by members, owners and collaborators of the repository"><input type="checkbox" id="start-here-internal"${filters.startHereInternal ? ' checked' : ''} /> Include internal contributors</label>`;
+  $('#start-here').innerHTML = `<div class="since-head"><h2 class="since-title">Start here <span class="counter">${startHereVisible.length}</span></h2>${internalToggle}</div>
     ${startHereVisible.length ? `<ul class="Box since-list">${startHereVisible.map(startHereRowHtml).join('')}</ul>` : `<p class="muted start-here-empty">${empty}</p>`}`;
 }
 
@@ -1703,6 +1705,14 @@ $('#since').addEventListener('change', (e) => {
   renderSince();
   // renderSince rebuilds the header, so the new checkbox needs the focus back for keyboard users.
   $('#since-internal')?.focus();
+});
+$('#start-here').addEventListener('change', (e) => {
+  if (e.target.id !== 'start-here-internal') return;
+  filters.startHereInternal = e.target.checked;
+  writeHash();
+  renderStartHere();
+  // renderStartHere rebuilds the header, so the new checkbox needs the focus back for keyboard users.
+  $('#start-here-internal')?.focus();
 });
 $('#inbox-others').addEventListener('change', (e) => { filters.inboxOthers = e.target.checked; render(); });
 $('#inbox-hidden').addEventListener('change', (e) => { filters.inboxHidden = e.target.checked; render(); });

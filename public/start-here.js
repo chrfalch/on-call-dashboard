@@ -1,6 +1,6 @@
 // "Start here": the open issues and PRs I wrote on or own, each with one status.
 // Pure functions only (no DOM).
-import { isBot } from './people.js';
+import { isBot, isTeam } from './people.js';
 import { isOpen } from './states.js';
 import { involves, myWrites, skipKey } from './since.js';
 
@@ -36,10 +36,10 @@ function startHereRow(item, me, prs) {
 const isDone = (row, done) => Object.hasOwn(done, row.key) && (row.wroteAt === null || done[row.key] >= time(row.wroteAt));
 
 // `skipped` and `done` map skipKey to a time in ms.
-export function startHereRows(items, { me = null, skipped = {}, done = {} } = {}) {
+export function startHereRows(items, { me = null, skipped = {}, done = {}, includeInternal = false } = {}) {
   const prs = new Map(items.filter((item) => item.type === 'pr').map((pr) => [pr.number, pr]));
   return items
-    .filter((item) => isOpen(item) && involves(item, me, prs))
+    .filter((item) => isOpen(item) && (includeInternal || !isTeam(item.authorAssociation)) && involves(item, me, prs))
     .map((item) => startHereRow(item, me, prs))
     .filter((row) => !isDone(row, done) && !(skipped[row.key] >= time(row.at)))
     .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || time(b.at) - time(a.at));

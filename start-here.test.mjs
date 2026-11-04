@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDone, pruneDone, startHereRows, withDone } from './public/start-here.js';
+import { parseDone, pruneDone, startHereRows, startHereSummary, withDone } from './public/start-here.js';
 
 const NOW = new Date(2026, 9, 27, 9, 0).getTime();
 const hoursAgo = (h) => new Date(NOW - h * 36e5).toISOString();
@@ -255,4 +255,17 @@ test('event times are compared as instants', () => {
   const item = issue({ comments: [mine('2026-10-27T05:00:00Z'), comment('reporter', '2026-10-27T06:00:00.000+00:00')] });
   assert.equal(ms(only(item).at), ms('2026-10-27T06:00:00Z'));
   assert.equal(only(item).status, 'replied');
+});
+
+test('startHereSummary: counts per status in replied, assigned, waiting order', () => {
+  const rows = ['waiting', 'replied', 'waiting', 'assigned', 'replied', 'waiting', 'waiting'].map((status) => ({ status }));
+  assert.equal(startHereSummary(rows), '2 replied, 1 assigned, 4 waiting');
+});
+
+test('startHereSummary: a status with no rows is left out', () => {
+  assert.equal(startHereSummary([{ status: 'waiting' }, { status: 'replied' }]), '1 replied, 1 waiting');
+});
+
+test('startHereSummary: no rows is an empty string', () => {
+  assert.equal(startHereSummary([]), '');
 });

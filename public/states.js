@@ -17,7 +17,6 @@ export const STATES = [
   { id: 'I7', label: 'Waiting for PR', track: 'issue', oncall: false, icon: 'clock', tone: 'muted' },
   { id: 'I8', label: 'Fix in progress', track: 'issue', oncall: false, icon: 'merge', tone: 'muted' },
   { id: 'I9', label: 'Fix merged', track: 'issue', oncall: true, icon: 'merge', tone: 'success' },
-  { id: 'I10', label: 'Closed', track: 'issue', oncall: false, icon: 'check', tone: 'muted' },
   { id: 'P1', label: 'Draft', track: 'pr', oncall: false, icon: 'draft', tone: 'muted' },
   { id: 'P2', label: 'Needs bot review', track: 'pr', oncall: true, icon: 'bot', tone: 'attention' },
   { id: 'P3', label: 'Bot reviewing', track: 'pr', oncall: true, icon: 'bot', tone: 'muted' },
@@ -27,12 +26,7 @@ export const STATES = [
   { id: 'P6', label: 'Ready for human', track: 'pr', oncall: true, icon: 'eye', tone: 'attention' },
   { id: 'P7', label: 'In human review', track: 'pr', oncall: false, icon: 'eye', tone: 'muted' },
   { id: 'P8', label: 'Ready to merge', track: 'pr', oncall: false, icon: 'merge', tone: 'success' },
-  { id: 'P9', label: 'Merged', track: 'pr', oncall: false, icon: 'merge', tone: 'muted' },
-  { id: 'P10', label: 'Abandoned', track: 'pr', oncall: false, icon: 'x', tone: 'muted' },
 ];
-
-const ENDED = ['I10', 'P9', 'P10'];
-export const STATE_CHIPS = STATES.filter((state) => !ENDED.includes(state.id));
 
 export const CLEANUP_FILTERS = [
   { id: 'C1', label: 'Team owes a reply' },
@@ -57,7 +51,6 @@ const labelWaitsOnReporter = (item, conv) =>
   conv.waitingOn === 'team' && conv.lastHuman?.role !== 'reporter' && asksForMoreInfo(item.labels);
 
 function issueState(item) {
-  if (item.state === 'CLOSED') return 'I10';
   if (hasFixPr(item, 'MERGED')) return 'I9';
   if (hasFixPr(item, 'OPEN')) return 'I8';
   const { assessment, verification } = item.triage ?? {};
@@ -95,8 +88,6 @@ const approvableCi = (item) => awaitsCi(item) && item.author?.login !== 'github-
 // A red build is a cleanup signal (C9), not a workflow step. CI runs waiting for approval are a
 // workflow step (P11), reached only after the bot review, so a person reads that review before approving.
 function prState(item) {
-  if (item.state === 'CLOSED') return 'P10';
-  if (item.state === 'MERGED') return 'P9';
   if (item.isDraft) return 'P1';
   if (reproducedAt(item)) return 'P4';
   const { lastReview, botRepliedAfterReview } = item.bot ?? {};
@@ -112,7 +103,8 @@ function prState(item) {
   return (item.latestReviews ?? []).length ? 'P7' : 'P6';
 }
 
-export const stateOf = (item) => (item.type === 'pr' ? prState(item) : issueState(item));
+// A closed or merged item has no state: it shows in no list.
+export const stateOf = (item) => (!isOpen(item) ? null : item.type === 'pr' ? prState(item) : issueState(item));
 
 const openFixPr = (item) => (item.linkedPrs ?? []).find((linked) => linked.state === 'OPEN' && linked.fix === true);
 const labelOf = (stateId) => STATES.find((state) => state.id === stateId).label;
@@ -137,13 +129,14 @@ export function stateLabel(item, stateId, prs) {
   const blocker = blockedLabel && mergeBlocker(item);
   if (blocker) return `${blockedLabel} · ${blocker}`;
   const pr = stateId === 'I8' && prs?.get(openFixPr(item)?.number);
-  return pr ? `${labelOf(stateId)} · ${stateLabel(pr, stateOf(pr)).toLowerCase()}` : labelOf(stateId);
+  const prStateId = pr && stateOf(pr);
+  return prStateId ? `${labelOf(stateId)} · ${stateLabel(pr, prStateId).toLowerCase()}` : labelOf(stateId);
 }
 
 const openAction = { kind: 'open', label: 'Open' };
 
 export function stateAction(item, stateId, { now = Date.now(), me = null } = {}) {
-  if (ENDED.includes(stateId)) return null;
+  if (!isOpen(item)) return null;
   // A PR I own does not wait for the bot review that P11 waits for; a draft is not ready to run.
   if (stateId === 'P11' || (stateId !== 'P1' && approvableCi(item) && ownedBy(item, me))) {
     return { kind: 'approve-ci', label: 'Approve and run', runIds: item.ciApprovalRunIds };
@@ -194,7 +187,7 @@ const CLEANUP = {
   C1: (item, { now }) => {
     const conv = conversationOf(item);
     const applies = item.type === 'issue' || (item.type === 'pr' && isOpen(item) && !item.isDraft);
-    const answeredOnPr = (item.linkedPrs ?? []).some((pr) => pr.lastTeamCommentAt > conv.since);
+    const answeredOnPr = (item.linkedPrs ?? []).some((pr) => pr.state === 'OPEN' && pr.lastTeamCommentAt > conv.since);
     return applies && conv.waitingOn === 'team' && !labelWaitsOnReporter(item, conv) && atLeast(conv.since, 7, now) &&
       !hasFixPr(item, 'OPEN') && !answeredOnPr;
   },
@@ -249,14 +242,14 @@ export function cleanupAction(item, id, { now = Date.now() } = {}) {
 const assigned = (item) => (item.assignees ?? []).length > 0;
 export const rowKey = (item, stateId) => `${item.type}#${item.number}:${stateId}`;
 
+const openRows = (items, ctx) => items.filter(isOpen).map((item) => rowData(item, ctx));
+
 function rowData(item, ctx) {
   const stateId = stateOf(item);
   return { item, stateId, cleanup: cleanupFilters(item, ctx), key: rowKey(item, stateId) };
 }
 
 function onCall(row, includeAssigned) {
-  // Closed items show only under their own chip, so they keep assigned items.
-  if (!isOpen(row.item)) return true;
   if (!includeAssigned && assigned(row.item)) return false;
   return row.cleanup.length > 0 || !!STATE_BY_ID[row.stateId]?.oncall;
 }
@@ -278,10 +271,9 @@ export function inboxRows(
   } = {},
 ) {
   const ctx = { now, me, unsupportedSdks };
-  return items
-    .map((item) => rowData(item, ctx))
+  return openRows(items, ctx)
     .filter((row) => onCall(row, includeAssigned))
-    .filter((row) => (stateId ? row.stateId === stateId : isOpen(row.item)))
+    .filter((row) => !stateId || row.stateId === stateId)
     .filter((row) => (!cleanupId || row.cleanup.includes(cleanupId)) && (cleanupId === 'C4' || shownSdk(row, hideUnsupported, unsupportedSdks)))
     .filter((row) => visible(row, hidden))
     .sort(
@@ -296,12 +288,12 @@ export function inboxCounts(
   { now = Date.now(), me = null, includeAssigned = false, unsupportedSdks = new Set(), hideUnsupported = false, hidden } = {},
 ) {
   const ctx = { now, me, unsupportedSdks };
-  const rows = items.map((item) => rowData(item, ctx)).filter((row) => onCall(row, includeAssigned) && visible(row, hidden));
+  const rows = openRows(items, ctx).filter((row) => onCall(row, includeAssigned) && visible(row, hidden));
   const shown = rows.filter((row) => shownSdk(row, hideUnsupported, unsupportedSdks));
   return {
     states: Object.fromEntries(STATES.map(({ id }) => [id, shown.filter((row) => row.stateId === id).length])),
     cleanup: Object.fromEntries(
-      CLEANUP_FILTERS.map(({ id }) => [id, (id === 'C4' ? rows : shown).filter((row) => isOpen(row.item) && row.cleanup.includes(id)).length]),
+      CLEANUP_FILTERS.map(({ id }) => [id, (id === 'C4' ? rows : shown).filter((row) => row.cleanup.includes(id)).length]),
     ),
   };
 }

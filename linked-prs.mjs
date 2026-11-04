@@ -6,7 +6,7 @@ import { isBot, isTeam } from './triage.mjs';
 
 const prFacts = ({ number, title, state, mergedAt, baseRefName }) => ({ number, title, state, mergedAt, baseRefName });
 
-// Ten comments keep the issue query small; a team comment on any linked PR answers the issue (cleanup C1).
+// Ten comments keep the issue query small; a team comment on an open linked PR answers the issue (cleanup C1).
 export const PR_COMMENTS = 'comments(last: 10) { nodes { createdAt authorAssociation author { login } } }';
 
 // `comments` are nodes of PR_COMMENTS.

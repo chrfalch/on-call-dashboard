@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ASK_FOR_ISSUE, needsBotTriage } from './public/inbox.js';
-import { CLEANUP_FILTERS, STATE_CHIPS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf, stateTone } from './public/states.js';
+import { CLEANUP_FILTERS, STATES, cleanupAction, cleanupFilters, inboxCounts, inboxRows, isOpen, stateAction, stateLabel, stateOf, stateTone } from './public/states.js';
 import { withCommentLinks } from './linked-prs.mjs';
 import { analyzeComments } from './triage.mjs';
 
@@ -66,8 +66,8 @@ const changesRequested = (d = 2, over = {}) => pr({
 });
 const authorReplied = (d) => ({ conversation: { waitingOn: 'team', teamReplied: true, lastHuman: { role: 'reporter', at: daysAgo(d) }, lastReporterAt: daysAgo(d), since: daysAgo(d) } });
 
-test('I10: a closed issue', () => {
-  assert.equal(state(issue({ state: 'CLOSED', linkedPrs: [linkedPr('MERGED', true)] })), 'I10');
+test('a closed issue has no state', () => {
+  assert.equal(state(issue({ state: 'CLOSED', linkedPrs: [linkedPr('MERGED', true)] })), null);
 });
 
 test('I9: a merged fix PR', () => {
@@ -91,6 +91,13 @@ test('stateLabel: I8 is plain when the fix PR is not cached or no map is given',
   const item = issue({ linkedPrs: [linkedPr('OPEN', true)] });
   assert.equal(stateLabel(item, 'I8', new Map()), 'Fix in progress');
   assert.equal(stateLabel(item, 'I8'), 'Fix in progress');
+});
+
+test('stateLabel: I8 is plain when the cached fix PR has closed since the issue synced', () => {
+  const item = issue({ linkedPrs: [linkedPr('OPEN', true)] });
+  for (const prState of ['CLOSED', 'MERGED']) {
+    assert.equal(stateLabel(item, 'I8', new Map([[10, pr({ number: 10, state: prState })]])), 'Fix in progress');
+  }
 });
 
 test('stateLabel: P8 says ready to merge only when nothing blocks the merge', () => {
@@ -290,12 +297,9 @@ test('I5 beats an assignee: assigned, and the bot could not reproduce', () => {
   assert.equal(state(issue({ ...verified('pass', daysAgo(1), 'not reproduced.'), assignees: assigned })), 'I5');
 });
 
-test('P10: a closed, unmerged PR', () => {
-  assert.equal(state(pr({ state: 'CLOSED', reviewDecision: 'APPROVED' })), 'P10');
-});
-
-test('P9: a merged PR', () => {
-  assert.equal(state(pr({ state: 'MERGED', reviewDecision: 'APPROVED' })), 'P9');
+test('a closed or merged PR has no state', () => {
+  assert.equal(state(pr({ state: 'CLOSED', reviewDecision: 'APPROVED' })), null);
+  assert.equal(state(pr({ state: 'MERGED', reviewDecision: 'APPROVED' })), null);
 });
 
 test('P1: a draft', () => {
@@ -396,11 +400,17 @@ test('C1: an open PR that only mentions the issue does not hide it', () => {
   assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [linkedPr('OPEN', false)] })).includes('C1'));
 });
 
-test('C1: not after a team comment on any linked PR, newer than the issue\'s last human comment', () => {
-  const answered = issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('CLOSED', false), lastTeamCommentAt: daysAgo(3) }] });
+test('C1: not after a team comment on an open linked PR, newer than the issue\'s last human comment', () => {
+  const answered = issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('OPEN', false), lastTeamCommentAt: daysAgo(3) }] });
   assert.ok(!filters(answered).includes('C1'));
   assert.equal(state(answered), state(issue(waiting('team', 10))), 'the state does not change');
   assert.equal(answered.conversation.waitingOn, 'team');
+});
+
+test('C1: a newer team comment on a closed or merged linked PR is no answer', () => {
+  for (const prState of ['CLOSED', 'MERGED']) {
+    assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr(prState, false), lastTeamCommentAt: daysAgo(3) }] })).includes('C1'), prState);
+  }
 });
 
 test('C1: not after a team comment on a PR linked only because a comment names it, as #48843 on #22124', () => {
@@ -413,8 +423,8 @@ test('C1: not after a team comment on a PR linked only because a comment names i
 });
 
 test('C1: a team comment on a linked PR older than the issue\'s last human comment is no answer', () => {
-  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('MERGED', false), lastTeamCommentAt: daysAgo(12) }] })).includes('C1'));
-  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('CLOSED', false), lastTeamCommentAt: null }] })).includes('C1'));
+  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('OPEN', false), lastTeamCommentAt: daysAgo(12) }] })).includes('C1'));
+  assert.ok(filters(issue({ ...waiting('team', 10), linkedPrs: [{ ...linkedPr('OPEN', false), lastTeamCommentAt: null }] })).includes('C1'));
 });
 
 test('C1: a PR whose author replied 8 days ago', () => {
@@ -1046,7 +1056,6 @@ test('STATES lists the issue track, then the PR track, with labels', () => {
     ['I7', 'Waiting for PR', 'issue'],
     ['I8', 'Fix in progress', 'issue'],
     ['I9', 'Fix merged', 'issue'],
-    ['I10', 'Closed', 'issue'],
     ['P1', 'Draft', 'pr'],
     ['P2', 'Needs bot review', 'pr'],
     ['P3', 'Bot reviewing', 'pr'],
@@ -1056,17 +1065,8 @@ test('STATES lists the issue track, then the PR track, with labels', () => {
     ['P6', 'Ready for human', 'pr'],
     ['P7', 'In human review', 'pr'],
     ['P8', 'Ready to merge', 'pr'],
-    ['P9', 'Merged', 'pr'],
-    ['P10', 'Abandoned', 'pr'],
   ]);
   assert.ok(STATES.every((s) => s.icon));
-});
-
-test('STATE_CHIPS: every state except Closed, Merged and Abandoned, in order', () => {
-  const ended = ['I10', 'P9', 'P10'];
-  const ids = STATE_CHIPS.map((s) => s.id);
-  assert.deepEqual(ids, STATES.map((s) => s.id).filter((id) => !ended.includes(id)));
-  assert.ok(ended.every((id) => !ids.includes(id)));
 });
 
 test('STATES: on-call states and tones', () => {
@@ -1075,7 +1075,7 @@ test('STATES: on-call states and tones', () => {
   assert.deepEqual(ids((s) => s.tone === 'attention'), ['I1', 'I3', 'P2', 'P5', 'P11', 'P6']);
   assert.deepEqual(ids((s) => s.tone === 'danger'), ['I6']);
   assert.deepEqual(ids((s) => s.tone === 'success'), ['I5', 'I9', 'P8']);
-  assert.equal(ids((s) => s.tone === 'muted').length, 11);
+  assert.equal(ids((s) => s.tone === 'muted').length, 8);
 });
 
 test('CLEANUP_FILTERS skips C6', () => {
@@ -1147,10 +1147,7 @@ test('stateAction: P4 nudges after 7 days of requested changes', () => {
   assert.equal(action(changesRequested(6), 'P4').kind, 'open');
 });
 
-test('stateAction: nothing for I10, P9 and P10; open for the rest', () => {
-  assert.equal(action(issue({ state: 'CLOSED' }), 'I10'), null);
-  assert.equal(action(pr({ state: 'MERGED' }), 'P9'), null);
-  assert.equal(action(pr({ state: 'CLOSED' }), 'P10'), null);
+test('stateAction: open for states without their own action', () => {
   assert.equal(action(issue(), 'I2').kind, 'open');
   assert.equal(action(pr(), 'P6').kind, 'open');
 });
@@ -1239,7 +1236,7 @@ test('stateAction: a PR I do not own approves runs only in P11', () => {
 
 test('stateAction: never approves runs on my github-actions PR, nor on my ended PR', () => {
   assert.equal(action(awaitingCi({ ...noBotReview, assignees: onlyMe, author: { login: 'github-actions' } }), 'P2', 'me').kind, 'command');
-  assert.equal(action(awaitingCi({ assignees: onlyMe, state: 'MERGED' }), 'P9', 'me'), null);
+  assert.equal(action(awaitingCi({ assignees: onlyMe, state: 'MERGED' }), null, 'me'), null);
 });
 
 test('stateAction: my bot command alone does not make the PR mine', () => {
@@ -1250,8 +1247,8 @@ test('stateAction: my bot command alone does not make the PR mine', () => {
 
 test('stateAction: never approves runs on my closed, unmerged PR', () => {
   const item = awaitingCi({ assignees: onlyMe, state: 'CLOSED' });
-  assert.equal(state(item), 'P10');
-  assert.equal(action(item, 'P10', 'me'), null);
+  assert.equal(state(item), null);
+  assert.equal(action(item, null, 'me'), null);
 });
 
 test('stateAction: my draft with waiting runs keeps the draft action', () => {
@@ -1291,17 +1288,27 @@ test('inboxRows: open items only, in STATES order, then oldest first', () => {
   assert.ok(Array.isArray(first.cleanup));
 });
 
-test('inboxRows: a state chip lists only that state, closed included', () => {
-  const items = [issue({ number: 1, assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, ...waiting('reporter', 1), assignees: onlyMe })];
-  assert.deepEqual(keys(items, { includeAssigned: true, stateId: 'I10' }), ['issue#1:I10']);
+test('inboxRows: a state chip lists only that state', () => {
+  const items = [issue({ number: 1, ...waiting('reporter', 1), assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, ...waiting('reporter', 1), assignees: onlyMe })];
+  assert.deepEqual(keys(items, { includeAssigned: true, stateId: 'I4' }), ['issue#2:I4']);
   assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#2:I4']);
 });
 
-test('inboxRows: on-call closed chips list closed items without a cleanup filter', () => {
-  const items = [issue({ number: 1, ...fresh({ state: 'CLOSED' }) }), pr({ number: 2, ...fresh({ state: 'MERGED' }) })];
-  assert.deepEqual(keys(items, { stateId: 'I10' }), ['issue#1:I10']);
-  assert.deepEqual(keys(items, { stateId: 'P9' }), ['pr#2:P9']);
-  assert.equal(inboxCounts(items, rowOpts).states.I10, 1);
+test('inboxRows: a closed issue and a merged PR show in no list and no count', () => {
+  const closedIssue = issue({ number: 1, labels: labels('sdk-50'), ...fresh({ state: 'CLOSED', assignees: assigned }) });
+  const mergedPr = pr({ number: 2, ...fresh({ state: 'MERGED', reviewDecision: 'APPROVED', mergeable: 'CONFLICTING' }) });
+  const items = [closedIssue, mergedPr];
+  for (const includeAssigned of [false, true]) {
+    for (const hideUnsupported of [false, true]) {
+      const opts = { includeAssigned, hideUnsupported };
+      assert.deepEqual(keys(items, opts), []);
+      for (const { id } of STATES) assert.deepEqual(keys(items, { ...opts, stateId: id }), [], id);
+      for (const { id } of CLEANUP_FILTERS) assert.deepEqual(keys(items, { ...opts, cleanupId: id }), [], id);
+      const counts = inboxCounts(items, { ...rowOpts, ...opts });
+      assert.ok(Object.values(counts.states).every((n) => n === 0));
+      assert.ok(Object.values(counts.cleanup).every((n) => n === 0));
+    }
+  }
 });
 
 test('inboxRows: a cleanup chip lists only items with that filter', () => {
@@ -1331,7 +1338,7 @@ test('inboxRows: hidden rows drop out', () => {
   assert.deepEqual(keys(items, { hidden: (key) => key === 'issue#1:I1' }), ['issue#2:I1']);
 });
 
-test('inboxCounts match inboxRows; state counts include closed items, cleanup counts do not', () => {
+test('inboxCounts match inboxRows and leave closed items out', () => {
   const items = [
     issue({ number: 1, labels: labels('sdk-50') }),
     issue({ number: 2, labels: labels('sdk-50'), state: 'CLOSED' }),
@@ -1341,7 +1348,7 @@ test('inboxCounts match inboxRows; state counts include closed items, cleanup co
   ];
   const hidden = (key) => key === 'pr#5:P2';
   const counts = inboxCounts(items, { ...rowOpts, hidden });
-  assert.deepEqual([counts.states.I1, counts.states.I3, counts.states.I10, counts.states.P2], [1, 1, 1, 0]);
+  assert.deepEqual([counts.states.I1, counts.states.I3, counts.states.P2], [1, 1, 0]);
   assert.equal(counts.cleanup.C4, 1);
   assert.equal(counts.cleanup.C4, rows(items, { hidden, cleanupId: 'C4' }).length);
   assert.equal(counts.states.I3, rows(items, { hidden, stateId: 'I3' }).length);
@@ -1373,12 +1380,6 @@ test('inboxCounts: the P11 chip counts the PRs whose CI awaits approval', () => 
   const items = [awaitingCi({ number: 1 }), awaitingCi({ number: 2, ciApprovalRunIds: [] }), awaitingCi({ number: 3, state: 'MERGED' })];
   assert.equal(inboxCounts(items, rowOpts).states.P11, 1);
   assert.deepEqual(keys(items, { stateId: 'P11' }), ['pr#1:P11']);
-});
-
-test('inboxRows: on-call mode keeps an assigned closed item', () => {
-  const items = [issue({ number: 1, ...fresh({ assignees: assigned, state: 'CLOSED' }) })];
-  assert.deepEqual(keys(items, { stateId: 'I10' }), ['issue#1:I10']);
-  assert.equal(inboxCounts(items, rowOpts).states.I10, 1);
 });
 
 test('inboxRows: hideUnsupported drops unsupported SDK rows outside the C4 chip', () => {

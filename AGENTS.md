@@ -17,7 +17,8 @@ dependencies, no build step.
   `.cache/<owner>-<name>.json`, routes `GET /api/items`, `GET /api/trends`,
   `POST /api/refresh` (`?wait=1` answers after a sync that started after the
   request), `POST /api/recommendations`, static files from `public/`.
-  Keeps closed issues and PRs for 7 days after they close.
+  Keeps closed issues and PRs for 7 days after they close, so linked PRs
+  keep their state; the Inbox shows them in no list.
   Both syncs page through `paging.mjs`: a page that times out (502 or 504)
   is retried once, then fetched again at half its size.
   Each item keeps `comments` ({login, association, at}, `editedAt` when the
@@ -32,7 +33,8 @@ dependencies, no build step.
   approve them (check suites with conclusion `ACTION_REQUIRED`;
   `statusCheckRollup` still says SUCCESS for these). An issue keeps
   `linkedPrs`, its linked PRs; each one has `lastTeamCommentAt`, the newest
-  team comment that is not a bot's, or null. The timeline and the lookup of
+  team comment that is not a bot's, or null; cleanup C1 reads it only on
+  open linked PRs. The timeline and the lookup of
   PRs named in comments read the PR's last 10 comments (`PR_COMMENTS`); a PR
   already in the cache uses its cached comments, without reviews. Merged PRs
   named in comments are looked up once, so their time does not update.
@@ -101,7 +103,8 @@ dependencies, no build step.
   items, down to one, then goes back to the full size. Tested by
   `paging.test.mjs`.
 - `closed-items.mjs` — pure retention helper (`dropOldClosed`): keeps closed
-  items for 7 days after `closedAt`. Tested by `closed-items.test.mjs`.
+  items for 7 days after `closedAt`, for linked-PR state only; they show in
+  no Inbox list. Tested by `closed-items.test.mjs`.
 - `linked-prs.mjs` — pure helpers for an issue's linked pull requests: the
   GraphQL timeline mapping, the PR numbers that team comments name and the
   helpers that look them up and merge them in, and the state update when a PR
@@ -123,7 +126,9 @@ dependencies, no build step.
   `viewCounts`). Each view has a fixed rule, a fixed sort and an audience.
   "Needs bot triage" lists issues and PRs with the `needsBotTriage` rule. Shared by browser and Node; tested by `views.test.mjs`.
 - `public/states.js` — pure workflow states for the Inbox: `stateOf` gives
-  each issue or PR one state (`STATES`, I1–I10 and P1–P11), and
+  each open issue or PR one state (`STATES`, I1–I9, P1–P8 and P11; the
+  closed states I10, P9 and P10 are gone, and their ids stay unused) and
+  gives null for a closed or merged item, and
   `cleanupFilters` gives the cleanup filters it meets (`CLEANUP_FILTERS`).
   `stateAction` and `cleanupAction` give the button for a row, and
   `stateLabel` its badge text; for I8 it adds the state of the open fix PR,
@@ -136,7 +141,8 @@ dependencies, no build step.
   blocked, behind. It also holds the ownership helpers `isMine` and
   `ownedBy` that `since.js` imports. `inboxRows` and
   `inboxCounts` give the rows and chip counts for a tab.
-  On-call mode keeps assigned items that are closed; open assigned items,
+  Closed and merged items show in no list and no count, with any state or
+  cleanup filter. Assigned items,
   cleanup chips included, show only with "Include already-assigned items",
   and `hideUnsupported` drops rows with only unsupported SDK labels
   everywhere except under the C4 chip. The Close cleanup rules C2, C3, C4
@@ -150,8 +156,9 @@ dependencies, no build step.
   The "needs more info" label (any case) turns C1 off and C2 on, 14 days
   after `conversation.since`, except on items the team opened and after the
   reporter answered. C1 skips an issue with an open fix PR, and an issue with
-  a team comment on any linked PR (`lastTeamCommentAt`) newer than
-  `conversation.since`; the issue's state does not change.
+  a team comment on an open linked PR (`lastTeamCommentAt`) newer than
+  `conversation.since`; comments on closed or merged linked PRs do not
+  count. The issue's state does not change.
   I7 "Waiting for PR" also covers an assigned issue with no verdict; I5 and
   I4 come first, and it wins over I3, I2 and I1. I7 is not an on-call state,
   so such an issue leaves the On-call inbox, also with "Include
@@ -239,8 +246,9 @@ dependencies, no build step.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
   actions. The Inbox is the only page; the header shows the total open issues
   and PRs without filters. The always-open "Start here" section sits at the
-  top, above the trend tiles. Workflow state chips, in an Issues group and
-  a PRs group, and Cleanup chips sit beside the trend tiles. The "Since last
+  top, above the trend tiles. Workflow state chips, one per state in
+  `STATES`, in an Issues group and a PRs group, and Cleanup chips sit beside
+  the trend tiles; no chip lists closed or merged items. The "Since last
   time" section sits below the tiles. A collapsible "Filters (n)" panel sits
   between the state chips and the list; it filters the rows and the chip
   counts, not the Start here or Since sections or the tiles. Closed, it

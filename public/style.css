@@ -82,14 +82,11 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 /* Tabs */
 .repo-tabs { border-bottom: 1px solid var(--border); background: var(--header-bg); }
 .repo-tabs .container { display: flex; gap: 8px; }
-.tab, .tab-total {
+.tab-total {
   display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 10px; color: var(--fg);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: default;
 }
-.tab:hover { text-decoration: none; border-bottom-color: var(--border); }
-.tab.selected { border-bottom-color: #fd8c73; font-weight: 600; }
-.tab .octicon, .tab-total .octicon { color: var(--fg-muted); }
-.tab-total { cursor: default; }
+.tab-total .octicon { color: var(--fg-muted); }
 .counter {
   display: inline-block; min-width: 20px; padding: 0 6px; font-size: 12px; font-weight: 500; line-height: 18px;
   text-align: center; background: rgba(129, 139, 152, 0.2); border-radius: 2em;
@@ -402,6 +399,11 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus { outline
 .task-actions .btn-danger, .since-actions .btn-danger { color: var(--danger); }
 .task-actions a.btn:hover, .since-actions a.btn:hover { text-decoration: none; }
 .task-secondary { display: flex; flex-direction: column; gap: 4px; }
+
+/* Start here */
+.start-here { margin-top: 16px; }
+.start-here .since-title { margin-bottom: 4px; }
+.start-here-empty { margin: 0; font-size: 13px; }
 
 /* Since last time */
 .since { margin-top: 16px; }

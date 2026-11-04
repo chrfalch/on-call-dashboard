@@ -15,39 +15,19 @@ export function sinceStart(now) {
   return start;
 }
 
-const REVIEW_TEXT = { APPROVED: 'approved', CHANGES_REQUESTED: 'requested changes' };
-const commentEvent = (c) => ({ at: c.at, what: `@${c.login} ${c.review ? REVIEW_TEXT[c.review] ?? 'reviewed' : 'replied'}` });
-
 const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
 const awaitsMyReview = (item, me) => !!me && (item.reviewRequests ?? []).some((person) => person.login === me);
+export const ownedBy = (item, me) => isMine(item, me) || awaitsMyReview(item, me);
 
-const BOT_DONE_TEXT = { review: 'expo-bot finished the review', triage: 'expo-bot finished triage', verify: 'expo-bot finished verify' };
-const botFinished = (item, me) => {
-  const bot = item.bot;
-  return !!bot?.botRepliedAfterCommand && bot.lastCommand?.by === me && Object.hasOwn(BOT_DONE_TEXT, bot.lastCommand.command);
-};
-
-// The newest comment, review or commit by someone else after my last comment, review or assignment,
-// or the bot's answer to my command after my last comment or review: assigning myself does not mean I read it.
-// My comments and reviews on an issue's fix PRs count as mine on the issue.
-function myItemEvent(item, me, start, prs) {
-  const comments = item.comments ?? [];
+// My comments and reviews; those on an issue's fix PRs count as mine on the issue. `prs` maps a PR number to the PR.
+export function myWrites(item, me, prs) {
+  if (!me) return [];
   const fixPrComments = (item.linkedPrs ?? []).filter((linked) => linked.fix === true).flatMap((linked) => prs.get(linked.number)?.comments ?? []);
-  const myComments = [...comments, ...fixPrComments].filter((c) => c.login === me).map((c) => time(c.at));
-  const lastComment = myComments.length ? Math.max(...myComments) : start;
-  const assigned = (item.assignedEvents ?? []).filter((e) => e.login === me).map((e) => time(e.at));
-  const touches = [...myComments, ...assigned];
-  const lastTouch = touches.length ? Math.max(...touches) : start;
-  const byOthers = (login) => login !== me && !isBot(login);
-  const events = [
-    ...comments.filter((c) => byOthers(c.login)).map(commentEvent),
-    ...(item.lastCommitAt && byOthers(item.lastCommitBy) ? [{ at: item.lastCommitAt, what: 'new commit' }] : []),
-  ].filter((e) => time(e.at) > lastTouch);
-  if (botFinished(item, me) && time(item.bot.commandAnswer.at) > lastComment) {
-    events.push({ at: item.bot.commandAnswer.at, what: BOT_DONE_TEXT[item.bot.lastCommand.command] });
-  }
-  return events.sort(newestFirst)[0] ?? null;
+  return [...(item.comments ?? []), ...fixPrComments].filter((c) => c.login === me);
 }
+
+// Items I wrote on or own are listed in Start here, so Since leaves them out.
+export const involves = (item, me, prs) => ownedBy(item, me) || myWrites(item, me, prs).length > 0;
 
 const teamActed = (item) => (item.comments ?? []).some((c) => isTeam(c.association) && !isBot(c.login));
 
@@ -65,9 +45,9 @@ export function sinceButtons(item, { me = null, now = Date.now(), stateId = stat
 
 export const skipKey = (item) => `${item.type}#${item.number}`;
 
-// Groups "mine", "issues" and "prs", always in that order; a group can be empty.
+// Groups "issues" and "prs", always in that order; a group can be empty.
 // `skipped` maps skipKey to the skip time in ms; a row returns when its activity is newer.
-// New issues and PRs leave out items opened by the team unless `includeInternal`; my items keep them.
+// New issues and PRs leave out items opened by the team unless `includeInternal`.
 export function sinceGroups(items, { now = Date.now(), me = null, skipped = {}, includeInternal = false } = {}) {
   const start = sinceStart(now).getTime();
   const row = (item, event) => {
@@ -77,20 +57,13 @@ export function sinceGroups(items, { now = Date.now(), me = null, skipped = {}, 
   const shown = (rows) => rows.filter((r) => !(skipped[skipKey(r.item)] >= time(r.at)));
   const open = items.filter(isOpen);
   const prs = new Map(items.filter((item) => item.type === 'pr').map((pr) => [pr.number, pr]));
-
-  const mine = open.flatMap((item) => {
-    const event = (isMine(item, me) || awaitsMyReview(item, me)) && myItemEvent(item, me, start, prs);
-    return event ? [row(item, event)] : [];
-  });
-  const inMine = new Set(mine.map((r) => r.item));
   const created = (type, what) =>
     open
-      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && (includeInternal || !isTeam(item.authorAssociation)) && !isMine(item, me) && !inMine.has(item))
+      .filter((item) => item.type === type && time(item.createdAt) >= start && !teamActed(item) && (includeInternal || !isTeam(item.authorAssociation)) && !involves(item, me, prs))
       .map((item) => row(item, { at: item.createdAt, what }))
       .sort((a, b) => Number(a.open) - Number(b.open) || Number(!!b.action) - Number(!!a.action) || newestFirst(a, b));
 
   return [
-    { id: 'mine', label: 'My items', rows: shown(mine.sort(newestFirst)) },
     { id: 'issues', label: 'New issues', rows: shown(created('issue', 'new issue')) },
     { id: 'prs', label: 'New PRs', rows: shown(created('pr', 'new PR')) },
   ];

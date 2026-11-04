@@ -235,8 +235,6 @@ export function cleanupAction(item, id, { now = Date.now() } = {}) {
 }
 
 const assigned = (item) => (item.assignees ?? []).length > 0;
-const mine = (item, me) =>
-  !!me && ((item.assignees ?? []).some((person) => person.login === me) || (item.reviewRequests ?? []).some((person) => person.login === me));
 export const rowKey = (item, stateId) => `${item.type}#${item.number}:${stateId}`;
 
 function rowData(item, ctx) {
@@ -244,8 +242,7 @@ function rowData(item, ctx) {
   return { item, stateId, cleanup: cleanupFilters(item, ctx), key: rowKey(item, stateId) };
 }
 
-function inMode(row, { me, mode, includeAssigned }) {
-  if (mode === 'mine') return mine(row.item, me);
+function onCall(row, includeAssigned) {
   // Closed items show only under their own chip, so they keep assigned items.
   if (!isOpen(row.item)) return true;
   if (!includeAssigned && assigned(row.item)) return false;
@@ -260,7 +257,6 @@ export function inboxRows(
   {
     now = Date.now(),
     me = null,
-    mode = 'oncall',
     includeAssigned = false,
     unsupportedSdks = new Set(),
     hideUnsupported = false,
@@ -272,7 +268,7 @@ export function inboxRows(
   const ctx = { now, me, unsupportedSdks };
   return items
     .map((item) => rowData(item, ctx))
-    .filter((row) => inMode(row, { me, mode, includeAssigned }))
+    .filter((row) => onCall(row, includeAssigned))
     .filter((row) => (stateId ? row.stateId === stateId : isOpen(row.item)))
     .filter((row) => (!cleanupId || row.cleanup.includes(cleanupId)) && (cleanupId === 'C4' || shownSdk(row, hideUnsupported, unsupportedSdks)))
     .filter((row) => visible(row, hidden))
@@ -285,10 +281,10 @@ export function inboxRows(
 
 export function inboxCounts(
   items,
-  { now = Date.now(), me = null, mode = 'oncall', includeAssigned = false, unsupportedSdks = new Set(), hideUnsupported = false, hidden } = {},
+  { now = Date.now(), me = null, includeAssigned = false, unsupportedSdks = new Set(), hideUnsupported = false, hidden } = {},
 ) {
   const ctx = { now, me, unsupportedSdks };
-  const rows = items.map((item) => rowData(item, ctx)).filter((row) => inMode(row, { me, mode, includeAssigned }) && visible(row, hidden));
+  const rows = items.map((item) => rowData(item, ctx)).filter((row) => onCall(row, includeAssigned) && visible(row, hidden));
   const shown = rows.filter((row) => shownSdk(row, hideUnsupported, unsupportedSdks));
   return {
     states: Object.fromEntries(STATES.map(({ id }) => [id, shown.filter((row) => row.stateId === id).length])),

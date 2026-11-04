@@ -37,7 +37,7 @@ const MAX_WAITING_JOBS = 30;
 const MAX_BODY = 64 * 1024;
 
 // Bump when the item shape changes so a stale cache triggers a full re-sync.
-const CACHE_VERSION = 22;
+const CACHE_VERSION = 23;
 const REFS_PER_QUERY = 50;
 
 const TOKEN = process.env.GITHUB_TOKEN || execSync('gh auth token').toString().trim();
@@ -216,7 +216,13 @@ function normalize(n) {
     thumbsUp: n.reactions.totalCount,
     commentCount: n.comments.totalCount,
     lastCommentAt: comments.length ? comments[comments.length - 1].createdAt : null,
-    comments: comments.map((c) => ({ login: c.author?.login ?? null, association: c.authorAssociation, at: c.createdAt, ...(c.review && { review: c.review }) })),
+    comments: comments.map((c) => ({
+      login: c.author?.login ?? null,
+      association: c.authorAssociation,
+      at: c.createdAt,
+      ...(c.lastEditedAt > c.createdAt && { editedAt: c.lastEditedAt }),
+      ...(c.review && { review: c.review }),
+    })),
     assignedEvents: n.assignedEvents.nodes.map((e) => ({ login: e.assignee?.login ?? null, at: e.createdAt })),
     ...analyzeComments(comments, { authorLogin: n.author?.login, authorAssociation: n.authorAssociation, createdAt: n.createdAt, labels }),
   };

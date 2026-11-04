@@ -1,5 +1,5 @@
 // Expo triage dashboard client.
-import { MODES, PLATFORM_LABEL } from './inbox.js';
+import { PLATFORM_LABEL } from './inbox.js';
 import { VIEWS, GROUPS, applyView, viewCounts } from './views.js';
 import { ACTION_TIPS, CHIP_TIPS, OUTCOME_TEXT, OUTCOME_TIPS, STATE_TIPS, CLEANUP_TIPS, tooltip } from './tooltips.js';
 import { weekTrend } from './trends.js';
@@ -10,6 +10,7 @@ import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, 
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseCommand } from './bot-command.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
+import { parseDone, pruneDone, startHereRows, withDone } from './start-here.js';
 import { activeFilterChips, activeFilterCount, matchesFilters, matchesQuery, normalizeFilters, PANEL_DEFAULTS, severityMismatch } from './filters.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -22,7 +23,6 @@ const TRIAGE = { command: 'triage', body: '@expo-bot triage', label: 'Triage', b
 
 const DEFAULT_FILTERS = {
   tab: 'inbox',
-  inboxMode: 'oncall',
   state: '',
   cleanup: '',
   inboxOthers: true,
@@ -89,6 +89,7 @@ function readHash() {
   f.tab = 'inbox';
   if (!activeView(f)) f.view = '';
   if (f.state && !STATE_CHIPS.some((state) => state.id === f.state)) f.state = '';
+  if (!['issues', 'prs'].includes(f.sinceTab)) f.sinceTab = DEFAULT_FILTERS.sinceTab;
   return normalizeFilters(f);
 }
 
@@ -249,7 +250,6 @@ function render() {
   const tabCount = (type) => data.items.filter((i) => i.type === type && isOpen(i)).length;
   $('#count-issue').textContent = tabCount('issue');
   $('#count-pr').textContent = tabCount('pr');
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t.dataset.tab === filters.tab && t.dataset.mode === filters.inboxMode));
   if (inInbox) return;
 
   renderViews();
@@ -912,6 +912,7 @@ async function refresh(force = false) {
   const res = await fetch('/api/items');
   const d = await res.json();
   data = d;
+  saveStartHereDone(pruneDone(startHereDone, data.items));
   for (const [number, closedAt] of closedThisSession) {
     const item = data.items.find((i) => i.number === number);
     if (item && isOpen(item)) markClosed(item, closedAt);
@@ -1033,16 +1034,12 @@ function markDone(task) {
 }
 
 function renderInbox() {
-  const mode = filters.inboxMode;
   const now = Date.now();
   const hidden = (key) => rowHidden({ key });
-  const options = { now, me: me?.login, mode, includeAssigned: filters.inboxOthers, unsupportedSdks, hideUnsupported: filters.hideUnsupportedSdks };
+  const options = { now, me: me?.login, includeAssigned: filters.inboxOthers, unsupportedSdks, hideUnsupported: filters.hideUnsupportedSdks };
   if (filters.tab !== 'inbox') return;
+  renderStartHere();
   renderSince();
-
-  $('#inbox-title').textContent = mode === 'mine' ? 'My Work' : 'On-call inbox';
-  $('#inbox-mode-desc').textContent = MODES[mode];
-  $('#inbox-others-wrap').hidden = mode !== 'oncall';
 
   const items = data.items.filter((i) => matchesFilters(i, filters, { now, me: me?.login }));
   const visibleOptions = { ...options, hidden: filters.inboxHidden ? undefined : hidden };
@@ -1073,7 +1070,6 @@ function renderInbox() {
     ? inboxVisible.slice(0, inboxShown).map((t, idx) => taskHtml(t, idx, prs)).join('')
     : `<li class="empty">${
         !data.items.length ? 'Loading from GitHub…'
-        : mode === 'mine' && !me ? 'Sign in to see the items assigned to you.'
         : activeFilterCount(filters) ? 'Nothing in this view matches the filters.'
         : 'Inbox zero 🎉 Nothing left in this view.'
       }</li>`;
@@ -1391,7 +1387,7 @@ async function postComment(item, body) {
 // ---------- since last time ----------
 
 const SINCE_ROWS = 10;
-const SINCE_COUNT_NOUNS = { mine: 'mine', issues: 'issues', prs: 'PRs' };
+const SINCE_COUNT_NOUNS = { issues: 'issues', prs: 'PRs' };
 let sinceSkipped = parseSkipped(localStorage.getItem('sinceSkipped'));
 const sinceExpanded = new Set(); // group ids that show every row
 let sinceVisible = [];
@@ -1471,9 +1467,62 @@ function sinceClick(e) {
   if (sinceAction === 'do') return doTask(row, row.action);
   if (sinceAction === 'assign') return assignToMe(row.item);
   if (sinceAction === 'unassign') return unassignMe(row.item);
-  sinceSkipped = withSkip(sinceSkipped, row.item, Date.now());
-  localStorage.setItem('sinceSkipped', JSON.stringify(sinceSkipped));
+  recordSkip(row.item);
   renderSince();
+}
+
+function recordSkip(item) {
+  sinceSkipped = withSkip(sinceSkipped, item, Date.now());
+  localStorage.setItem('sinceSkipped', JSON.stringify(sinceSkipped));
+}
+
+// ---------- start here ----------
+
+const START_HERE_BADGES = {
+  replied: { label: 'Replied', tone: 'attention', tip: 'Someone commented, reviewed or pushed after your last comment' },
+  assigned: { label: 'Assigned', tone: '', tip: 'Assigned to you or waiting for your review, and you have not commented yet' },
+  waiting: { label: 'Waiting', tone: 'muted', tip: 'You commented last; nobody has answered yet' },
+};
+let startHereDone = parseDone(localStorage.getItem('startHereDone'));
+let startHereVisible = [];
+
+function saveStartHereDone(done) {
+  startHereDone = done;
+  localStorage.setItem('startHereDone', JSON.stringify(done));
+}
+
+function renderStartHere() {
+  startHereVisible = startHereRows(data.items, { me: me?.login, skipped: sinceSkipped, done: startHereDone });
+  $('#start-here').hidden = !data.items.length;
+  const empty = me ? 'Nothing here yet. Issues and PRs you comment on, review or own show up here.' : 'Add your GitHub token to see the issues and PRs you comment on, review or own.';
+  $('#start-here').innerHTML = `<h2 class="since-title">Start here <span class="counter">${startHereVisible.length}</span></h2>
+    ${startHereVisible.length ? `<ul class="Box since-list">${startHereVisible.map(startHereRowHtml).join('')}</ul>` : `<p class="muted start-here-empty">${empty}</p>`}`;
+}
+
+function startHereRowHtml(row) {
+  const { item } = row;
+  const badge = START_HERE_BADGES[row.status];
+  return `<li class="since-row" data-start-here="${esc(row.key)}">
+    <div class="since-line">
+    ${item.type === 'pr' ? icons.pr : icons.issue}
+    <span class="kind-badge${badge.tone ? ` tone-${badge.tone}` : ''}" title="${esc(badge.tip)}">${esc(badge.label)}</span>
+    <a class="since-item" href="${esc(item.url)}" target="_blank" rel="noreferrer">#${esc(item.number)} ${esc(item.title)}</a>
+    <span class="since-what muted">${esc(ago(row.at))}</span>
+    <span class="since-actions">
+      <button class="btn btn-sm" data-start-here-action="skip" title="Hide this row until there is new activity">Skip</button>
+      <button class="btn btn-sm" data-start-here-action="done" title="Hide this row until you comment again">Done</button>
+    </span>
+    </div>
+  </li>`;
+}
+
+function startHereClick(e) {
+  const button = e.target.closest('[data-start-here-action]');
+  const row = button && startHereVisible.find((r) => r.key === button.closest('[data-start-here]').dataset.startHere);
+  if (!row) return;
+  if (button.dataset.startHereAction === 'done') saveStartHereDone(withDone(startHereDone, row.item, Date.now()));
+  else recordSkip(row.item);
+  renderStartHere();
 }
 
 async function assignToMe(item) {
@@ -1540,16 +1589,6 @@ document.addEventListener('click', (e) => {
     if (!removing) (e.altKey ? filters.exclude : filters.include).push(name);
     filters.view = '';
     shown = PAGE;
-    return render();
-  }
-  const tab = t.closest('.tab');
-  if (tab) {
-    e.preventDefault();
-    filters = { ...filters, tab: 'inbox', inboxMode: tab.dataset.mode, state: '', cleanup: '', view: '' };
-    selected.clear();
-    shown = PAGE;
-    inboxShown = 25;
-    inboxFocus = 0;
     return render();
   }
   if (t.closest('#cmd-toggle')) {
@@ -1656,6 +1695,7 @@ $('#bulk-close-btn').addEventListener('click', () => openCloseDialog());
 $('#inbox').addEventListener('click', inboxClick);
 $('#inbox-cleanup').addEventListener('click', inboxClick);
 $('#since').addEventListener('click', sinceClick);
+$('#start-here').addEventListener('click', startHereClick);
 $('#since').addEventListener('change', (e) => {
   if (e.target.id !== 'since-internal') return;
   filters.sinceInternal = e.target.checked;

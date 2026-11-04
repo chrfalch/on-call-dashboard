@@ -60,172 +60,11 @@ test('sinceStart: Saturday 00:00 local on a Sunday', () => {
   assert.equal(sinceStart(new Date(2026, 9, 25, 23, 59).getTime()).getTime(), new Date(2026, 9, 24).getTime());
 });
 
-test('sinceGroups: three groups in order', () => {
+test('sinceGroups: two groups in order', () => {
   assert.deepEqual(sinceGroups([], { now: NOW, me: ME }).map((g) => [g.id, g.label]), [
-    ['mine', 'My items'],
     ['issues', 'New issues'],
     ['prs', 'New PRs'],
   ]);
-});
-
-test('my items: a comment from someone else after mine qualifies', () => {
-  const item = issue({ ...assignedToMe, comments: [comment(ME, hoursAgo(20), { association: 'MEMBER' }), comment('reporter', hoursAgo(3))] });
-  const [row] = groups([item]).mine;
-  assert.equal(row.item, item);
-  assert.equal(row.what, '@reporter replied');
-  assert.equal(row.at, hoursAgo(3));
-});
-
-test('my items: a comment from someone else before mine does not qualify', () => {
-  const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(20)), comment(ME, hoursAgo(3), { association: 'MEMBER' })] });
-  assert.deepEqual(groups([item]).mine, []);
-});
-
-test('my items: my own comment does not qualify', () => {
-  const item = issue({ ...assignedToMe, comments: [comment(ME, hoursAgo(3), { association: 'MEMBER' })] });
-  assert.deepEqual(groups([item]).mine, []);
-});
-
-test('my items: a bot comment does not qualify', () => {
-  const item = issue({ ...assignedToMe, comments: [comment('expo-bot', hoursAgo(3), { association: 'MEMBER' }), comment('renovate[bot]', hoursAgo(2))] });
-  assert.deepEqual(groups([item]).mine, []);
-});
-
-test('my items: a review after my touch qualifies and names its state', () => {
-  const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(20)), comment('reviewer', hoursAgo(2), { association: 'MEMBER', review: 'CHANGES_REQUESTED' })] });
-  const [row] = groups([item]).mine;
-  assert.equal(row.what, '@reviewer requested changes');
-});
-
-test('my items: expo-bot finishing my review, triage or verify qualifies', () => {
-  const asked = (command, by = ME, replied = true) => ({
-    lastCommand: { command, by, at: hoursAgo(5) },
-    commandAnswer: { at: hoursAgo(3), outcome: null },
-    botRepliedAfterCommand: replied,
-  });
-  const item = (bot) => pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], bot });
-  for (const [command, what] of [['review', 'expo-bot finished the review'], ['triage', 'expo-bot finished triage'], ['verify', 'expo-bot finished verify']]) {
-    const [row] = groups([item(asked(command))]).mine;
-    assert.equal(row.what, what, command);
-    assert.equal(row.at, hoursAgo(3), command);
-  }
-  assert.deepEqual(groups([item(asked('review', 'colleague'))]).mine, [], 'asked by someone else');
-  assert.deepEqual(groups([item(asked('review', ME, false))]).mine, [], 'no reply yet');
-  assert.deepEqual(groups([item(asked('rebase'))]).mine, [], 'other command');
-});
-
-test('my items: expo-bot finishing before I assigned myself still qualifies', () => {
-  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(4), outcome: null }, botRepliedAfterCommand: true };
-  const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(5))], assignedEvents: [{ login: ME, at: hoursAgo(3) }], bot });
-  const [row] = groups([item]).mine;
-  assert.equal(row?.what, 'expo-bot finished the review');
-  assert.equal(row?.at, hoursAgo(4));
-});
-
-test('my items: the answer to my command dates the event, not a newer expo-bot comment of another kind', () => {
-  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
-  const comments = (mine) => [comment(ME, mine), comment('expo-bot', hoursAgo(1))];
-  const [row] = groups([pr({ ...assignedToMe, comments: comments(hoursAgo(5)), bot })]).mine;
-  assert.equal(row?.at, hoursAgo(3));
-  assert.deepEqual(groups([pr({ ...assignedToMe, comments: comments(hoursAgo(2)), bot })]).mine, []);
-});
-
-test('my items: expo-bot finishing before my last comment does not qualify', () => {
-  const bot = { lastCommand: { command: 'review', by: ME, at: hoursAgo(5) }, commandAnswer: { at: hoursAgo(3), outcome: null }, botRepliedAfterCommand: true };
-  assert.deepEqual(groups([pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(2))], bot })]).mine, []);
-});
-
-test('my items: my review on the fix PR counts as touching the issue', () => {
-  const bot = { lastCommand: { command: 'triage', by: ME, at: hoursAgo(20) }, commandAnswer: { at: hoursAgo(15), outcome: null }, botRepliedAfterCommand: true };
-  const linkedPrs = (fix) => [{ number: 2, state: 'OPEN', fix }];
-  const fixIssue = (fix = true) => issue({ ...assignedToMe, number: 1, comments: [comment(ME, hoursAgo(20))], linkedPrs: linkedPrs(fix), bot });
-  const fixPr = (at) => pr({ number: 2, reviewDecision: 'CHANGES_REQUESTED', comments: [comment(ME, at, { review: 'CHANGES_REQUESTED' })] });
-
-  assert.deepEqual(groups([fixIssue(), fixPr(hoursAgo(2))]).mine, [], 'reviewed after the bot answered');
-  assert.equal(groups([fixIssue(), fixPr(hoursAgo(18))]).mine[0]?.what, 'expo-bot finished triage', 'reviewed before the bot answered');
-  assert.equal(groups([fixIssue(false), fixPr(hoursAgo(2))]).mine[0]?.what, 'expo-bot finished triage', 'not a fix PR');
-});
-
-test('my items: my review on the fix PR hides older comments by others on the issue', () => {
-  const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(5))], linkedPrs: [{ number: 2, state: 'MERGED', fix: true }] });
-  const fixPr = pr({ number: 2, state: 'MERGED', comments: [comment(ME, hoursAgo(2), { review: 'APPROVED' })] });
-  assert.deepEqual(groups([item, fixPr]).mine, []);
-});
-
-test('my items: a commit after my touch qualifies', () => {
-  const item = pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(20))], lastCommitAt: hoursAgo(4), lastCommitBy: 'contributor' });
-  const [row] = groups([item]).mine;
-  assert.equal(row.what, 'new commit');
-  assert.equal(row.at, hoursAgo(4));
-});
-
-test('my items: a commit by me, by a bot or by an unknown author does not qualify', () => {
-  const commit = (lastCommitBy) => pr({ ...assignedToMe, comments: [comment(ME, hoursAgo(20))], lastCommitAt: hoursAgo(4), lastCommitBy });
-  for (const by of [ME, 'dependabot', 'renovate[bot]', null, undefined]) assert.deepEqual(groups([commit(by)]).mine, [], String(by));
-});
-
-test('my items: the assigned event counts as my last touch', () => {
-  const before = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(6))], assignedEvents: [{ login: ME, at: hoursAgo(4) }] });
-  const after = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(3))], assignedEvents: [{ login: ME, at: hoursAgo(4) }] });
-  assert.deepEqual(groups([before]).mine, []);
-  assert.equal(groups([after]).mine.length, 1);
-});
-
-test('my items: someone else being assigned is not my touch', () => {
-  const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(6))], assignedEvents: [{ login: 'colleague', at: hoursAgo(4) }] });
-  assert.equal(groups([item]).mine.length, 1);
-});
-
-test('my items: without a known touch, the window start is the cutoff', () => {
-  const inWindow = issue({ ...assignedToMe, number: 1, comments: [comment('reporter', hoursAgo(5))] });
-  const beforeWindow = issue({ ...assignedToMe, number: 2, comments: [comment('reporter', daysAgo(3))] });
-  assert.deepEqual(numbers(groups([inWindow, beforeWindow]).mine), [1]);
-});
-
-test('my items: the newest qualifying event is shown', () => {
-  const item = pr({ ...assignedToMe, lastCommitAt: hoursAgo(6), comments: [comment('reviewer', hoursAgo(2), { review: 'APPROVED' }), comment('reporter', hoursAgo(4))] });
-  assert.equal(groups([item]).mine[0].what, '@reviewer approved');
-});
-
-test('my items: only open items assigned to me', () => {
-  const activity = { comments: [comment('reporter', hoursAgo(3))] };
-  const items = [
-    issue({ ...assignedToMe, ...activity, number: 1 }),
-    issue({ ...activity, number: 2, assignees: [{ login: 'colleague' }], createdAt: daysAgo(30) }),
-    issue({ ...assignedToMe, ...activity, number: 3, state: 'CLOSED' }),
-  ];
-  assert.deepEqual(numbers(groups(items).mine), [1]);
-});
-
-test('my items: a PR that requests my review counts as mine', () => {
-  const activity = { createdAt: daysAgo(30), comments: [comment('contributor', hoursAgo(3))] };
-  const items = [
-    pr({ ...activity, number: 1, reviewRequests: [{ login: ME }] }),
-    pr({ ...activity, number: 2, reviewRequests: [{ login: 'colleague' }] }),
-  ];
-  assert.deepEqual(numbers(groups(items).mine), [1]);
-});
-
-test('my items: a new PR that requests my review shows once', () => {
-  const quiet = pr({ number: 1, reviewRequests: [{ login: ME }] });
-  const active = pr({ number: 2, reviewRequests: [{ login: ME }], comments: [comment('contributor', hoursAgo(1))] });
-  const { mine, prs } = groups([quiet, active]);
-  assert.deepEqual(numbers(mine), [2]);
-  assert.deepEqual(numbers(prs), [1]);
-});
-
-test('my items: hidden when signed out', () => {
-  const item = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(3))] });
-  assert.deepEqual(groups([item], { me: null }).mine, []);
-});
-
-test('my items: newest activity first', () => {
-  const items = [
-    issue({ ...assignedToMe, number: 1, comments: [comment('reporter', hoursAgo(5))] }),
-    issue({ ...assignedToMe, number: 2, comments: [comment('reporter', hoursAgo(1))] }),
-    pr({ ...assignedToMe, number: 3, lastCommitAt: hoursAgo(3), lastCommitBy: 'contributor' }),
-  ];
-  assert.deepEqual(numbers(groups(items).mine), [2, 3, 1]);
 });
 
 test('new items: an untouched issue and PR created in the window', () => {
@@ -269,7 +108,7 @@ test('new items: a team author alone does not exclude when internal authors are 
 
 test('new items: internal authors are hidden by default', () => {
   const items = ['MEMBER', 'OWNER', 'COLLABORATOR'].map((authorAssociation, i) => issue({ number: i + 1, author: { login: 'colleague' }, authorAssociation }));
-  assert.deepEqual(groups([...items, pr({ number: 4, author: { login: 'colleague' }, authorAssociation: 'MEMBER' })]), { mine: [], issues: [], prs: [] });
+  assert.deepEqual(groups([...items, pr({ number: 4, author: { login: 'colleague' }, authorAssociation: 'MEMBER' })]), { issues: [], prs: [] });
 });
 
 test('new items: internal authors show when included', () => {
@@ -287,11 +126,6 @@ test('new items: outside authors show by default', () => {
   assert.deepEqual(numbers(prs).sort(), [11, 12, 13]);
 });
 
-test('my items: an internal author does not hide the item', () => {
-  const item = issue({ ...assignedToMe, author: { login: 'colleague' }, authorAssociation: 'MEMBER', comments: [comment('someone', hoursAgo(2))] });
-  assert.deepEqual(numbers(groups([item]).mine), [1]);
-});
-
 test('new items: assigned to someone else stays, after the unassigned rows, with Open', () => {
   const items = [
     issue({ number: 1, createdAt: hoursAgo(1), assignees: [{ login: 'colleague' }] }),
@@ -305,7 +139,24 @@ test('new items: assigned to someone else stays, after the unassigned rows, with
 });
 
 test('new items: assigned to me leaves the group', () => {
-  assert.deepEqual(groups([issue({ assignees: [{ login: ME }] }), pr({ number: 2, assignees: [{ login: 'colleague' }, { login: ME }] })]), { mine: [], issues: [], prs: [] });
+  assert.deepEqual(groups([issue({ assignees: [{ login: ME }] }), pr({ number: 2, assignees: [{ login: 'colleague' }, { login: ME }] })]), { issues: [], prs: [] });
+});
+
+test('new items: a PR that requests my review leaves the group', () => {
+  const items = [pr({ number: 1, reviewRequests: [{ login: ME }] }), pr({ number: 2, reviewRequests: [{ login: 'colleague' }] })];
+  assert.deepEqual(numbers(groups(items).prs), [2]);
+});
+
+test('new items: an item I commented on leaves the group', () => {
+  const items = [issue({ number: 1, comments: [comment(ME, hoursAgo(2))] }), issue({ number: 2, comments: [comment('someone', hoursAgo(2))] })];
+  assert.deepEqual(numbers(groups(items).issues), [2]);
+});
+
+test('new items: an issue whose fix PR I commented on leaves the group', () => {
+  const linked = (fix) => issue({ number: 1, linkedPrs: [{ number: 2, state: 'OPEN', fix }] });
+  const fixPr = pr({ number: 2, createdAt: daysAgo(3), comments: [comment(ME, hoursAgo(2), { review: 'APPROVED' })] });
+  assert.deepEqual(groups([linked(true), fixPr]).issues, []);
+  assert.deepEqual(numbers(groups([linked(false), fixPr]).issues), [1]);
 });
 
 test('new items: assigned to someone else stays when signed out', () => {
@@ -314,7 +165,7 @@ test('new items: assigned to someone else stays when signed out', () => {
 });
 
 test('new items: closed items are excluded', () => {
-  assert.deepEqual(groups([issue({ state: 'CLOSED' }), pr({ number: 2, state: 'MERGED' })]), { mine: [], issues: [], prs: [] });
+  assert.deepEqual(groups([issue({ state: 'CLOSED' }), pr({ number: 2, state: 'MERGED' })]), { issues: [], prs: [] });
 });
 
 test('new items: a label alone does not exclude', () => {
@@ -336,7 +187,7 @@ test('no activity from updatedAt alone', () => {
     issue({ ...assignedToMe, number: 1, updatedAt: hoursAgo(1) }),
     issue({ number: 2, createdAt: daysAgo(10), updatedAt: hoursAgo(1) }),
   ];
-  assert.deepEqual(groups(items), { mine: [], issues: [], prs: [] });
+  assert.deepEqual(groups(items), { issues: [], prs: [] });
 });
 
 test('an item from an old cache without comments or assigned events does not throw', () => {
@@ -345,8 +196,7 @@ test('an item from an old cache without comments or assigned events does not thr
     return rest;
   };
   const items = [oldShape(issue({ ...assignedToMe, number: 1 })), oldShape(issue({ number: 2 })), oldShape(pr({ number: 3, assignees: [{ login: 'colleague' }] }))];
-  const { mine, issues, prs } = groups(items);
-  assert.deepEqual(mine, []);
+  const { issues, prs } = groups(items);
   assert.deepEqual(numbers(issues), [2]);
   assert.deepEqual(numbers(prs), [3]);
 });
@@ -397,10 +247,9 @@ test('buttons: Unassign only on items assigned to me', () => {
 });
 
 test('buttons: neither Assign nor Open on my own items', () => {
-  const item = issue({ assignees: [{ login: ME }, { login: 'colleague' }], createdAt: daysAgo(30), comments: [comment('reporter', hoursAgo(2))] });
-  const [row] = groups([item]).mine;
-  assert.equal(row.assign, false);
-  assert.equal(row.open, false);
+  const buttons = sinceButtons(issue({ assignees: [{ login: ME }, { login: 'colleague' }] }), { me: ME, now: NOW });
+  assert.equal(buttons.assign, false);
+  assert.equal(buttons.open, false);
 });
 
 test('skip: hides the row', () => {
@@ -411,15 +260,6 @@ test('skip: hides the row', () => {
 test('skip: a new item stays hidden for good', () => {
   const skipped = withSkip({}, issue(), NOW);
   assert.deepEqual(groups([issue()], { skipped, now: NOW + 36e5 }).issues, []);
-});
-
-test('skip: a my-item comes back after newer activity', () => {
-  const skippedAt = NOW - 2 * 36e5;
-  const skipped = { [skipKey(issue())]: skippedAt };
-  const older = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(3))] });
-  const newer = issue({ ...assignedToMe, comments: [comment('reporter', hoursAgo(3)), comment('reporter', hoursAgo(1))] });
-  assert.deepEqual(groups([older], { skipped }).mine, []);
-  assert.equal(groups([newer], { skipped }).mine.length, 1);
 });
 
 test('skip: keyed by type and number', () => {

@@ -22,11 +22,6 @@ export const TASK_KINDS = {
   'bot-triage': { label: 'Ask bot to triage', icon: 'bot', tone: 'attention', action: 'command', oncall: true, chipOnly: true },
 };
 
-export const MODES = {
-  oncall: 'On-call: triage and route work nobody owns yet',
-  mine: 'My work: items assigned to you and PRs requesting your review',
-};
-
 const SEVERITY_BONUS = { 5: 40, 4: 25, 3: 10, 2: 0, 1: -5 };
 const DAY = 864e5;
 export const days = (iso, now) => Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));

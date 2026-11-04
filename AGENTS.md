@@ -246,11 +246,11 @@ dependencies, no build step.
   Shared by browser and Node; tested by `filters.test.mjs`.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
   actions. The Inbox is the only page; the header shows the total open issues
-  and PRs without filters. The always-open "Start here" section sits at the
-  top, above the trend tiles. Workflow state chips, one per state in
-  `STATES`, in an Issues group and a PRs group, and Cleanup chips sit beside
-  the trend tiles; no chip lists closed or merged items. The "Since last
-  time" section sits below the tiles. A collapsible "Filters (n)" panel sits
+  and PRs without filters. The trend tiles sit at the top. Workflow state
+  chips, one per state in `STATES`, in an Issues group and a PRs group, and
+  Cleanup chips sit beside the trend tiles; no chip lists closed or merged
+  items. The always-open "Start here" section sits below the tiles, and the
+  "Since last time" section below it. A collapsible "Filters (n)" panel sits
   between the state chips and the list; it filters the rows and the chip
   counts, not the Start here or Since sections or the tiles. Closed, it
   shows only the active-filter chips and "Clear filters", which keeps the

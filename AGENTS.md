@@ -230,7 +230,8 @@ dependencies, no build step.
   when the viewer owns it and never wrote on it. Rows sort replied,
   assigned, waiting, newest first in each. Done hides a row until the
   viewer writes again (an assigned row with no write stays hidden); Skip
-  uses the Since skip map and hides a row until a newer event.
+  uses the Since skip map and hides a row until a newer event. Items
+  opened by a team member leave Start here unless `includeInternal` is set.
   `pruneDone` drops entries for items that are closed or gone, but keeps
   all while the item list is empty. Shared by browser and Node; tested by
   `start-here.test.mjs`.
@@ -285,6 +286,7 @@ dependencies, no build step.
   `hideUnsupportedSdks=0` and the "Since last time" tab
   (`sinceTab=<issues|prs>`, default `issues`) and list visibility
   (`sinceOpen=1`, default hidden) and internal contributors
-  (`sinceInternal=1`, default off), the filter panel's open state
+  (`sinceInternal=1`, default off), Start here's internal contributors
+  (`startHereInternal=1`, default off), the filter panel's open state
   (`filtersOpen=1`, default closed) and its user filter (`user=<login>`,
   `userRole=<author|assignee>`, default either), lives in the URL hash.

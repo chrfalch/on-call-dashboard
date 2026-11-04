@@ -151,9 +151,22 @@ test('closed and merged items are not listed', () => {
   assert.deepEqual(rows(items), []);
 });
 
-test('an item opened by the team is listed like any other', () => {
+test('an item opened by the team is listed with includeInternal', () => {
   const item = issue({ author: { login: 'colleague' }, authorAssociation: 'MEMBER', comments: [mine(hoursAgo(5))] });
+  assert.equal(only(item, { includeInternal: true }).status, 'waiting');
+});
+
+test('items opened by members, owners and collaborators are not listed by default', () => {
+  const items = ['MEMBER', 'OWNER', 'COLLABORATOR'].map((authorAssociation, i) =>
+    issue({ number: i + 1, author: { login: 'colleague' }, authorAssociation, ...assignedToMe, comments: [mine(hoursAgo(5))] }));
+  assert.deepEqual(rows(items), []);
+  assert.deepEqual(rows(items, { includeInternal: true }).map((row) => row.item.number).sort(), [1, 2, 3]);
+});
+
+test('an item opened by a community member is listed with or without includeInternal', () => {
+  const item = pr({ authorAssociation: 'CONTRIBUTOR', comments: [mine(hoursAgo(5))] });
   assert.equal(only(item).status, 'waiting');
+  assert.equal(only(item, { includeInternal: true }).status, 'waiting');
 });
 
 test('signed out lists nothing, even with comments by deleted users', () => {

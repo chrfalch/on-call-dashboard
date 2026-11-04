@@ -20,8 +20,9 @@ dependencies, no build step.
   Keeps closed issues and PRs for 7 days after they close.
   Both syncs page through `paging.mjs`: a page that times out (502 or 504)
   is retried once, then fetched again at half its size.
-  Each item keeps `comments` ({login, association, at}, and `review` with the
-  review state for a PR review) from the last 30 comments and the PR's latest
+  Each item keeps `comments` ({login, association, at}, `editedAt` when the
+  comment was edited after it was created, and `review` with the review
+  state for a PR review) from the last 30 comments and the PR's latest
   reviews, and `assignedEvents` ({login, at}, the last 10 assignments). A PR
   also keeps `lastCommitAt`, the push time of the last commit (the later of
   its commit date and its first GitHub Actions check suite), `lastCommitBy`,
@@ -191,23 +192,33 @@ dependencies, no build step.
   browser and Node; tested by `quick-open.test.mjs`.
 - `public/since.js` — pure helpers for the Inbox "Since last time" section
   (`sinceStart`, `sinceGroups`, `sinceButtons`, `skipKey`, `withSkip`,
-  `parseSkipped`). The window starts at local midnight yesterday, or on
-  Friday on a Monday. "My items" are open items assigned to the viewer, or
-  PRs that request the viewer's review, with a comment, review or commit from someone else after the viewer's last
-  comment, review or assignment. The viewer's comments and reviews on an
-  issue's fix PRs count as the viewer's comments on the issue. A commit
-  counts only when `lastCommitBy` is known and is not the viewer or a bot. expo-bot's answer counts when the
-  viewer gave the last `review`, `triage` or `verify` command, the bot answered
-  it, and that answer (`commandAnswer`, which also dates the event) is newer
-  than the viewer's last comment or review; a later
-  assignment does not hide it. "New issues" and "New PRs" are open
-  items created in the window with no comment or review from a team member
-  (the author too), not assigned to the viewer and not in "My items". Items assigned to someone
+  `parseSkipped`), and the viewer's involvement that Start here shares:
+  `myWrites` (the viewer's comments and reviews; those on an issue's fix
+  PRs count as the viewer's on the issue), `ownedBy` (assigned, or a PR that
+  requests the viewer's review) and `involves` (either). The window starts
+  at local midnight yesterday, or on Friday on a Monday. "New issues" and
+  "New PRs" are open items created in the window with no comment or review
+  from a team member (the author too) that do not involve the viewer, so
+  no Start here row shows in them. Items assigned to someone
   else stay, sorted after the unassigned ones, with an Open button.
   Items opened by a team member leave "New issues" and "New PRs" unless
-  `includeInternal` is set; "My items" keeps them.
+  `includeInternal` is set.
   Activity never comes from `updatedAt`.
   Shared by browser and Node; tested by `since.test.mjs`.
+- `public/start-here.js` — pure helpers for the Inbox "Start here" section
+  (`startHereRows`, `withDone`, `pruneDone`, `parseDone`). A row is an open
+  item the viewer wrote on or owns, with one status: `replied` when someone
+  else commented, reviewed (bots too; a bot comment counts at its
+  `editedAt` when that is newer, because expo-bot answers by editing) or
+  pushed (`lastCommitBy` known, not the viewer, not a bot) after the
+  viewer's last write; `waiting` when the viewer wrote last; `assigned`
+  when the viewer owns it and never wrote on it. Rows sort replied,
+  assigned, waiting, newest first in each. Done hides a row until the
+  viewer writes again (an assigned row with no write stays hidden); Skip
+  uses the Since skip map and hides a row until a newer event.
+  `pruneDone` drops entries for items that are closed or gone, but keeps
+  all while the item list is empty. Shared by browser and Node; tested by
+  `start-here.test.mjs`.
 - `public/filters.js` — the pure Inbox filter panel: `PANEL_DEFAULTS` (its
   keys and defaults), `matchesFilters` (search, severity, labels, PR-only
   filters that never drop an issue, conversation, bot, assignee, and `user`
@@ -219,14 +230,14 @@ dependencies, no build step.
   Shared by browser and Node; tested by `filters.test.mjs`.
 - `public/app.js` — all UI: rendering, filters (URL hash), GitHub write
   actions. The Inbox is the only page; the header shows the total open issues
-  and PRs without filters. The Inbox has two tabs, "On-call inbox" and "My
-  Work". Workflow state chips, in an Issues group and a PRs group, and
-  Cleanup chips sit beside the trend tiles. The "Since last time" section
-  sits below the tiles. A collapsible "Filters (n)" panel sits between the
-  state chips and the list; it filters the rows and the chip counts, not the
-  Since section or the tiles. Closed, it shows only the active-filter chips
-  and "Clear filters", which keeps the state and cleanup chips. Switching
-  between the two tabs keeps the panel filters. Assignee and
+  and PRs without filters. The always-open "Start here" section sits at the
+  top, above the trend tiles. Workflow state chips, in an Issues group and
+  a PRs group, and Cleanup chips sit beside the trend tiles. The "Since last
+  time" section sits below the tiles. A collapsible "Filters (n)" panel sits
+  between the state chips and the list; it filters the rows and the chip
+  counts, not the Start here or Since sections or the tiles. Closed, it
+  shows only the active-filter chips and "Clear filters", which keeps the
+  state and cleanup chips. Assignee and
   label chips on Inbox rows toggle the filter (Alt-click excludes a label);
   `/` opens the panel and focuses the search. The agent runs only when the user
   clicks "Ask agent…" on an open row, with the standard prompt or their own
@@ -251,10 +262,12 @@ dependencies, no build step.
   `unsupportedSdks` (a JSON array of the SDK labels marked unsupported),
   `inboxDoneLog:<YYYY-MM-DD>` (a JSON array of {number, type} for that local day),
   `sinceSkipped` (a JSON map from `<type>#<number>` to the skip time in ms;
-  entries older than 30 days are dropped).
+  entries older than 30 days are dropped; Start here uses it too),
+  `startHereDone` (a JSON map from `<type>#<number>` to the Done time in ms;
+  pruned against the items after each load).
   Filter state, including the active view (`view=<id>`),
   `hideUnsupportedSdks=0` and the "Since last time" tab
-  (`sinceTab=<mine|issues|prs>`, default `issues`) and list visibility
+  (`sinceTab=<issues|prs>`, default `issues`) and list visibility
   (`sinceOpen=1`, default hidden) and internal contributors
   (`sinceInternal=1`, default off), the filter panel's open state
   (`filtersOpen=1`, default closed) and its user filter (`user=<login>`,

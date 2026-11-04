@@ -1187,7 +1187,7 @@ test('stateAction: P11 approves the waiting runs', () => {
   assert.deepEqual(action(awaitingCi(), 'P11'), { kind: 'approve-ci', label: 'Approve and run', runIds: [101, 102] });
 });
 
-const rowOpts = { now: NOW, me: 'me', mode: 'oncall', unsupportedSdks: new Set(['sdk-50']) };
+const rowOpts = { now: NOW, me: 'me', unsupportedSdks: new Set(['sdk-50']) };
 const rows = (items, over = {}) => inboxRows(items, { ...rowOpts, ...over });
 const keys = (items, over) => rows(items, over).map((row) => row.key);
 const fresh = (over) => ({ ...waiting('team', 1), ...over });
@@ -1210,15 +1210,15 @@ test('inboxRows: open items only, in STATES order, then oldest first', () => {
 
 test('inboxRows: a state chip lists only that state, closed included', () => {
   const items = [issue({ number: 1, assignees: onlyMe, state: 'CLOSED' }), issue({ number: 2, ...waiting('reporter', 1), assignees: onlyMe })];
-  assert.deepEqual(keys(items, { mode: 'mine', stateId: 'I10' }), ['issue#1:I10']);
-  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I4']);
+  assert.deepEqual(keys(items, { includeAssigned: true, stateId: 'I10' }), ['issue#1:I10']);
+  assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#2:I4']);
 });
 
 test('inboxRows: on-call closed chips list closed items without a cleanup filter', () => {
   const items = [issue({ number: 1, ...fresh({ state: 'CLOSED' }) }), pr({ number: 2, ...fresh({ state: 'MERGED' }) })];
-  assert.deepEqual(keys(items, { mode: 'oncall', stateId: 'I10' }), ['issue#1:I10']);
-  assert.deepEqual(keys(items, { mode: 'oncall', stateId: 'P9' }), ['pr#2:P9']);
-  assert.equal(inboxCounts(items, { ...rowOpts, mode: 'oncall' }).states.I10, 1);
+  assert.deepEqual(keys(items, { stateId: 'I10' }), ['issue#1:I10']);
+  assert.deepEqual(keys(items, { stateId: 'P9' }), ['pr#2:P9']);
+  assert.equal(inboxCounts(items, rowOpts).states.I10, 1);
 });
 
 test('inboxRows: a cleanup chip lists only items with that filter', () => {
@@ -1238,14 +1238,9 @@ test('inboxRows: on-call mode leaves assigned items unless includeAssigned', () 
   assert.deepEqual(keys(items, { includeAssigned: true }), ['issue#1:I4']);
 });
 
-test('inboxRows: My Work lists items assigned to me or awaiting my review, in any state', () => {
-  const items = [
-    pr({ number: 1, isDraft: true, reviewRequests: onlyMe }),
-    issue({ number: 2, labels: labels('Issue accepted'), assignees: onlyMe }),
-    issue({ number: 3, assignees: assigned }),
-    issue({ number: 4 }),
-  ];
-  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I7', 'pr#1:P1']);
+test('inboxRows: an old mode option does not change the on-call list', () => {
+  const items = [issue({ number: 1, labels: labels('Issue accepted'), assignees: onlyMe }), issue({ number: 2 })];
+  assert.deepEqual(keys(items, { mode: 'mine' }), ['issue#2:I1']);
 });
 
 test('inboxRows: hidden rows drop out', () => {

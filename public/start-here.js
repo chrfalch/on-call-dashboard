@@ -45,6 +45,12 @@ export function startHereRows(items, { me = null, skipped = {}, done = {}, inclu
     .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || time(b.at) - time(a.at));
 }
 
+export const startHereSummary = (rows) =>
+  STATUS_ORDER.map((status) => [status, rows.filter((row) => row.status === status).length])
+    .filter(([, count]) => count)
+    .map(([status, count]) => `${count} ${status}`)
+    .join(', ');
+
 export const withDone = (done, item, now) => ({ ...done, [skipKey(item)]: now });
 
 // An empty list means the first sync has not finished, so nothing is known to be closed yet.

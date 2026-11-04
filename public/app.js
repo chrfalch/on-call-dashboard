@@ -10,7 +10,7 @@ import { isOpen, STATES, CLEANUP_FILTERS, stateAction, stateLabel, stateTone, cl
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseCommand } from './bot-command.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
-import { parseDone, pruneDone, startHereRows, withDone } from './start-here.js';
+import { parseDone, pruneDone, startHereRows, startHereSummary, withDone } from './start-here.js';
 import { activeFilterChips, activeFilterCount, matchesFilters, matchesQuery, normalizeFilters, PANEL_DEFAULTS, severityMismatch } from './filters.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -36,6 +36,7 @@ const DEFAULT_FILTERS = {
   sinceOpen: false,
   sinceInternal: false,
   startHereInternal: false,
+  startHereOpen: false,
 };
 
 let data = { items: [], labels: [] };
@@ -1497,8 +1498,18 @@ function renderStartHere() {
   $('#start-here').hidden = !data.items.length;
   const empty = me ? 'Nothing here yet. Issues and PRs you comment on, review or own show up here.' : 'Add your GitHub token to see the issues and PRs you comment on, review or own.';
   const internalToggle = `<label class="checkbox-wrap since-internal" title="Check to include items opened by members, owners and collaborators of the repository"><input type="checkbox" id="start-here-internal"${filters.startHereInternal ? ' checked' : ''} /> Include internal contributors</label>`;
-  $('#start-here').innerHTML = `<div class="since-head"><h2 class="since-title">Start here <span class="counter">${startHereVisible.length}</span></h2>${internalToggle}</div>
-    ${startHereVisible.length ? `<ul class="Box since-list">${startHereVisible.map(startHereRowHtml).join('')}</ul>` : `<p class="muted start-here-empty">${empty}</p>`}`;
+  if (!startHereVisible.length) {
+    $('#start-here').innerHTML = `<div class="since-head"><h2 class="since-title">Start here</h2>${internalToggle}</div>
+      <p class="muted start-here-empty">${empty}</p>`;
+    return;
+  }
+  const open = filters.startHereOpen;
+  $('#start-here').innerHTML = `<div class="since-head">
+      <h2 class="since-title">Start here <span class="muted">· ${esc(startHereSummary(startHereVisible))}</span></h2>
+      <button class="since-toggle" data-start-here-open="${open ? '0' : '1'}" aria-expanded="${open}">${open ? 'Hide' : 'Show'}</button>
+      ${open ? internalToggle : ''}
+    </div>
+    ${open ? `<ul class="Box since-list">${startHereVisible.map(startHereRowHtml).join('')}</ul>` : ''}`;
 }
 
 function startHereRowHtml(row) {
@@ -1519,6 +1530,12 @@ function startHereRowHtml(row) {
 }
 
 function startHereClick(e) {
+  const toggle = e.target.closest('[data-start-here-open]');
+  if (toggle) {
+    filters = { ...filters, startHereOpen: toggle.dataset.startHereOpen === '1' };
+    writeHash();
+    return renderStartHere();
+  }
   const button = e.target.closest('[data-start-here-action]');
   const row = button && startHereVisible.find((r) => r.key === button.closest('[data-start-here]').dataset.startHere);
   if (!row) return;

@@ -221,7 +221,9 @@ dependencies, no build step.
   Activity never comes from `updatedAt`.
   Shared by browser and Node; tested by `since.test.mjs`.
 - `public/start-here.js` — pure helpers for the Inbox "Start here" section
-  (`startHereRows`, `withDone`, `pruneDone`, `parseDone`). A row is an open
+  (`startHereRows`, `startHereSummary`, `withDone`, `pruneDone`,
+  `parseDone`). `startHereSummary` counts the rows per status, such as
+  "2 replied, 4 waiting". A row is an open
   item the viewer wrote on or owns, with one status: `replied` when someone
   else commented, reviewed (bots too; a bot comment counts at its
   `editedAt` when that is newer, because expo-bot answers by editing) or
@@ -249,9 +251,10 @@ dependencies, no build step.
   and PRs without filters. The trend tiles sit at the top. Workflow state
   chips, one per state in `STATES`, in an Issues group and a PRs group, and
   Cleanup chips sit beside the trend tiles; no chip lists closed or merged
-  items. The always-open "Start here" section sits below the tiles, and the
-  "Since last time" section below it. A collapsible "Filters (n)" panel sits
-  between the state chips and the list; it filters the rows and the chip
+  items. The "Start here" section sits below the tiles, and the
+  "Since last time" section below it. Each heading shows a summary and a
+  Show/Hide button; the lists are hidden by default. A collapsible
+  "Filters (n)" panel sits between the state chips and the list; it filters the rows and the chip
   counts, not the Start here or Since sections or the tiles. Closed, it
   shows only the active-filter chips and "Clear filters", which keeps the
   state and cleanup chips. Assignee and
@@ -286,7 +289,8 @@ dependencies, no build step.
   `hideUnsupportedSdks=0` and the "Since last time" tab
   (`sinceTab=<issues|prs>`, default `issues`) and list visibility
   (`sinceOpen=1`, default hidden) and internal contributors
-  (`sinceInternal=1`, default off), Start here's internal contributors
+  (`sinceInternal=1`, default off), Start here's list visibility
+  (`startHereOpen=1`, default hidden) and internal contributors
   (`startHereInternal=1`, default off), the filter panel's open state
   (`filtersOpen=1`, default closed) and its user filter (`user=<login>`,
   `userRole=<author|assignee>`, default either), lives in the URL hash.

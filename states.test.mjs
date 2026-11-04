@@ -103,6 +103,25 @@ test('stateLabel: P8 says ready to merge only when nothing blocks the merge', ()
   assert.equal(stateLabel(approved({ mergeable: 'CONFLICTING', checks: 'FAILURE' }), 'P8'), 'Approved · merge conflict');
 });
 
+test('stateLabel: CI waiting for approval blocks the merge after a conflict and failing checks, before blocked and behind', () => {
+  const approved = (fields) => pr({ reviewDecision: 'APPROVED', ciApprovalRunIds: [101], ...fields });
+  assert.equal(stateLabel(approved(), 'P8'), 'Approved · CI awaits approval');
+  assert.equal(stateLabel(approved({ mergeable: 'CONFLICTING' }), 'P8'), 'Approved · merge conflict');
+  assert.equal(stateLabel(approved({ checks: 'FAILURE' }), 'P8'), 'Approved · checks failing');
+  assert.equal(stateLabel(approved({ mergeStateStatus: 'BLOCKED' }), 'P8'), 'Approved · CI awaits approval');
+  assert.equal(stateLabel(approved({ mergeStateStatus: 'BEHIND' }), 'P8'), 'Approved · CI awaits approval');
+  assert.equal(stateLabel(approved({ ciApprovalRunIds: [] }), 'P8'), 'Ready to merge');
+  assert.equal(stateTone(approved(), 'P8'), 'attention');
+});
+
+test('stateLabel: P5 names what blocks the merge', () => {
+  assert.equal(stateLabel(pr(), 'P5'), 'Author answered');
+  assert.equal(stateLabel(pr({ mergeable: 'CONFLICTING' }), 'P5'), 'Author answered · merge conflict');
+  assert.equal(stateLabel(pr({ checks: 'FAILURE' }), 'P5'), 'Author answered · checks failing');
+  assert.equal(stateLabel(pr({ ciApprovalRunIds: [101] }), 'P5'), 'Author answered · CI awaits approval');
+  assert.equal(stateTone(pr({ checks: 'FAILURE' }), 'P5'), 'attention');
+});
+
 test('stateTone: P8 turns from success to attention when a blocker exists', () => {
   assert.equal(stateTone(pr({ reviewDecision: 'APPROVED' }), 'P8'), 'success');
   assert.equal(stateTone(pr({ reviewDecision: 'APPROVED', mergeStateStatus: 'BEHIND' }), 'P8'), 'attention');
@@ -721,6 +740,11 @@ test('C9: not when approved and clean', () => {
   assert.ok(!filters(pr({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' })).includes('C9'));
 });
 
+test('C9: approved and CI waiting for approval', () => {
+  assert.ok(filters(pr({ reviewDecision: 'APPROVED', ciApprovalRunIds: [101] })).includes('C9'));
+  assert.ok(!filters(pr({ reviewDecision: 'APPROVED', ciApprovalRunIds: [] })).includes('C9'));
+});
+
 test('C9: not when conflicting but not approved', () => {
   assert.ok(!filters(pr({ mergeable: 'CONFLICTING', checks: 'FAILURE', mergeStateStatus: 'BLOCKED' })).includes('C9'));
 });
@@ -1069,7 +1093,7 @@ test('CLEANUP_FILTERS skips C6', () => {
   ]);
 });
 
-const action = (item, stateId) => stateAction(item, stateId, { now: NOW });
+const action = (item, stateId, me = null) => stateAction(item, stateId, { now: NOW, me });
 
 test('stateAction: I1, I3 and P2 post a bot command', () => {
   assert.deepEqual([action(issue(), 'I1'), action(issue(), 'I3'), action(pr(), 'P2')].map(({ kind, body }) => [kind, body]), [
@@ -1185,6 +1209,65 @@ test('cleanupAction: C11 asks the author to link an issue', () => {
 
 test('stateAction: P11 approves the waiting runs', () => {
   assert.deepEqual(action(awaitingCi(), 'P11'), { kind: 'approve-ci', label: 'Approve and run', runIds: [101, 102] });
+});
+
+const approveCi = { kind: 'approve-ci', label: 'Approve and run', runIds: [101, 102] };
+
+test('stateAction: my assigned PR approves the waiting runs before the bot review, instead of asking the bot', () => {
+  const item = awaitingCi({ ...noBotReview, assignees: onlyMe });
+  assert.equal(state(item), 'P2');
+  assert.deepEqual(action(item, 'P2', 'me'), approveCi);
+});
+
+test('stateAction: a PR that awaits my review approves the waiting runs', () => {
+  const item = awaitingCi({ ...noBotReview, reviewRequests: onlyMe });
+  assert.equal(state(item), 'P7');
+  assert.deepEqual(action(item, 'P7', 'me'), approveCi);
+});
+
+test('stateAction: my comment alone does not make the PR mine', () => {
+  const item = awaitingCi({ ...noBotReview, comments: [{ login: 'me', at: daysAgo(1) }] });
+  assert.equal(action(item, 'P2', 'me').kind, 'command');
+});
+
+test('stateAction: a PR I do not own approves runs only in P11', () => {
+  assert.equal(action(awaitingCi(noBotReview), 'P2', 'me').kind, 'command');
+  assert.equal(action(awaitingCi({ ...noBotReview, assignees: assigned }), 'P2', 'me').kind, 'command');
+  assert.equal(action(awaitingCi({ ...noBotReview, assignees: onlyMe }), 'P2').kind, 'command', 'no known viewer');
+  assert.deepEqual(action(awaitingCi(), 'P11', 'me'), approveCi);
+});
+
+test('stateAction: never approves runs on my github-actions PR, nor on my ended PR', () => {
+  assert.equal(action(awaitingCi({ ...noBotReview, assignees: onlyMe, author: { login: 'github-actions' } }), 'P2', 'me').kind, 'command');
+  assert.equal(action(awaitingCi({ assignees: onlyMe, state: 'MERGED' }), 'P9', 'me'), null);
+});
+
+test('stateAction: my bot command alone does not make the PR mine', () => {
+  const item = awaitingCi({ ...botAsked('verify', daysAgo(1)), comments: [{ login: 'me', at: daysAgo(1), body: '@expo-bot verify' }] });
+  assert.equal(state(item), 'P2');
+  assert.equal(action(item, 'P2', 'me').kind, 'command');
+});
+
+test('stateAction: never approves runs on my closed, unmerged PR', () => {
+  const item = awaitingCi({ assignees: onlyMe, state: 'CLOSED' });
+  assert.equal(state(item), 'P10');
+  assert.equal(action(item, 'P10', 'me'), null);
+});
+
+test('stateAction: my draft with waiting runs keeps the draft action', () => {
+  const item = awaitingCi({ isDraft: true, assignees: onlyMe });
+  assert.equal(state(item), 'P1');
+  assert.deepEqual(action(item, 'P1', 'me'), action(pr({ isDraft: true }), 'P1'));
+});
+
+test('stateAction: approving the runs on my PR beats nudging its author', () => {
+  const item = awaitingCi({ ...reproduced(daysAgo(8), daysAgo(9)), assignees: onlyMe });
+  assert.equal(state(item), 'P4');
+  assert.deepEqual(action(item, 'P4', 'me'), approveCi);
+});
+
+test('stateAction: my PR without waiting runs keeps its own action', () => {
+  assert.equal(action(awaitingCi({ ...noBotReview, assignees: onlyMe, ciApprovalRunIds: [] }), 'P2', 'me').kind, 'command');
 });
 
 const rowOpts = { now: NOW, me: 'me', unsupportedSdks: new Set(['sdk-50']) };

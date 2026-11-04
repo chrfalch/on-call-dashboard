@@ -86,11 +86,11 @@ export const STATE_TIPS = {
   P2: { meaning: 'Pull request that has not yet asked expo-bot for a review.', source: '@expo-bot review commands' },
   P3: { meaning: 'Pull request waiting for expo-bot to finish its review.', source: '@expo-bot review commands and replies' },
   P4: { meaning: 'Pull request waiting on its author: a reviewer requested changes, the team commented after the last commit, or expo-bot reproduced a problem after it.', source: 'GitHub review decision, last commit and comments, and expo-bot verify replies' },
-  P5: { meaning: 'Pull request whose author acted after changes were requested.', source: 'GitHub reviews, commits, requested reviewers and comments' },
-  P11: { meaning: 'Pull request with GitHub Actions runs that wait for a maintainer to approve them, after the expo-bot review. Never for pull requests by github-actions.', source: 'GitHub Actions check suites on the last commit and expo-bot replies' },
+  P5: { meaning: 'Pull request whose author acted after changes were requested. The badge names a blocker if one exists: a merge conflict, failing checks, CI that awaits approval, or a blocked or behind branch.', source: 'GitHub reviews, commits, requested reviewers, comments, mergeability, checks and merge state' },
+  P11: { meaning: 'Pull request with GitHub Actions runs that wait for a maintainer to approve them, after the expo-bot review; never for pull requests by github-actions. A non-draft pull request assigned to you or that requests your review offers Approve and run without the expo-bot review.', source: 'GitHub Actions check suites on the last commit and expo-bot replies' },
   P6: { meaning: 'Pull request ready for a human reviewer.', source: 'GitHub pull request reviews and expo-bot replies' },
   P7: { meaning: 'Pull request with human review activity, a requested reviewer or the "ready for human" label.', source: 'GitHub reviews, requested reviewers and labels' },
-  P8: { meaning: 'Approved pull request. It is ready to merge unless the badge names a blocker: a merge conflict, failing checks, or a blocked or behind branch.', source: 'GitHub pull request review decision, mergeability, checks and merge state' },
+  P8: { meaning: 'Approved pull request. It is ready to merge unless the badge names a blocker: a merge conflict, failing checks, CI that awaits approval, or a blocked or behind branch.', source: 'GitHub pull request review decision, mergeability, checks, GitHub Actions runs that wait for approval and merge state' },
   P9: { meaning: 'Merged pull request.', source: 'GitHub pull request state' },
   P10: { meaning: 'Pull request closed without merging.', source: 'GitHub pull request state' },
 };
@@ -103,7 +103,7 @@ export const CLEANUP_TIPS = {
   C5: { meaning: 'Unlabeled and unowned issue that fell through normal triage.', source: 'GitHub labels and assignees' },
   C7: { meaning: 'Pull request left waiting on its author for at least 21 days after changes were requested, the team commented or expo-bot reproduced a problem.', source: 'GitHub reviews, comments and expo-bot verify replies' },
   C8: { meaning: 'Issue waiting for a PR, with no open fix PR and no owner activity for seven days. Also a PR in human review, at least seven days old, whose assignees or requested reviewers have not commented or reviewed in seven days.', source: 'GitHub assignees, review requests, comments, reviews and linked pull requests' },
-  C9: { meaning: 'Approved pull request blocked by conflicts, checks or its merge state.', source: 'GitHub review decision, checks and merge state' },
+  C9: { meaning: 'Approved pull request blocked by conflicts, checks, CI that awaits approval or its merge state.', source: 'GitHub review decision, checks, GitHub Actions runs that wait for approval and merge state' },
   C10: { meaning: 'Item waiting at least one day for expo-bot to answer a command or review request.', source: '@expo-bot commands and replies' },
   C11: { meaning: 'Open, non-draft pull request from an outside human contributor with no linked or fixed issues. Its title must contain the word fix, fixes, fixed or bug, or a label must contain bug (case-insensitive).', source: 'GitHub closing references, the Development sidebar, and the pull request title, labels and author' },
 };

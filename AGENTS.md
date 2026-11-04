@@ -130,7 +130,11 @@ dependencies, no build step.
   such as "Fix in progress · changes requested". For P8 it says "Ready to
   merge" only when no C9 blocker exists; else it names the first blocker,
   such as "Approved · merge conflict", and `stateTone` turns the badge from
-  success to attention. `inboxRows` and
+  success to attention. P5 names the blocker the same way, such as "Author
+  answered · checks failing". The blockers, first match wins: merge
+  conflict, checks failing, CI awaits approval (`ciApprovalRunIds`),
+  blocked, behind. It also holds the ownership helpers `isMine` and
+  `ownedBy` that `since.js` imports. `inboxRows` and
   `inboxCounts` give the rows and chip counts for a tab.
   On-call mode keeps assigned items that are closed; open assigned items,
   cleanup chips included, show only with "Include already-assigned items",
@@ -166,7 +170,10 @@ dependencies, no build step.
   expo-bot review is done, never for a `github-actions` author; its button
   approves each run in the browser after a confirm. P11 wins over approved,
   changes requested and "Author answered"; only a draft and a problem that
-  expo-bot reproduced after the last commit come first.
+  expo-bot reproduced after the last commit come first. On an open PR the
+  viewer owns (`ownedBy`), the same button shows in any state but a draft
+  when runs wait, before the expo-bot review too, and wins over P2's review
+  command and P4's nudge; never for a `github-actions` author.
   P4 "Changes requested" also covers a PR where expo-bot reproduced a
   problem after the last commit, and a PR where the team commented after
   the last commit and the PR author has not commented since (a team
@@ -194,8 +201,9 @@ dependencies, no build step.
   (`sinceStart`, `sinceGroups`, `sinceButtons`, `skipKey`, `withSkip`,
   `parseSkipped`), and the viewer's involvement that Start here shares:
   `myWrites` (the viewer's comments and reviews; those on an issue's fix
-  PRs count as the viewer's on the issue), `ownedBy` (assigned, or a PR that
-  requests the viewer's review) and `involves` (either). The window starts
+  PRs count as the viewer's on the issue), `ownedBy` (from `states.js`:
+  assigned, or a PR that requests the viewer's review) and `involves`
+  (either). The window starts
   at local midnight yesterday, or on Friday on a Monday. "New issues" and
   "New PRs" are open items created in the window with no comment or review
   from a team member (the author too) that do not involve the viewer, so

@@ -85,6 +85,13 @@ const teamAskedAt = (item) => {
 };
 const requestedAt = (item) => reproducedAt(item) ?? teamAskedAt(item) ?? item.changesRequestedAt ?? null;
 
+export const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
+const awaitsMyReview = (item, me) => !!me && (item.reviewRequests ?? []).some((person) => person.login === me);
+export const ownedBy = (item, me) => isMine(item, me) || awaitsMyReview(item, me);
+
+const awaitsCi = (item) => (item.ciApprovalRunIds ?? []).length > 0;
+const approvableCi = (item) => awaitsCi(item) && item.author?.login !== 'github-actions';
+
 // A red build is a cleanup signal (C9), not a workflow step. CI runs waiting for approval are a
 // workflow step (P11), reached only after the bot review, so a person reads that review before approving.
 function prState(item) {
@@ -94,7 +101,7 @@ function prState(item) {
   if (reproducedAt(item)) return 'P4';
   const { lastReview, botRepliedAfterReview } = item.bot ?? {};
   const reviewDone = botReviewDone(item);
-  if (reviewDone && (item.ciApprovalRunIds ?? []).length && item.author?.login !== 'github-actions') return 'P11';
+  if (reviewDone && approvableCi(item)) return 'P11';
   if (item.reviewDecision === 'APPROVED') return 'P8';
   if (teamAskedAt(item)) return 'P4';
   if (reReviewReasons(item).length) return 'P5';
@@ -114,6 +121,7 @@ const toneOf = (stateId) => STATES.find((state) => state.id === stateId).tone;
 function mergeBlocker(item) {
   if (item.mergeable === 'CONFLICTING') return 'merge conflict';
   if (item.checks === 'FAILURE') return 'checks failing';
+  if (awaitsCi(item)) return 'CI awaits approval';
   if (item.mergeStateStatus === 'BLOCKED') return 'blocked';
   if (item.mergeStateStatus === 'BEHIND') return 'behind';
   return null;
@@ -125,8 +133,9 @@ export function stateTone(item, stateId) {
 
 // `prs` maps a PR number to its cached item, so a fix in progress can show where its PR stands.
 export function stateLabel(item, stateId, prs) {
-  const blocker = stateId === 'P8' && mergeBlocker(item);
-  if (blocker) return `Approved · ${blocker}`;
+  const blockedLabel = { P5: labelOf('P5'), P8: 'Approved' }[stateId];
+  const blocker = blockedLabel && mergeBlocker(item);
+  if (blocker) return `${blockedLabel} · ${blocker}`;
   const pr = stateId === 'I8' && prs?.get(openFixPr(item)?.number);
   return pr ? `${labelOf(stateId)} · ${stateLabel(pr, stateOf(pr)).toLowerCase()}` : labelOf(stateId);
 }
@@ -135,6 +144,10 @@ const openAction = { kind: 'open', label: 'Open' };
 
 export function stateAction(item, stateId, { now = Date.now(), me = null } = {}) {
   if (ENDED.includes(stateId)) return null;
+  // A PR I own does not wait for the bot review that P11 waits for; a draft is not ready to run.
+  if (stateId === 'P11' || (stateId !== 'P1' && approvableCi(item) && ownedBy(item, me))) {
+    return { kind: 'approve-ci', label: 'Approve and run', runIds: item.ciApprovalRunIds };
+  }
   if (stateId === 'I1') return { kind: 'command', label: 'Ask bot to triage', body: '@expo-bot triage' };
   if (stateId === 'I3') return { kind: 'command', label: 'Ask bot to verify', body: '@expo-bot verify' };
   if (stateId === 'I5' || stateId === 'I9') {
@@ -150,7 +163,6 @@ export function stateAction(item, stateId, { now = Date.now(), me = null } = {})
     return pr ? { kind: 'open', label: 'Open fix PR', url } : openAction;
   }
   if (stateId === 'P2') return { kind: 'command', label: 'Ask bot to review', body: '@expo-bot review' };
-  if (stateId === 'P11') return { kind: 'approve-ci', label: 'Approve and run', runIds: item.ciApprovalRunIds };
   if (stateId === 'P4' && atLeast(requestedAt(item), 7, now)) {
     return { kind: 'nudge', label: 'Nudge author' };
   }

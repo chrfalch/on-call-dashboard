@@ -6,7 +6,7 @@ import { weekTrend } from './trends.js';
 import { dayKey, parseLog, addDone, doneCounts, weekDone } from './done-log.js';
 import { isUnsupportedSdk, parseUnsupportedSdks, sdkLabels } from './sdk.js';
 import { findItem, parseItemNumber } from './quick-open.js';
-import { isOpen, STATES, STATE_CHIPS, CLEANUP_FILTERS, stateAction, stateLabel, stateTone, cleanupAction, inboxRows, inboxCounts } from './states.js';
+import { isOpen, STATES, CLEANUP_FILTERS, stateAction, stateLabel, stateTone, cleanupAction, inboxRows, inboxCounts } from './states.js';
 import { applyPlan, hasPending, ITEM_CHANGED, recDisagrees, recFor, recLabel, recRequest } from './recs.js';
 import { parseCommand } from './bot-command.js';
 import { parseSkipped, sinceGroups, sinceStart, withSkip } from './since.js';
@@ -88,7 +88,7 @@ function readHash() {
   // The Issues and PRs list pages are gone; old links with tab=issue|pr open the Inbox.
   f.tab = 'inbox';
   if (!activeView(f)) f.view = '';
-  if (f.state && !STATE_CHIPS.some((state) => state.id === f.state)) f.state = '';
+  if (f.state && !STATES.some((state) => state.id === f.state)) f.state = '';
   if (!['issues', 'prs'].includes(f.sinceTab)) f.sinceTab = DEFAULT_FILTERS.sinceTab;
   return normalizeFilters(f);
 }
@@ -1049,8 +1049,8 @@ function renderInbox() {
     return `<button class="kind-chip${def.tone ? ` tone-${esc(def.tone)}` : ''}${count ? '' : ' is-empty'}${filters[key] === def.id ? ' selected' : ''}" data-inbox-${key}="${def.id}" ${tipAttr(tips[def.id])}>${def.icon ? icons[def.icon] : ''}${key === 'state' ? '' : `${esc(def.id)} `}${esc(def.label)} <span class="counter">${count}</span></button>`;
   }).join(separator);
   const flowArrow = '<span class="flow-arrow" aria-hidden="true">→</span>';
-  $('#inbox-issue-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'issue'), 'state', STATE_TIPS, flowArrow);
-  $('#inbox-pr-states').innerHTML = chips(STATE_CHIPS.filter((state) => state.track === 'pr'), 'state', STATE_TIPS, flowArrow);
+  $('#inbox-issue-states').innerHTML = chips(STATES.filter((state) => state.track === 'issue'), 'state', STATE_TIPS, flowArrow);
+  $('#inbox-pr-states').innerHTML = chips(STATES.filter((state) => state.track === 'pr'), 'state', STATE_TIPS, flowArrow);
   $('#inbox-cleanup').innerHTML = `<h3 class="trend-title">Cleanup</h3><div class="inbox-kinds">${chips(CLEANUP_FILTERS, 'cleanup', CLEANUP_TIPS)}</div>`;
   $('#inbox-others').checked = filters.inboxOthers;
   $('#inbox-hidden').checked = filters.inboxHidden;

@@ -814,7 +814,7 @@ test('pruneRecs drops a rec whose item is closed', () => {
 for (const state of ['CLOSED', 'MERGED']) {
   test(`validateTasks reports ITEM_CHANGED for a ${state} PR`, () => {
     const pr = { ...items.get(7), state, closedAt: '2026-02-02T00:00:00Z', mergedAt: state === 'MERGED' ? '2026-02-02T00:00:00Z' : null };
-    const task = { key: '7:P9', state: 'P9', filters: [] };
+    const task = { key: '7:P2', state: 'P2', filters: [] };
     assert.deepEqual(validateTasks({ tasks: [task] }, new Map([[7, pr]])), [changed(task.key)]);
   });
 

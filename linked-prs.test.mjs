@@ -57,6 +57,12 @@ test('linkedPrs marks a PR that closes the issue when merged as a fix', () => {
   assert.deepEqual(linkedPrs(timeline({ willCloseTarget: true, source: prNode(1) }), REPO), [entry(1, { fix: true })]);
 });
 
+test('linkedPrs marks a PR by expo-bot as a fix when it closes the issue', () => {
+  const botPr = prNode(1, { author: { login: 'expo-bot' } });
+  assert.deepEqual(linkedPrs(timeline({ subject: botPr }), REPO), [entry(1, { fix: true })]);
+  assert.deepEqual(linkedPrs(timeline({ willCloseTarget: true, source: botPr }), REPO), [entry(1, { fix: true })]);
+});
+
 test('linkedPrs does not mark a PR that only mentions the issue as a fix, as #48787 on #45511', () => {
   assert.deepEqual(linkedPrs(timeline({ willCloseTarget: false, source: prNode(48787) }, { source: prNode(2) }), REPO), [entry(48787), entry(2)]);
 });

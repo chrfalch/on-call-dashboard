@@ -81,7 +81,6 @@ export const STATE_TIPS = {
   I7: { meaning: 'Accepted, reproduced or assigned issue waiting for a fix pull request.', source: 'GitHub labels, assignees and linked pull requests' },
   I8: { meaning: 'Issue with an open linked fix pull request.', source: 'GitHub linked pull requests' },
   I9: { meaning: 'Issue whose linked fix pull request has merged.', source: 'GitHub linked pull requests' },
-  I10: { meaning: 'Closed issue.', source: 'GitHub issue state' },
   P1: { meaning: 'Draft pull request that is not ready for review.', source: 'GitHub pull request draft flag' },
   P2: { meaning: 'Pull request that has not yet asked expo-bot for a review.', source: '@expo-bot review commands' },
   P3: { meaning: 'Pull request waiting for expo-bot to finish its review.', source: '@expo-bot review commands and replies' },
@@ -91,8 +90,6 @@ export const STATE_TIPS = {
   P6: { meaning: 'Pull request ready for a human reviewer.', source: 'GitHub pull request reviews and expo-bot replies' },
   P7: { meaning: 'Pull request with human review activity, a requested reviewer or the "ready for human" label.', source: 'GitHub reviews, requested reviewers and labels' },
   P8: { meaning: 'Approved pull request. It is ready to merge unless the badge names a blocker: a merge conflict, failing checks, CI that awaits approval, or a blocked or behind branch.', source: 'GitHub pull request review decision, mergeability, checks, GitHub Actions runs that wait for approval and merge state' },
-  P9: { meaning: 'Merged pull request.', source: 'GitHub pull request state' },
-  P10: { meaning: 'Pull request closed without merging.', source: 'GitHub pull request state' },
 };
 
 export const CLEANUP_TIPS = {

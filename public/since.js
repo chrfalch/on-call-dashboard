@@ -1,7 +1,7 @@
 // "Since last time": what changed on open issues and PRs since the on-call person last looked.
 // Pure functions only (no DOM). Activity never comes from the item's update time: one bulk edit moves it on many items.
 import { isBot, isTeam } from './people.js';
-import { isOpen, rowKey, stateAction, stateOf } from './states.js';
+import { isMine, isOpen, ownedBy, rowKey, stateAction, stateOf } from './states.js';
 
 const SKIP_DAYS = 30;
 const time = (iso) => new Date(iso).getTime();
@@ -14,10 +14,6 @@ export function sinceStart(now) {
   start.setDate(start.getDate() - (start.getDay() === 1 ? 3 : 1));
   return start;
 }
-
-const isMine = (item, me) => !!me && item.assignees.some((person) => person.login === me);
-const awaitsMyReview = (item, me) => !!me && (item.reviewRequests ?? []).some((person) => person.login === me);
-export const ownedBy = (item, me) => isMine(item, me) || awaitsMyReview(item, me);
 
 // My comments and reviews; those on an issue's fix PRs count as mine on the issue. `prs` maps a PR number to the PR.
 export function myWrites(item, me, prs) {
